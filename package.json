@@ -1,0 +1,22 @@
+{
+  "name": "opencode-sessions-transfer",
+  "version": "0.1.0",
+  "description": "Session directory transfer and relocation plugin for opencode (hexagonal architecture)",
+  "type": "module",
+  "main": "./dist/sessions-transfer.js",
+  "scripts": {
+    "build": "bun build src/main/tui-entry.ts --outdir dist --entry-naming \"[dir]/sessions-transfer.tui.[ext]\" --target bun && bun build src/main/plugin-entry.ts --outdir dist --entry-naming \"[dir]/sessions-transfer.[ext]\" --target bun",
+    "test": "bun test test/unit test/component test/e2e test/arch",
+    "test:live": "cross-env OPENCODE_SESSIONS_TRANSFER_LIVE=1 bun test test/live",
+    "coverage": "bun test --coverage test/unit test/component test/e2e test/arch",
+    "typecheck": "tsc --noEmit",
+    "install:plugin": "bun -e \"const{mkdirSync,copyFileSync}=require('node:fs');const{join}=require('node:path');const d=join(process.env.USERPROFILE??process.env.HOME,'.config','opencode','plugins');mkdirSync(d,{recursive:true});copyFileSync('dist/sessions-transfer.tui.js',join(d,'sessions-transfer.tui.js'));copyFileSync('dist/sessions-transfer.js',join(d,'sessions-transfer.js'));console.log('installed to',d)\""
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.18.23",
+    "@types/bun": "^1.2.0",
+    "bun-types": "^1.2.0",
+    "cross-env": "^7.0.3",
+    "typescript": "^5.9.0"
+  }
+}
