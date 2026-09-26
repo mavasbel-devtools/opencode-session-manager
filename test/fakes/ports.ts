@@ -1,6 +1,6 @@
 import type { SessionSummary } from "@transfer/domain/entities"
 import { expandHome } from "@transfer/domain/paths"
-import type { SessionDbPort, ProjectResolverPort, FileSystemPort } from "@transfer/domain/ports"
+import type { SessionDbPort, ProjectResolverPort, FileSystemPort, SessionHostPort } from "@transfer/domain/ports"
 
 export class FakeSessionDbAdapter implements SessionDbPort {
   public sessions: Map<string, SessionSummary> = new Map()
@@ -73,5 +73,25 @@ export class FakeFileSystemAdapter implements FileSystemPort {
 
   autocomplete(_input: string, _home: string, _limit?: number): string[] {
     return this.autocompleteResult
+  }
+}
+
+export class FakeSessionHostAdapter implements SessionHostPort {
+  public sessions: SessionSummary[] = []
+  public directories: string[] = []
+  public moves: Array<{ sessionId: string; directory: string }> = []
+  public moveError: Error | undefined
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return this.sessions
+  }
+
+  async listRecentDirectories(): Promise<string[]> {
+    return this.directories
+  }
+
+  async moveSession(sessionId: string, directory: string): Promise<void> {
+    if (this.moveError) throw this.moveError
+    this.moves.push({ sessionId, directory })
   }
 }

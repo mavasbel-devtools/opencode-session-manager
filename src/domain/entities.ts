@@ -20,6 +20,11 @@ export interface TransferResult {
   readonly newRelativePath: string
 }
 
+export interface MoveResult {
+  readonly sessionId: string
+  readonly newDirectory: string
+}
+
 export interface DirectoryOption {
   readonly title: string
   readonly directory: string

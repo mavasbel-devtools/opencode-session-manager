@@ -21,6 +21,8 @@ test/
 bunfig.toml                     coverage = true, per-file threshold = 1.0
 dist/sessions-transfer.tui.js  TUI bundle (/transfer-session command)
 dist/sessions-transfer.js      Server/core bundle
+dist/v2/server.js             OpenCode 2 server entry (no-op { id, setup })
+dist/v2/tui.js                OpenCode 2 TUI entry ({ id, setup }, host session.move API)
 ```
 
 ## Commands
@@ -31,8 +33,23 @@ dist/sessions-transfer.js      Server/core bundle
 | `bun run test` | unit + component + e2e + arch (hermetic, coverage-gated) |
 | `bun run test:live` | opt-in live tier; drives the built bundle on temp resources |
 | `bun run coverage` | explicit coverage run; per-file threshold 1.0 |
-| `bun run build` | bundles → `dist/sessions-transfer.tui.js` |
-| `bun run install:plugin` | copies bundle to `~/.config/opencode/plugins/` |
+| `bun run build` | bundles → `dist/sessions-transfer{,.tui}.js` (v1) + `dist/v2/{server,tui}.js` (v2) |
+| `bun run install:plugin:v1` | builds and stages v1 bundles in the selected legacy plugin directory |
+| `bun run install:plugin:v2` | builds and stages a content-addressed immutable v2 release; never edits config |
+| `bun run validate:installed:v1` / `validate:installed:v2` | re-hashes a selected staged release and checks module shape |
+
+## Runtime compatibility law
+
+- v1 is tested against `opencode-ai@1.18.32` and
+  `@opencode-ai/plugin@1.18.32`.
+- v2 is tested against `@opencode/cli@2.0.14` and
+  `@opencode/plugin@2.0.14`.
+- The v1 and v2 entrypoints are intentionally separate. Do not merge their
+  default-export shapes or make a v1 host load `{ id, setup }`.
+- `install:plugin:v1` stages v1 bundles; `install:plugin:v2` copies `dist/v2` into a
+  content-addressed immutable release. A v2 profile loads that release directory
+  through `{ "plugins": [{ "package": "<absolute-path>" }] }`; installers never
+  change `opencode.jsonc`.
 
 ## Definition of done (checklist)
 
@@ -42,8 +59,9 @@ A change is not done until EVERY step passes:
 2. `bun run test` — 0 failures.
 3. `bun run coverage` — every `src/**` file at `100.00 / 100.00` (per-file gate; a
    subset run such as `bun test --coverage test/unit` MUST exit non-zero).
-4. `bun run build` + `bun run install:plugin`; the installed bundle must be
-   byte-identical to `dist/`.
+4. `bun run install:plugin:v1`; the installed v1 bundle must be
+   byte-identical to `dist/`. When installer code changes, also run
+   `install:plugin:v2` in a disposable profile and validate both staged host lanes.
 5. If the bundle or entrypoints changed: `bun run test:live`.
 6. Verify live in OpenCode TUI.
 
@@ -63,7 +81,8 @@ A change is not done until EVERY step passes:
 
 - Strict hexagonal: `src/domain` must stay I/O-free; dependencies point
   **inward only**. Enforced by `test/arch/imports.test.ts`.
-- Only `src/main/container.ts` wires concrete adapters (composition root).
+- Only `src/main/container.ts` wires concrete adapters (composition root):
+  `createContainer` (v1, SQLite) and `createV2Container` (v2, host API only).
 - Imports use the `@transfer/*` (src) and `@test/*` (test) aliases — never
   relative paths (enforced by the arch tests).
 - Every class gets an **explicit** `constructor() {}` — even empty ones.

@@ -1,9 +1,13 @@
-import type { DirectoryOption, SessionSummary, TransferResult } from "@transfer/domain/entities"
+import type { DirectoryOption, MoveResult, SessionSummary, TransferResult } from "@transfer/domain/entities"
 
-export interface SessionDbPort {
+/** Source of the directories offered by the transfer picker. */
+export interface KnownDirectoriesPort {
+  listRecentDirectories(): Promise<string[]>
+}
+
+export interface SessionDbPort extends KnownDirectoriesPort {
   getSession(sessionId: string): Promise<SessionSummary | null>
   listSessions(): Promise<SessionSummary[]>
-  listRecentDirectories(): Promise<string[]>
   updateSessionLocation(
     sessionId: string,
     newDirectory: string,
@@ -40,4 +44,18 @@ export interface ListRecentDirectoriesPort {
 
 export interface BuildDirectoryOptionsPort {
   execute(home: string): Promise<DirectoryOption[]>
+}
+
+/**
+ * OpenCode 2 host API. The v2 server owns the session row and project
+ * resolution (event-sourced), so a move is an API request, never a direct
+ * database write.
+ */
+export interface SessionHostPort extends KnownDirectoriesPort {
+  listSessions(): Promise<SessionSummary[]>
+  moveSession(sessionId: string, directory: string): Promise<void>
+}
+
+export interface MoveSessionPort {
+  execute(sessionId: string, targetDirectory: string): Promise<MoveResult>
 }

@@ -1,6 +1,6 @@
 import type { DirectoryOption } from "@transfer/domain/entities"
 import { abbreviateHome } from "@transfer/domain/paths"
-import type { BuildDirectoryOptionsPort, FileSystemPort, SessionDbPort } from "@transfer/domain/ports"
+import type { BuildDirectoryOptionsPort, FileSystemPort, KnownDirectoriesPort } from "@transfer/domain/ports"
 
 /**
  * Builds the flat option list shown by the transfer dialog.
@@ -14,7 +14,7 @@ import type { BuildDirectoryOptionsPort, FileSystemPort, SessionDbPort } from "@
  */
 export class BuildDirectoryOptionsUseCase implements BuildDirectoryOptionsPort {
   constructor(
-    private readonly db: SessionDbPort,
+    private readonly db: KnownDirectoriesPort,
     private readonly fs: FileSystemPort,
   ) {}
 
