@@ -1,26 +1,58 @@
 # opencode-session-id
 
-OpenCode 2.0.14 plugin that:
+An OpenCode 2.0.14 plugin that:
 
 1. shows the active session ID in the session sidebar, as the first row under
-   the session title (muted colour);
-2. provides the `session-id` tool, identical to the hand-written
-   `v2-plugins/session-id/index.js` it replaces.
+   the session title (in the theme's muted colour);
+2. provides the `session-id` tool, behaving identically to the hand-written
+   `session-id/index.js` it replaces.
 
 ```
 ┌ sidebar ─────────────────────────────┐
 │ <session title>                      │
 │                                      │
-│ ses_f21822cb5ffeVVFa0ptiLeWfax       │  ← this plugin (prepend on sidebar.content)
+│ ses_0123456789abCDEFGHIJKLMNOP       │  ← this plugin (prepend on sidebar.content)
 │ Context …                            │
 ```
 
 ## What it can and cannot do
 
-- The title box has no plugin slot. The ID is the first row of the sidebar's
-  scroll area, so it scrolls with the sidebar content.
+- The title box has no plugin slot, so the ID is the first row of the sidebar's
+  scroll area and scrolls with the sidebar content.
 - The sidebar only appears when the terminal is wide enough (`session.sidebar: "auto"`).
-- OpenCode 1.x is not supported.
+- OpenCode 1.x is not supported: the plugin targets the 2.0.14 contract only.
+
+## Architecture
+
+Strict hexagonal, dependencies point inward only; the full contract is in
+`AGENTS.md`. There is one composition root per host runtime, because the server
+and TUI entrypoints load into different processes — a shared root would pull the
+OpenTUI view (and its native packages) into the server bundle.
+
+```mermaid
+flowchart LR
+    SRV[OpenCode server] -->|tool.transform| TA[SessionIdToolV2Adapter]
+    TUI[OpenCode TUI] -->|ui.slot prepend sidebar.content| SB[SessionIdSidebarSlotV2Adapter]
+    TA --> RU[ResolveSessionIdToolUseCase]
+    SB --> RE[RenderSidebarEntryUseCase]
+    RU --> DEF[domain: SessionIdToolDefinition, MissingSessionIdError]
+    RE --> TP[ThemePalettePort -> HostThemePaletteV2Adapter]
+    RE --> SV[SidebarViewPort -> OpenTuiSidebarViewAdapter]
+    RE --> SE[domain: SessionId, SidebarEntry]
+```
+
+Key files:
+
+- `src/domain/tool/SessionIdToolDefinition.ts` — the tool's name, description, schema and error text
+- `src/domain/model/SessionId.ts`, `src/domain/model/SidebarEntry.ts`
+- `src/application/ResolveSessionIdToolUseCase.ts`, `src/application/RenderSidebarEntryUseCase.ts`
+- `src/infrastructure/adapters/inbound/server/SessionIdToolV2Adapter.ts`
+- `src/infrastructure/adapters/inbound/tui/SessionIdSidebarSlotV2Adapter.ts`
+- `src/infrastructure/adapters/outbound/tui/HostThemePaletteV2Adapter.ts`
+- `src/infrastructure/adapters/outbound/tui/OpenTuiSidebarViewAdapter.tsx`
+- `src/main/server-container.ts`, `src/main/tui-container.ts` — the two composition roots
+- `src/main/v2/server.ts`, `src/main/v2/tui.ts` — the deployed entrypoints
+- `scripts/build.mjs` — binds the TUI bundle to the host's shared Solid/OpenTUI runtime
 
 ## Build and test
 
@@ -29,31 +61,39 @@ bun install --frozen-lockfile
 bun run typecheck
 bun run test
 bun run coverage
-bun run test:live
 bun run lint:diagrams
 ```
 
-`bun run test` includes end-to-end tests against the real `opencode.exe` 2.0.14
-in fully isolated config/data folders with a local mock model provider. The
-model calls `session-id` and the test checks that the result equals the new
-session's ID. `bun run test:live` starts the real TUI in a Windows pseudo-terminal
-(200×50) and checks that the ID is rendered in the sidebar, directly under the
-title and one blank row.
+The four test tiers live under `tests/{unit,component,e2e,live}`:
+
+- **unit** — one class at a time, with stand-ins; includes the architecture and
+  SOLID gates.
+- **component** — the wired plugin painted by the real OpenTUI renderer.
+- **e2e** — this plugin's source driven end to end by the real OpenCode 2.0.14
+  host code *in-process* (its real plugin resolver, tool registry, sidebar slot
+  and renderer). This is the tier coverage can measure.
+- **live** — the real `opencode.exe`, the built bundles, the installer, and the
+  real TUI in a Windows pseudo-terminal (200×50). Real by construction, and by
+  construction invisible to any coverage tool.
+
+`bun run coverage` gates the **unit** and **e2e** tiers, each of which reaches
+100% lines and functions on every `src` file on its own
+(`bunfig.coverage.toml`).
 
 ## Install
 
-Installers never edit `opencode.jsonc`.
+Installers never edit `opencode.jsonc`; the plugin root always comes from the
+environment.
 
 ```
-set OPENCODE_V2_PLUGIN_ROOT=C:\Users\Marco\.config\opencode\v2-plugins
-bun run install:plugin:v2
-set OPENCODE_V2_RELEASE_DIRECTORY=<release path printed by the previous step>
-bun run validate:installed:v2
-bun run shims:installed:v2
+set OPENCODE_V2_PLUGIN_ROOT=%USERPROFILE%\.config\opencode\v2-plugins
+bun run deploy:v2
 ```
 
-`shims:installed:v2` copies any existing `session-id\index.js` / `tui.js` into
-`session-id\backup-<timestamp>\`, then writes two one-line files:
+`deploy:v2` builds, stages the bundles as an immutable content-addressed release
+under `session-id\releases\sha256-…\`, then writes the two shim files — backing
+up any existing `session-id\index.js` / `tui.js` into `session-id\backup-<timestamp>\`
+first:
 
 - `session-id\index.js` → `export { default } from "file:///…/releases/sha256-…/server.js"`
 - `session-id\tui.js` → `export { default } from "file:///…/releases/sha256-…/tui.js"`
@@ -61,31 +101,12 @@ bun run shims:installed:v2
 The `session-id` folder is already in the `plugins` list of the user's
 `opencode.jsonc`, so no configuration change is needed. Restart OpenCode to load it.
 
-**Rollback:** copy `backup-<timestamp>\index.js` back to `session-id\index.js`
+The staging and shim steps are also available separately as `bun run install:plugin:v2`,
+`bun run validate:installed:v2` and `bun run shims:installed:v2` (the last two
+read `OPENCODE_V2_RELEASE_DIRECTORY`).
+
+**Rollback:** copy `backup-<timestamp>\index.js` back over `session-id\index.js`
 and delete `session-id\tui.js`.
-
-## Architecture
-
-Hexagonal, inward-only dependencies; see `AGENTS.md` for the full contract.
-
-```mermaid
-flowchart LR
-    TUI[OpenCode TUI] -->|ui.slot prepend sidebar.content| SB[SessionIdSidebarV2Adapter]
-    SRV[OpenCode server] -->|tool.transform| TA[SessionIdToolV2Adapter]
-    SB --> R[RenderSessionIdUseCase]
-    SB --> V[SessionIdView.tsx]
-    TA --> Q[ResolveSessionIdToolUseCase]
-    R --> D[domain: sidebarText]
-    Q --> D2[domain: requireSessionId, MissingSessionIdError]
-```
-
-Key files:
-
-- `src/infrastructure/adapters/inbound/tui/SessionIdSidebarV2Adapter.ts`
-- `src/infrastructure/adapters/inbound/tui/SessionIdView.tsx`
-- `src/infrastructure/adapters/inbound/server/SessionIdToolV2Adapter.ts`
-- `src/main/container.ts`
-- `scripts/build.mjs` — binds the TUI bundle to the host's shared Solid/OpenTUI runtime
 
 ## License
 

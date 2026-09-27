@@ -1,4 +1,4 @@
-// LIVE tier: this plugin's own source, driven by the real OpenCode 2.0.14 host
+// E2E tier: this plugin's own source, driven by the real OpenCode 2.0.14 host
 // code, in this process, so coverage is measured.
 //
 // Real host pieces used here:
@@ -12,7 +12,7 @@
 // The one host step that cannot run in-process is the claim normalisation in
 // packages/tui/src/plugin/api.tsx (it pulls in 88 files of the TUI app: theme,
 // keymap, client, audio). Its rule is applied by `normalize` below, quoted from
-// the release, and the real thing is proven by the e2e tier against the real
+// the release, and the real thing is proven by the live tier against the real
 // opencode.exe.
 import { describe, expect, it } from "bun:test"
 import path from "node:path"

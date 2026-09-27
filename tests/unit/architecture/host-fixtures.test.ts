@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 
-// Verbatim host sources the live tier loads. An accidental edit must fail here,
+// Verbatim host sources the e2e tier loads. An accidental edit must fail here,
 // not silently change what "the host's own rule" means.
 const FIXTURES = [
   {

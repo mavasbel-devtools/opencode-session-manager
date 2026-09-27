@@ -1,4 +1,4 @@
-// E2E tier: the real OpenCode 2.0.14 TUI, in a real Windows ConPTY (200x50),
+// LIVE tier: the real OpenCode 2.0.14 TUI, in a real Windows ConPTY (200x50),
 // attached to an isolated host that never touches the user's opencode.db, with
 // the plugin deployed through the production shims. This is where the real
 // claim normalisation of packages/tui/src/plugin/api.tsx and the real <Slot>
