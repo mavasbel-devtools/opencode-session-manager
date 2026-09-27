@@ -1,0 +1,3 @@
+* text eol=lf
+# The pre-restructure implementation is kept byte-verbatim for the parity test.
+tests/support/fixtures/** -text

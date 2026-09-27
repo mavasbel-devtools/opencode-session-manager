@@ -1,0 +1,84 @@
+import { globSync, mkdirSync, readFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+
+const tier = process.argv[2]
+const TIERS = ["unit", "e2e"]
+if (!tier || !TIERS.includes(tier)) {
+  console.error(`usage: node scripts/coverage.mjs <${TIERS.join("|")}> (the measured tiers)`)
+  process.exit(2)
+}
+
+const files = globSync(`tests/${tier}/**/*.test.ts`).sort()
+if (files.length === 0) {
+  console.error(`no test files found under tests/${tier}`)
+  process.exit(1)
+}
+
+mkdirSync("coverage", { recursive: true })
+const lcov = `coverage/${tier}.lcov`
+const result = spawnSync(
+  process.execPath,
+  [
+    "--no-warnings",
+    "--test",
+    "--experimental-test-coverage",
+    "--test-coverage-include=src/**/*.ts",
+    "--test-reporter=lcov",
+    `--test-reporter-destination=${lcov}`,
+    "--test-reporter=spec",
+    "--test-reporter-destination=stdout",
+    ...files,
+  ],
+  { stdio: "inherit" },
+)
+if (result.status !== 0) {
+  console.error(`tests failed (exit ${result.status}); coverage not evaluated`)
+  process.exit(result.status ?? 1)
+}
+
+if (!globSync(lcov).length) {
+  console.error(`no coverage report was written to ${lcov}`)
+  process.exit(1)
+}
+
+const number = (record, key) => {
+  const match = record.match(new RegExp(`^${key}:(\\d+)$`, "m"))
+  return match ? Number(match[1]) : 0
+}
+
+const records = readFileSync(lcov, "utf8").split("end_of_record")
+const rows = []
+for (const record of records) {
+  const match = record.match(/^SF:(.+)$/m)
+  if (!match) continue
+  rows.push({
+    file: match[1].trim(),
+    linesHit: number(record, "LH"),
+    linesTotal: number(record, "LF"),
+    funcsHit: number(record, "FNH"),
+    funcsTotal: number(record, "FNF"),
+  })
+}
+
+if (rows.length === 0) {
+  console.error(`coverage report ${lcov} contained no source files`)
+  process.exit(1)
+}
+
+const failures = []
+for (const row of rows) {
+  if (row.linesTotal === 0) {
+    failures.push(`${row.file}: no executable lines were loaded (an unloaded source file escapes the gate)`)
+    continue
+  }
+  if (row.linesHit !== row.linesTotal) failures.push(`${row.file}: lines ${row.linesHit}/${row.linesTotal}`)
+  if (row.funcsTotal > 0 && row.funcsHit !== row.funcsTotal) failures.push(`${row.file}: functions ${row.funcsHit}/${row.funcsTotal}`)
+}
+
+if (failures.length) {
+  console.error(`per-file coverage FAILED (${failures.length}):`)
+  for (const failure of failures) console.error(`  - ${failure}`)
+  process.exit(1)
+}
+
+console.log(`per-file coverage OK (${rows.length} source files at 100% lines and functions)`)
