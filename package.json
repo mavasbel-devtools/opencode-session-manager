@@ -1,0 +1,36 @@
+{
+  "name": "opencode-session-id",
+  "version": "0.2.0",
+  "description": "OpenCode 2 plugin: shows the active session ID at the top of the session sidebar and provides the session-id tool (hexagonal architecture)",
+  "type": "module",
+  "main": "./dist/v2/server.js",
+  "scripts": {
+    "build": "bun run build:v2",
+    "build:v2": "bun scripts/build.mjs",
+    "test": "bun run test:unit && bun run test:component && bun run test:e2e && bun run test:live",
+    "test:unit": "bun test --max-concurrency=1 tests/unit",
+    "test:component": "bun test --max-concurrency=1 tests/component",
+    "test:e2e": "bun test --max-concurrency=1 tests/e2e",
+    "test:live": "bun test --max-concurrency=1 tests/live",
+    "coverage": "bun run coverage:unit && bun run coverage:e2e",
+    "coverage:unit": "bun --config=bunfig.coverage.toml test --max-concurrency=1 tests/unit",
+    "coverage:e2e": "bun --config=bunfig.coverage.toml test --max-concurrency=1 tests/e2e",
+    "typecheck": "tsc --noEmit",
+    "lint:diagrams": "bun scripts/lint-diagrams.mjs",
+    "install:plugin:v2": "bun run build && bun scripts/install-plugin.mjs v2",
+    "validate:installed:v2": "bun scripts/install-plugin.mjs validate-v2",
+    "shims:installed:v2": "bun scripts/install-plugin.mjs shims-v2",
+    "deploy:v2": "bun run build && bun scripts/install-plugin.mjs deploy-v2"
+  },
+  "devDependencies": {
+    "@lydell/node-pty": "1.2.0-beta.12",
+    "@opencode/plugin": "2.0.14",
+    "@opentui/core": "0.5.10",
+    "@opentui/solid": "0.5.10",
+    "@types/bun": "1.4.2",
+    "@xterm/headless": "6.0.0",
+    "bun-types": "1.4.2",
+    "solid-js": "1.9.15",
+    "typescript": "5.9.3"
+  }
+}
