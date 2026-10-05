@@ -1,6 +1,6 @@
 // LIVE tier: the real OpenCode 2.0.14 TUI, in a real Windows ConPTY (200x50),
 // attached to an isolated host that never touches the user's opencode.db, with
-// the plugin deployed through the production shims. This is where the real
+// the plugin installed as in production (auto-discovered plugins/session-id/). This is where the real
 // claim normalisation of packages/tui/src/plugin/api.tsx and the real <Slot>
 // of render.tsx run — neither can be loaded in-process (88- and 165-file
 // import graphs), so the ID's position under the title is proven here.

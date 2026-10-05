@@ -1,30 +1,25 @@
 // A real OpenCode 2.0.14 host (`opencode.exe serve`) with fully isolated XDG
-// config/data/cache/state, the plugin deployed exactly as in production
-// (immutable release + shims over a pre-existing hand-written index.js), and a
-// local OpenAI-compatible mock provider (never a paid endpoint). `stop()` kills
-// only the PID this harness spawned.
-import { copyFile, mkdir, mkdtemp, writeFile } from "node:fs/promises"
+// config/data/cache/state, the plugin deployed exactly as in production (the
+// installer's folder <XDG_CONFIG_HOME>/opencode/plugins/session-id/, found by
+// auto-discovery with no `plugins` config entry), and a local OpenAI-compatible
+// mock provider (never a paid endpoint). `stop()` kills only the PID this
+// harness spawned.
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { removeTemporary, requireBun, requireOpenCode, reservePort, root, run, stripAnsi } from "@test/support/live/process"
+import { removeTemporary, requireBun, requireOpenCode, reservePort, run, stripAnsi } from "@test/support/live/process"
 
 export const MODEL = "mock-model"
 
 type ChatMessage = { role: string; content?: unknown }
-
-export interface ShimReport {
-  readonly directory: string
-  readonly release: string
-  readonly backup: string | null
-  readonly backedUp: string[]
-}
 
 export interface IsolatedHost {
   readonly url: string
   readonly pid: number
   readonly workspace: string
   readonly environment: Record<string, string>
-  readonly shims: ShimReport
+  /** The installed plugin folder, `<XDG_CONFIG_HOME>/opencode/plugins/session-id`. */
+  readonly pluginDirectory: string
   readonly toolResults: string[]
   opencode(args: string[]): Promise<{ exitCode: number; stdout: string; output: string }>
   sessions(): Promise<Array<{ readonly id: string }>>
@@ -76,27 +71,21 @@ export async function startIsolatedHost(prefix: string): Promise<IsolatedHost> {
   if (build.exitCode !== 0) throw new Error(`build failed: ${build.stdout}${build.stderr}`)
 
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), prefix))
-  const pluginRoot = path.join(temporaryRoot, "v2-plugins")
-  const pluginDirectory = path.join(pluginRoot, "session-id")
-  await mkdir(pluginDirectory, { recursive: true })
-  await copyFile(path.join(root, "tests", "support", "fixtures", "legacy-session-id-index.js"), path.join(pluginDirectory, "index.js"))
-  const installEnv = { ...(process.env as Record<string, string>), OPENCODE_V2_PLUGIN_ROOT: pluginRoot }
+  const configHome = path.join(temporaryRoot, "config")
+  await mkdir(path.join(configHome, "opencode"), { recursive: true })
+  // The installer's default target: <XDG_CONFIG_HOME>/opencode/plugins/session-id/.
+  const installEnv = { ...(process.env as Record<string, string>), OPENCODE_V2_PLUGIN_DIR: "", XDG_CONFIG_HOME: configHome }
   const installed = await run([requireBun(), "scripts/install-plugin.mjs", "v2"], { env: installEnv })
   if (installed.exitCode !== 0) throw new Error(`install failed: ${installed.stdout}${installed.stderr}`)
-  const release = (JSON.parse(installed.stdout) as { release: string }).release
-  const shimRun = await run([requireBun(), "scripts/install-plugin.mjs", "shims-v2"], { env: { ...installEnv, OPENCODE_V2_RELEASE_DIRECTORY: release } })
-  if (shimRun.exitCode !== 0) throw new Error(`shims failed: ${shimRun.stdout}${shimRun.stderr}`)
-  const shims = JSON.parse(shimRun.stdout) as ShimReport
+  const pluginDirectory = (JSON.parse(installed.stdout) as { directory: string }).directory
 
   const toolResults: string[] = []
   const mock = startMockProvider(toolResults)
-  const configHome = path.join(temporaryRoot, "config")
-  await mkdir(path.join(configHome, "opencode"), { recursive: true })
   await writeFile(
     path.join(configHome, "opencode", "opencode.jsonc"),
     JSON.stringify(
       {
-        plugins: [pluginDirectory],
+        // No `plugins` entry: the host must find the plugin folder by auto-discovery.
         providers: {
           mock: {
             name: "Mock",
@@ -164,7 +153,7 @@ export async function startIsolatedHost(prefix: string): Promise<IsolatedHost> {
     pid: host.pid,
     workspace,
     environment,
-    shims,
+    pluginDirectory,
     toolResults,
     async opencode(args) {
       const result = await run([requireOpenCode(), ...args, "--server", url], { env: environment, cwd: workspace, timeoutMs: 120_000 })

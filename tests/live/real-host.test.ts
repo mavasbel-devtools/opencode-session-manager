@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import path from "node:path"
-import { pathToFileURL } from "node:url"
 import { MODEL, startIsolatedHost, type IsolatedHost } from "@test/support/live/isolated-host"
 import { requireBun, root, run } from "@test/support/live/process"
 
@@ -14,16 +13,15 @@ afterAll(async () => {
   await host?.stop()
 }, 60_000)
 
-test("deployment shims replace the hand-written index.js and keep a byte-identical backup", async () => {
-  expect(host.shims.backedUp).toEqual(["index.js"])
-  const legacy = await Bun.file(path.join(root, "tests", "support", "fixtures", "legacy-session-id-index.js")).text()
-  expect(await Bun.file(path.join(host.shims.backup!, "index.js")).text()).toBe(legacy)
-  const index = await Bun.file(path.join(host.shims.directory, "index.js")).text()
-  const tui = await Bun.file(path.join(host.shims.directory, "tui.js")).text()
-  expect(index).toBe(`export { default } from ${JSON.stringify(pathToFileURL(path.join(host.shims.release, "server.js")).href)}\n`)
-  expect(tui).toBe(`export { default } from ${JSON.stringify(pathToFileURL(path.join(host.shims.release, "tui.js")).href)}\n`)
-  const loaded = await run([requireBun(), "tests/support/live/load-built-tui.ts", path.join(host.shims.directory, "tui.js"), "ses_shim"])
-  expect(JSON.parse(loaded.stdout.trim().split("\n").at(-1)!)).toMatchObject({ isPlugin: true, prepend: "sidebar.content", line: "ses_shim" })
+test("the installed folder holds exactly the built server.js and tui.js, and the TUI paints", async () => {
+  expect(path.normalize(host.pluginDirectory).toLowerCase()).toBe(
+    path.join(host.environment.XDG_CONFIG_HOME!, "opencode", "plugins", "session-id").toLowerCase(),
+  )
+  for (const file of ["server.js", "tui.js"]) {
+    expect(await Bun.file(path.join(host.pluginDirectory, file)).bytes()).toEqual(await Bun.file(path.join(root, "dist", "v2", file)).bytes())
+  }
+  const loaded = await run([requireBun(), "tests/support/live/load-built-tui.ts", path.join(host.pluginDirectory, "tui.js"), "ses_installed"])
+  expect(JSON.parse(loaded.stdout.trim().split("\n").at(-1)!)).toMatchObject({ isPlugin: true, prepend: "sidebar.content", line: "ses_installed" })
 }, 60_000)
 
 test("the real 2.0.14 host loads the plugin with server and TUI features", async () => {
@@ -43,8 +41,8 @@ test("the real 2.0.14 host loads the plugin with server and TUI features", async
     state: { status: "active" },
     features: { server: true, tui: true },
   })
-  // Host.resolve tries `server` then `index`: the shim directory carries index.js (+ tui.js) only.
-  expect(path.normalize(ours!.source.path!).toLowerCase()).toBe(path.join(host.shims.directory, "index.js").toLowerCase())
+  // Auto-discovered folder; Host.resolve tries `server` then `index`, so the server entry is server.js.
+  expect(path.normalize(ours!.source.path!).toLowerCase()).toBe(path.join(host.pluginDirectory, "server.js").toLowerCase())
 }, 120_000)
 
 test("a real model turn calls the session-id tool and gets the running session's ID", async () => {

@@ -13,7 +13,7 @@ code is wrong until one of them is deliberately changed.
 | tool name | `session-id` | referenced by name in prompts/routines |
 | host | `@opencode/cli` 2.0.14 | v1 is out of scope |
 | plugin contract | `@opencode/plugin` 2.0.14 | types-only; never a runtime import in `src` |
-| deployed at | `<v2 plugin root>/session-id/` | already in the user's `opencode.jsonc` `plugins` list |
+| deployed at | `<plugins>/session-id/` (default `~/.config/opencode/plugins/session-id/`) | auto-discovered; never listed in `opencode.jsonc` |
 | build outputs | `dist/v2/server.js`, `dist/v2/tui.js` | the two entrypoints the host loads |
 | licence | MIT © mavasbel | — |
 
@@ -132,13 +132,17 @@ process working directory — and deleted this repository, including `.git`. Rul
 
 ## 8. Deployment
 
-`scripts/install-plugin.mjs` never chooses a profile and never edits
-`opencode.jsonc`; the plugin root comes from `OPENCODE_V2_PLUGIN_DIR` /
-`OPENCODE_V2_PLUGIN_ROOT`. `bun run deploy:v2` builds, stages an immutable
-content-addressed release under `session-id/releases/sha256-…/`, and points the
-`index.js` / `tui.js` shims at it after backing up any existing ones. A test run
-must never overwrite the deployed bundle, and a shim must never point at the
-mutable `dist/`.
+`bun run install:plugin:v2` builds, then writes `dist/v2/server.js` and
+`dist/v2/tui.js` into the folder `<plugins>/session-id/` (temp + rename), where
+`<plugins>` is `OPENCODE_V2_PLUGIN_DIR`, else `$XDG_CONFIG_HOME/opencode/plugins`
+(default `~/.config/opencode/plugins`). OpenCode 2.0.14 auto-discovers that folder
+(`{plugin,plugins}` scan of every config directory); the installer never edits
+`opencode.jsonc`, and the plugin must never be listed there. It must be a folder:
+`Host.resolve` yields a `tui` entrypoint only for a directory. `validate:installed:v2`
+byte-compares both files with `dist/v2` and checks the module shapes. No release
+directory, manifest or shim is written. Tests never install into the real
+`~/.config/opencode/plugins`: v2 hot-activates whatever lands there, so every tier
+uses isolated XDG directories.
 
 ## 9. Git and change discipline
 

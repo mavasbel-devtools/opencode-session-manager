@@ -82,31 +82,20 @@ The four test tiers live under `tests/{unit,component,e2e,live}`:
 
 ## Install
 
-Installers never edit `opencode.jsonc`; the plugin root always comes from the
-environment.
-
 ```
-set OPENCODE_V2_PLUGIN_ROOT=%USERPROFILE%\.config\opencode\v2-plugins
-bun run deploy:v2
+bun run install:plugin:v2      # builds, then writes <plugins>\session-id\{server.js,tui.js}
+bun run validate:installed:v2  # byte-compares both files with dist\v2 and checks the module shapes
 ```
 
-`deploy:v2` builds, stages the bundles as an immutable content-addressed release
-under `session-id\releases\sha256-…\`, then writes the two shim files — backing
-up any existing `session-id\index.js` / `tui.js` into `session-id\backup-<timestamp>\`
-first:
+`<plugins>` is `OPENCODE_V2_PLUGIN_DIR` when set, otherwise
+`%XDG_CONFIG_HOME%\opencode\plugins` (default `%USERPROFILE%\.config\opencode\plugins`).
+OpenCode 2.0.14 **auto-discovers** the `session-id` folder there — no `opencode.jsonc`
+entry is needed, and the installer never edits configuration. It must be a folder,
+not a single file: v2 resolves the TUI entrypoint (the sidebar line) only for a
+directory. Writing into the live `plugins` directory hot-activates the plugin in a
+running OpenCode v2 host.
 
-- `session-id\index.js` → `export { default } from "file:///…/releases/sha256-…/server.js"`
-- `session-id\tui.js` → `export { default } from "file:///…/releases/sha256-…/tui.js"`
-
-The `session-id` folder is already in the `plugins` list of the user's
-`opencode.jsonc`, so no configuration change is needed. Restart OpenCode to load it.
-
-The staging and shim steps are also available separately as `bun run install:plugin:v2`,
-`bun run validate:installed:v2` and `bun run shims:installed:v2` (the last two
-read `OPENCODE_V2_RELEASE_DIRECTORY`).
-
-**Rollback:** copy `backup-<timestamp>\index.js` back over `session-id\index.js`
-and delete `session-id\tui.js`.
+To remove the plugin, delete the `session-id` folder from `plugins`.
 
 ## License
 
