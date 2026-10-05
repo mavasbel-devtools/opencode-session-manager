@@ -39,28 +39,27 @@ Flow:
 * `dist/v2/tui.js` — TUI entry `{ id, setup }` registering `/transfer-session`
   (alias `/relocate`, palette “Transfer session”).
 
-`dist/v2` is a build input, never a deployed mutable checkout. Stage it with the
-v2 installer, then point the v2 configuration at the immutable release directory
-printed by that command:
-
-```jsonc
-{
-  "plugins": [
-    { "package": "<absolute-path-to-v2-plugins>/sessions-transfer/releases/sha256-<aggregate-hash>" }
-  ]
-}
-```
-
-For example, set `OPENCODE_V2_PLUGIN_DIR` to an isolated test profile or the
-reviewed global release root, run `bun run install:plugin:v2`, and retain the
-printed `sha256-...` path in the deployment manifest. The installer never edits
-`opencode.jsonc`; the reviewed deployment transaction changes the configuration.
+`bun run install:plugin:v2` copies both entries into one folder,
+`<plugins>/sessions-transfer/` (`server.js`, `tui.js`), where OpenCode 2.0.14
+**auto-discovers** it — no configuration entry is needed or written. It must be a
+folder: v2 resolves a TUI entrypoint only for a directory, and a loose file would
+get the (no-op) server entry alone.
 
 ### OpenCode v1
 
-`bun run install:plugin:v1` installs the v1 server and TUI bundles into the legacy
-OpenCode plugin locations (requires `OPENCODE_V1_PLUGIN_DIR` or `OPENCODE_V1_RELEASE_DIRECTORY`). Its v1 dependency is pinned to
-`@opencode-ai/plugin@1.18.32`; v1 never loads the v2 `{ id, setup }` entries.
+`bun run install:plugin:v1` writes the v1 server and TUI bundles,
+`sessions-transfer.js` and `sessions-transfer.tui.js`, into `<plugins>`. They are
+two files because v1.18.32 rejects a module exporting both `server()` and `tui()`.
+Its v1 dependency is pinned to `@opencode-ai/plugin@1.18.32`; v1 never loads the
+v2 `{ id, setup }` entries (its `{plugin,plugins}/*.{ts,js}` scan reads files only,
+never the v2 folder).
+
+`<plugins>` is `OPENCODE_V1_PLUGIN_DIR` / `OPENCODE_V2_PLUGIN_DIR` when set,
+otherwise `$XDG_CONFIG_HOME/opencode/plugins` (default `~/.config/opencode/plugins`).
+Installing one lane removes this plugin's files of the other lane, so a v2 host
+never loads both forms. Never list the plugin in `opencode.jsonc` (v2.0.14 rejects
+a file path in `plugins`). Writing into the live `plugins` directory hot-activates
+the plugin in a running v2 host.
 
 v2 already ships `/cd <path>` (moves the open session to any existing folder,
 cross-project included) and `/worktrees` (current project's worktrees only).
@@ -106,13 +105,14 @@ bun test
 bun run typecheck
 bun run coverage
 bun run build
-OPENCODE_V1_PLUGIN_DIR="/isolated/v1-profile/plugins" bun run install:plugin:v1
-OPENCODE_V2_PLUGIN_DIR="/isolated/v2-plugins" bun run install:plugin:v2
+bun run install:plugin:v2      # or install:plugin:v1
+bun run validate:installed:v2  # or validate:installed:v1
 ```
 
-`install:plugin:v1` requires `OPENCODE_V1_PLUGIN_DIR` (or `OPENCODE_V1_RELEASE_DIRECTORY`);
-`install:plugin:v2` requires `OPENCODE_V2_PLUGIN_DIR` (or `OPENCODE_V2_PLUGIN_ROOT`).
-Both installers build first and never edit configuration. Re-hash staged output with `validate:installed:v1` and
-`validate:installed:v2` (the latter requires `OPENCODE_V2_RELEASE_DIRECTORY`).
-Global v2 deployment is performed from immutable artifact directories and v2's
-object-form `plugins` configuration.
+Both installers build first and never edit configuration. Validation compares
+every installed file byte-for-byte with `dist/`, imports it exactly as the host
+does, and fails if the other lane's form is present. `test/e2e/installer-contract.test.ts`
+covers the slot handover, the XDG default and tamper rejection;
+`test/e2e/v2-host-discovery.test.ts` proves a real OpenCode 2.0.14 host with an empty
+config auto-discovers `plugins/sessions-transfer/` and reports it active with
+`features.tui`.
