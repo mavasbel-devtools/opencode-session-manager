@@ -6,6 +6,7 @@ import { SessionTransferV2TuiAdapter } from "@session-manager/infrastructure/ada
 import { NodeFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeFileSystemAdapter"
 import { OpenCode2HostAdapter } from "@session-manager/infrastructure/adapters/outbound/opencode2/OpenCode2HostAdapter"
 import { HostThemePaletteV2Adapter } from "@session-manager/infrastructure/adapters/outbound/tui/HostThemePaletteV2Adapter"
+import { SystemHomeDirectoryAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemHomeDirectoryAdapter"
 import { OpenTuiSidebarViewAdapter } from "@session-manager/infrastructure/adapters/outbound/tui/OpenTuiSidebarViewAdapter"
 import type { V2Client } from "@session-manager/infrastructure/host/V2Client"
 
@@ -32,6 +33,7 @@ export function createTuiContainer(client: V2Client): TuiContainer {
     ),
     transfer: new SessionTransferV2TuiAdapter({
       host,
+      home: new SystemHomeDirectoryAdapter(),
       moveSession: new MoveSessionUseCase(host, fs),
       buildDirectoryOptions: new BuildDirectoryOptionsUseCase(host, fs),
     }),

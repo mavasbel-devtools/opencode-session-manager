@@ -1,8 +1,8 @@
 import type { TuiPluginApi, TuiDialogSelectOption } from "@opencode-ai/plugin/tui"
 import type { BuildDirectoryOptionsPort } from "@session-manager/domain/ports/inbound/BuildDirectoryOptionsPort"
 import type { TransferSessionPort } from "@session-manager/domain/ports/inbound/TransferSessionPort"
+import type { HomeDirectoryPort } from "@session-manager/domain/ports/outbound/HomeDirectoryPort"
 import type { SessionDbPort } from "@session-manager/domain/ports/outbound/SessionDbPort"
-import os from "node:os"
 
 const CUSTOM_PATH = "__transfer_custom_path__"
 
@@ -24,6 +24,7 @@ function activeSessionId(api: TuiPluginApi): string | undefined {
 /** The ports the v1 transfer command drives, wired by the v1 composition root. */
 export interface V1TransferServices {
   readonly db: SessionDbPort
+  readonly home: HomeDirectoryPort
   readonly transferSession: TransferSessionPort
   readonly buildDirectoryOptions: BuildDirectoryOptionsPort
 }
@@ -88,7 +89,7 @@ export class SessionTransferV1TuiAdapter {
 
   private async openDirectoryPicker(api: TuiPluginApi, sessionId: string): Promise<void> {
     try {
-      const home = os.homedir()
+      const home = this.container.home.homeDirectory()
       const entries = await this.container.buildDirectoryOptions.execute(home)
 
       const options: TuiDialogSelectOption<string>[] = entries.map((entry) => ({
@@ -130,7 +131,7 @@ export class SessionTransferV1TuiAdapter {
 
   private executeTransfer(api: TuiPluginApi, sessionId: string, directory: string): void {
     this.container.transferSession
-      .execute(sessionId, directory, os.homedir())
+      .execute(sessionId, directory, this.container.home.homeDirectory())
       .then(async (result) => {
         api.ui.dialog.clear()
 

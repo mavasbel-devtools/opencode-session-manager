@@ -7,6 +7,7 @@ import {
   FakeSessionDbAdapter,
   FakeProjectResolverAdapter,
   FakeFileSystemAdapter,
+  FakeHomeDirectoryAdapter,
 } from "@test/support/fakes/transfer-ports"
 import { TransferSessionUseCase } from "@session-manager/application/TransferSessionUseCase"
 import { BuildDirectoryOptionsUseCase } from "@session-manager/application/BuildDirectoryOptionsUseCase"
@@ -19,6 +20,7 @@ function makeContainer() {
   const fs = new FakeFileSystemAdapter()
   const container: V1TransferServices = {
     db,
+    home: new FakeHomeDirectoryAdapter(),
     transferSession: new TransferSessionUseCase(db, resolver, fs),
     buildDirectoryOptions: new BuildDirectoryOptionsUseCase(db, fs),
   }

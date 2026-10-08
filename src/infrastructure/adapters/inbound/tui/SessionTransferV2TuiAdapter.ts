@@ -1,6 +1,6 @@
-import os from "node:os"
 import type { BuildDirectoryOptionsPort } from "@session-manager/domain/ports/inbound/BuildDirectoryOptionsPort"
 import type { MoveSessionPort } from "@session-manager/domain/ports/inbound/MoveSessionPort"
+import type { HomeDirectoryPort } from "@session-manager/domain/ports/outbound/HomeDirectoryPort"
 import type { SessionHostPort } from "@session-manager/domain/ports/outbound/SessionHostPort"
 import { APP_SLOT, type V2KeymapLayer, type V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
 
@@ -10,6 +10,7 @@ const TITLE = "Transfer session"
 /** The ports the v2 transfer command drives, wired by the TUI composition root. */
 export interface V2TransferServices {
   readonly host: SessionHostPort
+  readonly home: HomeDirectoryPort
   readonly moveSession: MoveSessionPort
   readonly buildDirectoryOptions: BuildDirectoryOptionsPort
 }
@@ -92,7 +93,7 @@ export class SessionTransferV2TuiAdapter {
   }
 
   private async pickDirectory(context: V2TuiContext, sessionId: string): Promise<void> {
-    const home = os.homedir()
+    const home = this.services.home.homeDirectory()
     const entries = await this.services.buildDirectoryOptions.execute(home)
     const selected = await context.ui.dialog.select({
       title: `${TITLE} (${sessionId.slice(-8)})`,

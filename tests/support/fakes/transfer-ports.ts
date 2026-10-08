@@ -1,6 +1,7 @@
 import type { SessionSummary } from "@session-manager/domain/model/Session"
 import { expandHome } from "@session-manager/domain/model/Paths"
 import type { FileSystemPort } from "@session-manager/domain/ports/outbound/FileSystemPort"
+import type { HomeDirectoryPort } from "@session-manager/domain/ports/outbound/HomeDirectoryPort"
 import type { ProjectResolverPort, ResolvedProject } from "@session-manager/domain/ports/outbound/ProjectResolverPort"
 import type { SessionDbPort } from "@session-manager/domain/ports/outbound/SessionDbPort"
 import type { SessionHostPort } from "@session-manager/domain/ports/outbound/SessionHostPort"
@@ -87,5 +88,13 @@ export class FakeSessionHostAdapter implements SessionHostPort {
   async moveSession(sessionId: string, directory: string): Promise<void> {
     if (this.moveError) throw this.moveError
     this.moves.push({ sessionId, directory })
+  }
+}
+
+export class FakeHomeDirectoryAdapter implements HomeDirectoryPort {
+  constructor(public home: string = "/home/user") {}
+
+  homeDirectory(): string {
+    return this.home
   }
 }

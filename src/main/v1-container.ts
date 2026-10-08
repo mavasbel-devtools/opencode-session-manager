@@ -3,6 +3,7 @@ import { TransferSessionUseCase } from "@session-manager/application/TransferSes
 import { SessionTransferV1TuiAdapter } from "@session-manager/infrastructure/adapters/inbound/tui/SessionTransferV1TuiAdapter"
 import { NodeFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeFileSystemAdapter"
 import { ProjectResolverAdapter } from "@session-manager/infrastructure/adapters/outbound/project/ProjectResolverAdapter"
+import { SystemHomeDirectoryAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemHomeDirectoryAdapter"
 import { SqliteSessionDbAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/SqliteSessionDbAdapter"
 
 export interface V1Container {
@@ -22,6 +23,7 @@ export function createV1Container(customDbPath?: string): V1Container {
     db,
     transfer: new SessionTransferV1TuiAdapter({
       db,
+      home: new SystemHomeDirectoryAdapter(),
       transferSession: new TransferSessionUseCase(db, new ProjectResolverAdapter(), fs),
       buildDirectoryOptions: new BuildDirectoryOptionsUseCase(db, fs),
     }),

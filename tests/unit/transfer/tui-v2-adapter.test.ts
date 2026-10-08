@@ -9,7 +9,7 @@ import type { V2KeymapLayer, V2TuiContext } from "@session-manager/infrastructur
 import { fakeV2Client } from "@test/support/fakes/hosts"
 import { MoveSessionUseCase } from "@session-manager/application/MoveSessionUseCase"
 import { BuildDirectoryOptionsUseCase } from "@session-manager/application/BuildDirectoryOptionsUseCase"
-import { FakeFileSystemAdapter, FakeSessionHostAdapter } from "@test/support/fakes/transfer-ports"
+import { FakeFileSystemAdapter, FakeHomeDirectoryAdapter, FakeSessionHostAdapter } from "@test/support/fakes/transfer-ports"
 
 const CUSTOM = "__transfer_custom_path__"
 
@@ -18,6 +18,7 @@ function makeServices() {
   const fs = new FakeFileSystemAdapter()
   const services: V2TransferServices = {
     host,
+    home: new FakeHomeDirectoryAdapter(),
     moveSession: new MoveSessionUseCase(host, fs),
     buildDirectoryOptions: new BuildDirectoryOptionsUseCase(host, fs),
   }
@@ -180,7 +181,7 @@ describe("SessionTransferV2TuiAdapter", () => {
 
     await new SessionTransferV2TuiAdapter(services).open(ctx.context)
 
-    const expected = path.join(os.homedir(), "brand-new/folder")
+    const expected = "/home/user/brand-new/folder"
     expect(ctx.promptCalls.length).toBe(1)
     expect(ctx.promptCalls[0].title).toBe("Enter destination directory")
     expect(fs.ensured).toEqual([expected])

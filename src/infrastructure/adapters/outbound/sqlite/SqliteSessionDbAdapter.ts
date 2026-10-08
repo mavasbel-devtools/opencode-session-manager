@@ -32,8 +32,9 @@ export class SqliteSessionDbAdapter implements SessionDbPort {
   }
 
   async getSession(sessionId: string): Promise<SessionSummary | null> {
+    // Opened outside the try, so an open failure keeps its own message.
+    const db = this.getDatabase()
     try {
-      const db = this.getDatabase()
       const row = db
         .query(
           "SELECT id, title, directory, project_id, path, time_updated FROM session WHERE id = ? LIMIT 1",
@@ -63,8 +64,9 @@ export class SqliteSessionDbAdapter implements SessionDbPort {
   }
 
   async listSessions(): Promise<SessionSummary[]> {
+    // Opened outside the try, so an open failure keeps its own message.
+    const db = this.getDatabase()
     try {
-      const db = this.getDatabase()
       const rows = db
         .query(
           "SELECT id, title, directory, project_id, path, time_updated FROM session ORDER BY time_updated DESC",
@@ -92,8 +94,9 @@ export class SqliteSessionDbAdapter implements SessionDbPort {
   }
 
   async listRecentDirectories(): Promise<string[]> {
+    // Opened outside the try, so an open failure keeps its own message.
+    const db = this.getDatabase()
     try {
-      const db = this.getDatabase()
       const rows = db
         .query(
           "SELECT DISTINCT directory FROM session WHERE directory IS NOT NULL AND directory != '' ORDER BY time_updated DESC LIMIT 50",
@@ -112,8 +115,9 @@ export class SqliteSessionDbAdapter implements SessionDbPort {
     newProjectId: string,
     newPath: string,
   ): Promise<void> {
+    // Opened outside the try, so an open failure keeps its own message.
+    const db = this.getDatabase()
     try {
-      const db = this.getDatabase()
       const now = Date.now()
       db.query(
         `UPDATE session 
@@ -126,8 +130,9 @@ export class SqliteSessionDbAdapter implements SessionDbPort {
   }
 
   async upsertProject(projectId: string, worktree: string): Promise<void> {
+    // Opened outside the try, so an open failure keeps its own message.
+    const db = this.getDatabase()
     try {
-      const db = this.getDatabase()
       const now = Date.now()
       db.query(
         `INSERT INTO project (id, worktree, sandboxes, time_created, time_updated)
