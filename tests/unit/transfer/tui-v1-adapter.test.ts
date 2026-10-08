@@ -19,7 +19,6 @@ function makeContainer() {
   const fs = new FakeFileSystemAdapter()
   const container: V1TransferServices = {
     db,
-    fs,
     transferSession: new TransferSessionUseCase(db, resolver, fs),
     buildDirectoryOptions: new BuildDirectoryOptionsUseCase(db, fs),
   }

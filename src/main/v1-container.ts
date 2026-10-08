@@ -22,7 +22,6 @@ export function createV1Container(customDbPath?: string): V1Container {
     db,
     transfer: new SessionTransferV1TuiAdapter({
       db,
-      fs,
       transferSession: new TransferSessionUseCase(db, new ProjectResolverAdapter(), fs),
       buildDirectoryOptions: new BuildDirectoryOptionsUseCase(db, fs),
     }),

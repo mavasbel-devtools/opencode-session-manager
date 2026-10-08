@@ -18,7 +18,6 @@ function makeServices() {
   const fs = new FakeFileSystemAdapter()
   const services: V2TransferServices = {
     host,
-    fs,
     moveSession: new MoveSessionUseCase(host, fs),
     buildDirectoryOptions: new BuildDirectoryOptionsUseCase(host, fs),
   }
@@ -198,14 +197,16 @@ describe("SessionTransferV2TuiAdapter", () => {
     expect(ctx.toasts).toEqual([])
   })
 
-  it("rejects an empty custom path", async () => {
+  it("rejects an empty custom path through the use case's validation", async () => {
     const { host, services } = makeServices()
     const ctx = makeContext({ route: { type: "session", sessionID: "ses_1" }, selects: [CUSTOM], prompts: ["   "] })
 
     await new SessionTransferV2TuiAdapter(services).open(ctx.context)
 
     expect(host.moves).toEqual([])
-    expect(ctx.toasts).toEqual([{ variant: "error", title: "Transfer session", message: "Path cannot be empty." }])
+    expect(ctx.toasts).toEqual([
+      { variant: "error", title: "Transfer failed", message: 'Invalid directory "   ": Directory path cannot be empty' },
+    ])
   })
 
   it("reports a failed host move", async () => {

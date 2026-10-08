@@ -1,7 +1,6 @@
 import os from "node:os"
 import type { BuildDirectoryOptionsPort } from "@session-manager/domain/ports/inbound/BuildDirectoryOptionsPort"
 import type { MoveSessionPort } from "@session-manager/domain/ports/inbound/MoveSessionPort"
-import type { FileSystemPort } from "@session-manager/domain/ports/outbound/FileSystemPort"
 import type { SessionHostPort } from "@session-manager/domain/ports/outbound/SessionHostPort"
 import { APP_SLOT, type V2KeymapLayer, type V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
 
@@ -11,7 +10,6 @@ const TITLE = "Transfer session"
 /** The ports the v2 transfer command drives, wired by the TUI composition root. */
 export interface V2TransferServices {
   readonly host: SessionHostPort
-  readonly fs: FileSystemPort
   readonly moveSession: MoveSessionPort
   readonly buildDirectoryOptions: BuildDirectoryOptionsPort
 }
@@ -68,7 +66,7 @@ export class SessionTransferV2TuiAdapter {
       const route = context.ui.router.current()
       const sessionId = route.type === "session" ? route.sessionID : undefined
       const target = sessionId ?? (await this.pickSession(context))
-      if (!target) return
+      if (target === undefined) return
       await this.pickDirectory(context, target)
     } catch (error) {
       context.ui.toast.show({ variant: "error", title: TITLE, message: errorMessage(error) })
@@ -107,10 +105,10 @@ export class SessionTransferV2TuiAdapter {
       })),
     })
     if (selected === undefined) return
-    const directory = selected === CUSTOM_PATH ? await this.promptCustomPath(context, home) : selected
+    const directory = selected === CUSTOM_PATH ? await this.promptCustomPath(context) : selected
     if (directory === undefined) return
 
-    const result = await this.services.moveSession.execute(sessionId, directory).catch((error: unknown) => {
+    const result = await this.services.moveSession.execute(sessionId, directory, home).catch((error: unknown) => {
       context.ui.toast.show({ variant: "error", title: "Transfer failed", message: errorMessage(error) })
       return undefined
     })
@@ -123,18 +121,11 @@ export class SessionTransferV2TuiAdapter {
     })
   }
 
-  private async promptCustomPath(context: V2TuiContext, home: string): Promise<string | undefined> {
-    const value = await context.ui.dialog.prompt({
+  private promptCustomPath(context: V2TuiContext): Promise<string | undefined> {
+    return context.ui.dialog.prompt({
       title: "Enter destination directory",
       description: "Created when missing. Any folder works, including other projects.",
       placeholder: "e.g. ~/work/repos/HomeLab or C:\\path\\to\\dir",
     })
-    if (value === undefined) return undefined
-    const trimmed = value.trim()
-    if (!trimmed) {
-      context.ui.toast.show({ variant: "error", title: TITLE, message: "Path cannot be empty." })
-      return undefined
-    }
-    return this.services.fs.canonical(trimmed, home)
   }
 }

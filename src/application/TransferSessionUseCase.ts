@@ -13,39 +13,25 @@ export class TransferSessionUseCase implements TransferSessionPort {
     private readonly fs: FileSystemPort,
   ) {}
 
-  async execute(sessionId: string, targetDirectory: string): Promise<TransferResult> {
-    if (!sessionId || !sessionId.trim()) {
-      throw new SessionNotFoundError(sessionId)
-    }
-
-    const trimmedTarget = targetDirectory.trim()
-    if (!trimmedTarget) {
-      throw new InvalidDirectoryError(targetDirectory, "Directory path cannot be empty")
-    }
+  async execute(sessionId: string, targetDirectory: string, home: string): Promise<TransferResult> {
+    if (!sessionId.trim()) throw new SessionNotFoundError(sessionId)
+    const trimmed = targetDirectory.trim()
+    if (!trimmed) throw new InvalidDirectoryError(targetDirectory, "Directory path cannot be empty")
 
     const session = await this.db.getSession(sessionId)
-    if (!session) {
-      throw new SessionNotFoundError(sessionId)
-    }
+    if (!session) throw new SessionNotFoundError(sessionId)
 
     // Create the destination when missing (arbitrary or brand-new directories).
-    this.fs.ensureDirectory(trimmedTarget)
-
-    const resolved = await this.resolver.resolve(trimmedTarget)
-
+    const directory = this.fs.canonical(trimmed, home)
+    this.fs.ensureDirectory(directory)
+    const resolved = await this.resolver.resolve(directory)
     await this.db.upsertProject(resolved.projectId, resolved.worktree)
-
-    await this.db.updateSessionLocation(
-      sessionId,
-      trimmedTarget,
-      resolved.projectId,
-      resolved.relativePath,
-    )
+    await this.db.updateSessionLocation(sessionId, directory, resolved.projectId, resolved.relativePath)
 
     return {
       sessionId,
       previousDirectory: session.directory,
-      newDirectory: trimmedTarget,
+      newDirectory: directory,
       newProjectId: resolved.projectId,
       newRelativePath: resolved.relativePath,
     }

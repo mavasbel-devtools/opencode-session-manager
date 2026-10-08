@@ -1,7 +1,6 @@
 import type { TuiPluginApi, TuiDialogSelectOption } from "@opencode-ai/plugin/tui"
 import type { BuildDirectoryOptionsPort } from "@session-manager/domain/ports/inbound/BuildDirectoryOptionsPort"
 import type { TransferSessionPort } from "@session-manager/domain/ports/inbound/TransferSessionPort"
-import type { FileSystemPort } from "@session-manager/domain/ports/outbound/FileSystemPort"
 import type { SessionDbPort } from "@session-manager/domain/ports/outbound/SessionDbPort"
 import os from "node:os"
 
@@ -25,7 +24,6 @@ function activeSessionId(api: TuiPluginApi): string | undefined {
 /** The ports the v1 transfer command drives, wired by the v1 composition root. */
 export interface V1TransferServices {
   readonly db: SessionDbPort
-  readonly fs: FileSystemPort
   readonly transferSession: TransferSessionPort
   readonly buildDirectoryOptions: BuildDirectoryOptionsPort
 }
@@ -51,7 +49,7 @@ export class SessionTransferV1TuiAdapter {
 
   private open(api: TuiPluginApi): void {
     const sessionId = activeSessionId(api)
-    if (sessionId) {
+    if (sessionId !== undefined) {
       void this.openDirectoryPicker(api, sessionId)
       return
     }
@@ -124,14 +122,7 @@ export class SessionTransferV1TuiAdapter {
       api.ui.DialogPrompt({
         title: "Enter destination directory",
         placeholder: "e.g. ~/work/repos/HomeLab or C:\\path\\to\\dir",
-        onConfirm: (value) => {
-          const trimmed = value.trim()
-          if (!trimmed) {
-            api.ui.toast({ variant: "error", title: "Transfer session", message: "Path cannot be empty." })
-            return
-          }
-          this.executeTransfer(api, sessionId, this.container.fs.canonical(trimmed, os.homedir()))
-        },
+        onConfirm: (value) => this.executeTransfer(api, sessionId, value),
         onCancel: () => api.ui.dialog.clear(),
       }),
     )
@@ -139,7 +130,7 @@ export class SessionTransferV1TuiAdapter {
 
   private executeTransfer(api: TuiPluginApi, sessionId: string, directory: string): void {
     this.container.transferSession
-      .execute(sessionId, directory)
+      .execute(sessionId, directory, os.homedir())
       .then(async (result) => {
         api.ui.dialog.clear()
 

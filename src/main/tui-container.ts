@@ -32,7 +32,6 @@ export function createTuiContainer(client: V2Client): TuiContainer {
     ),
     transfer: new SessionTransferV2TuiAdapter({
       host,
-      fs,
       moveSession: new MoveSessionUseCase(host, fs),
       buildDirectoryOptions: new BuildDirectoryOptionsUseCase(host, fs),
     }),

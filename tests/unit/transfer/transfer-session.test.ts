@@ -4,6 +4,8 @@ import { FakeSessionDbAdapter, FakeProjectResolverAdapter, FakeFileSystemAdapter
 import { InvalidDirectoryError } from "@session-manager/domain/errors/InvalidDirectoryError"
 import { SessionNotFoundError } from "@session-manager/domain/errors/SessionNotFoundError"
 
+const HOME = "/home/user"
+
 describe("TransferSessionUseCase", () => {
   let db: FakeSessionDbAdapter
   let resolver: FakeProjectResolverAdapter
@@ -27,15 +29,15 @@ describe("TransferSessionUseCase", () => {
   })
 
   it("throws SessionNotFoundError if session ID is empty", async () => {
-    expect(useCase.execute("", "C:\\projects\\new-dir")).rejects.toThrow(SessionNotFoundError)
+    expect(useCase.execute("", "C:\\projects\\new-dir", HOME)).rejects.toThrow(SessionNotFoundError)
   })
 
   it("throws InvalidDirectoryError if target directory is empty", async () => {
-    expect(useCase.execute("ses_1", "   ")).rejects.toThrow(InvalidDirectoryError)
+    expect(useCase.execute("ses_1", "   ", HOME)).rejects.toThrow(InvalidDirectoryError)
   })
 
   it("throws SessionNotFoundError if session does not exist in DB", async () => {
-    expect(useCase.execute("ses_nonexistent", "C:\\projects\\new-dir")).rejects.toThrow(
+    expect(useCase.execute("ses_nonexistent", "C:\\projects\\new-dir", HOME)).rejects.toThrow(
       SessionNotFoundError,
     )
   })
@@ -45,7 +47,7 @@ describe("TransferSessionUseCase", () => {
     resolver.defaultWorktree = "C:\\projects\\new-dir"
     resolver.defaultRelativePath = "sub/pkg"
 
-    const result = await useCase.execute("ses_1", "C:\\projects\\new-dir\\sub\\pkg")
+    const result = await useCase.execute("ses_1", "C:\\projects\\new-dir\\sub\\pkg", HOME)
 
     expect(result.sessionId).toBe("ses_1")
     expect(result.previousDirectory).toBe("C:\\projects\\old-dir")
@@ -60,5 +62,11 @@ describe("TransferSessionUseCase", () => {
     expect(updated?.path).toBe("sub/pkg")
     expect(db.projects.get("proj_new")).toBe("C:\\projects\\new-dir")
     expect(fs.ensured).toContain("C:\\projects\\new-dir\\sub\\pkg")
+  })
+
+  it("expands ~ against the given home before resolving the destination", async () => {
+    const result = await useCase.execute("ses_1", "~/work/new", HOME)
+    expect(fs.ensured).toEqual(["/home/user/work/new"])
+    expect(result.newDirectory).toBe("/home/user/work/new")
   })
 })

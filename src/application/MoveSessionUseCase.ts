@@ -18,19 +18,14 @@ export class MoveSessionUseCase implements MoveSessionPort {
     private readonly fs: FileSystemPort,
   ) {}
 
-  async execute(sessionId: string, targetDirectory: string): Promise<MoveResult> {
-    if (!sessionId || !sessionId.trim()) {
-      throw new SessionNotFoundError(sessionId)
-    }
+  async execute(sessionId: string, targetDirectory: string, home: string): Promise<MoveResult> {
+    if (!sessionId.trim()) throw new SessionNotFoundError(sessionId)
+    const trimmed = targetDirectory.trim()
+    if (!trimmed) throw new InvalidDirectoryError(targetDirectory, "Directory path cannot be empty")
 
-    const directory = targetDirectory.trim()
-    if (!directory) {
-      throw new InvalidDirectoryError(targetDirectory, "Directory path cannot be empty")
-    }
-
+    const directory = this.fs.canonical(trimmed, home)
     this.fs.ensureDirectory(directory)
     await this.host.moveSession(sessionId, directory)
-
     return { sessionId, newDirectory: directory }
   }
 }
