@@ -45,8 +45,15 @@ describe("SOLID structure", () => {
   it("makes use cases depend on port types only, never on a concrete adapter (dependency inversion)", () => {
     for (const file of files.filter((entry) => relative(entry).startsWith("application/"))) {
       const code = read(file)
-      for (const specifier of [...code.matchAll(/from\s*["']([^"']+)["']/g)].map((match) => match[1]!)) {
-        expect({ file: relative(file), specifier, allowed: /^@session-manager\/domain\//.test(specifier) }).toEqual({
+      // Ports and domain types, plus the types of the application services a use case composes
+      // (still constructed only by a composition root); never a value import from outside the domain.
+      for (const [statement, specifier] of [...code.matchAll(/^(import(?: type)?\b[^\n]*?)from\s*["']([^"']+)["']/gm)].map(
+        (match) => [match[1]!, match[2]!] as const,
+      )) {
+        const allowed =
+          /^@session-manager\/domain\//.test(specifier) ||
+          (statement.startsWith("import type ") && /^@session-manager\/application\//.test(specifier))
+        expect({ file: relative(file), specifier, allowed }).toEqual({
           file: relative(file),
           specifier,
           allowed: true,

@@ -1,8 +1,11 @@
-import { DatabaseHeldError, DatabaseNotFoundError, InsufficientSpaceError, ProcessRunningError } from "#domain/errors/DomainErrors.ts"
-import { dirName } from "#domain/model/Paths.ts"
-import type { DatabaseHoldersPort } from "#domain/ports/outbound/DatabaseHoldersPort.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import type { ProcessListPort } from "#domain/ports/outbound/ProcessListPort.ts"
+import { DatabaseHeldError } from "@session-manager/domain/errors/DatabaseHeldError"
+import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNotFoundError"
+import { InsufficientSpaceError } from "@session-manager/domain/errors/InsufficientSpaceError"
+import { ProcessRunningError } from "@session-manager/domain/errors/ProcessRunningError"
+import { dirName } from "@session-manager/domain/model/DatabasePaths"
+import type { DatabaseHoldersPort } from "@session-manager/domain/ports/outbound/DatabaseHoldersPort"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import type { ProcessListPort } from "@session-manager/domain/ports/outbound/ProcessListPort"
 
 export interface EnvironmentInput {
   readonly dbPath: string
@@ -23,11 +26,11 @@ export interface FreeSpaceReport {
  * so it runs before the database is opened at all; the space check follows the page statistics.
  */
 export class GuardService {
-  private readonly fileSystem: FileSystemPort
+  private readonly fileSystem: MaintenanceFileSystemPort
   private readonly processes: ProcessListPort
   private readonly holders: DatabaseHoldersPort
 
-  constructor(fileSystem: FileSystemPort, processes: ProcessListPort, holders: DatabaseHoldersPort) {
+  constructor(fileSystem: MaintenanceFileSystemPort, processes: ProcessListPort, holders: DatabaseHoldersPort) {
     this.fileSystem = fileSystem
     this.processes = processes
     this.holders = holders

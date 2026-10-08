@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
-import type { ProcessEntry } from "#domain/model/Database.ts"
-import type { ProcessListPort } from "#domain/ports/outbound/ProcessListPort.ts"
+import type { ProcessEntry } from "@session-manager/domain/model/Database"
+import type { ProcessListPort } from "@session-manager/domain/ports/outbound/ProcessListPort"
 
 /** Reads `tasklist` CSV rows of the shape `"image","pid",...`, ignoring its INFO lines. */
 export function parseTasklist(csv: string): readonly ProcessEntry[] {

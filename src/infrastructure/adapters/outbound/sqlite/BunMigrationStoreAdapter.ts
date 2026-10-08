@@ -1,6 +1,11 @@
-import { DatabaseSync, type SQLInputValue } from "node:sqlite"
-import { SESSION_TABLES, type MergeTable, type ProjectRecord, type ProjectReference, type SessionRef } from "#domain/model/Migration.ts"
-import type { MigrationDatabase, MigrationStorePort } from "#domain/ports/outbound/MigrationStorePort.ts"
+import { Database, type SQLQueryBindings } from "bun:sqlite"
+import { SESSION_TABLES, type MergeTable, type ProjectRecord, type ProjectReference, type SessionRef } from "@session-manager/domain/model/Migration"
+import type { MigrationDatabase, MigrationStorePort } from "@session-manager/domain/ports/outbound/MigrationStorePort"
+
+/** Read every integer as a BigInt, so a row is hashed or copied exactly; bun-types 1.4.2 does not declare `Statement.safeIntegers`. */
+function readExactIntegers(statement: object): void {
+  ;(statement as { safeIntegers(enabled: boolean): unknown }).safeIntegers(true)
+}
 
 interface TableInfoRow {
   readonly name: string
@@ -19,18 +24,18 @@ function quote(name: string): string {
   return `"${name.replaceAll('"', '""')}"`
 }
 
-class NodeMigrationDatabase implements MigrationDatabase {
-  private readonly db: DatabaseSync
+class BunMigrationDatabase implements MigrationDatabase {
+  private readonly db: Database
 
   constructor(dbPath: string) {
-    this.db = new DatabaseSync(dbPath)
+    this.db = new Database(dbPath)
     // Project ids are repointed by hand across several tables; the foreign-key check runs at the end.
     this.db.exec("pragma foreign_keys = off")
   }
 
   tables(): readonly string[] {
     const rows = this.db
-      .prepare("select name from main.sqlite_master where type = 'table' and name not like 'sqlite_%' order by rowid")
+      .query("select name from main.sqlite_master where type = 'table' and name not like 'sqlite_%' order by rowid")
       .all() as unknown as { name: string }[]
     return rows.map((row) => row.name)
   }
@@ -40,12 +45,12 @@ class NodeMigrationDatabase implements MigrationDatabase {
   }
 
   editText(table: string, column: string, edit: (value: string) => string): number {
-    const read = this.db.prepare(
+    const read = this.db.query(
       `select rowid as id, ${quote(column)} as value from ${quote(table)}
        where rowid > ? and typeof(${quote(column)}) = 'text' order by rowid limit ${BATCH}`,
     )
     // A rewrite can make two rows share a primary key (two spellings of one folder); the later one wins.
-    const write = this.db.prepare(`update or replace ${quote(table)} set ${quote(column)} = ? where rowid = ?`)
+    const write = this.db.query(`update or replace ${quote(table)} set ${quote(column)} = ? where rowid = ?`)
     let written = 0
     let last = -Infinity
     for (;;) {
@@ -73,7 +78,7 @@ class NodeMigrationDatabase implements MigrationDatabase {
           const keys = this.keyColumns(table, columns)
           const absent = keys.map((key) => `m.${quote(key)} is s.${quote(key)}`).join(" and ")
           const result = this.db
-            .prepare(
+            .query(
               `insert or ignore into main.${quote(table)} (${list}) select ${columns.map((c) => `s.${quote(c)}`).join(", ")}
                from source.${quote(table)} s where not exists (select 1 from main.${quote(table)} m where ${absent})`,
             )
@@ -91,7 +96,7 @@ class NodeMigrationDatabase implements MigrationDatabase {
         const keys = this.keyColumns(table, this.sharedColumns(table))
         const absent = keys.map((key) => `m.${quote(key)} is s.${quote(key)}`).join(" and ")
         const row = this.db
-          .prepare(
+          .query(
             `select count(*) as n from source.${quote(table)} s
              where not exists (select 1 from main.${quote(table)} m where ${absent})`,
           )
@@ -111,16 +116,16 @@ class NodeMigrationDatabase implements MigrationDatabase {
     return SESSION_TABLES.filter((table) => present.includes(table)).flatMap((table) =>
       (
         this.db
-          .prepare(`select rowid as rowid, directory, project_id as projectId, path from ${quote(table)} order by rowid`)
+          .query(`select rowid as rowid, directory, project_id as projectId, path from ${quote(table)} order by rowid`)
           .all() as unknown as Omit<SessionRef, "table">[]
       ).map((row) => ({ table, rowid: row.rowid, directory: row.directory, projectId: row.projectId, path: row.path })),
     )
   }
 
   projects(): readonly ProjectRecord[] {
-    const statement = this.db.prepare("select * from project order by rowid")
+    const statement = this.db.query("select * from project order by rowid")
     // Timestamps are read as BigInt so a copied row is written back exactly as it was.
-    statement.setReadBigInts(true)
+    readExactIntegers(statement)
     return statement.all() as unknown as ProjectRecord[]
   }
 
@@ -128,7 +133,7 @@ class NodeMigrationDatabase implements MigrationDatabase {
     return this.tables()
       .filter((table) => !SESSION_TABLES.includes(table))
       .flatMap((table) =>
-        (this.db.prepare(`pragma foreign_key_list(${quote(table)})`).all() as unknown as ForeignKeyRow[])
+        (this.db.query(`pragma foreign_key_list(${quote(table)})`).all() as unknown as ForeignKeyRow[])
           .filter((key) => key.table === "project")
           .map((key) => ({ table, column: key.from })),
       )
@@ -137,30 +142,30 @@ class NodeMigrationDatabase implements MigrationDatabase {
   insertProject(project: ProjectRecord): void {
     const columns = this.columns("project").filter((column) => column in project)
     this.db
-      .prepare(
+      .query(
         `insert or ignore into project (${columns.map(quote).join(", ")}) values (${columns.map(() => "?").join(", ")})`,
       )
-      .run(...columns.map((column) => project[column] as SQLInputValue))
+      .run(...columns.map((column) => project[column] as SQLQueryBindings))
   }
 
   updateProject(id: string, worktree: string, vcs: string | null): void {
-    this.db.prepare("update project set worktree = ?, vcs = ? where id = ?").run(worktree, vcs, id)
+    this.db.query("update project set worktree = ?, vcs = ? where id = ?").run(worktree, vcs, id)
   }
 
   repoint(reference: ProjectReference, from: string, to: string): void {
     const table = quote(reference.table)
     const column = quote(reference.column)
-    this.db.prepare(`update or ignore ${table} set ${column} = ? where ${column} = ?`).run(to, from)
-    this.db.prepare(`delete from ${table} where ${column} = ?`).run(from)
+    this.db.query(`update or ignore ${table} set ${column} = ? where ${column} = ?`).run(to, from)
+    this.db.query(`delete from ${table} where ${column} = ?`).run(from)
   }
 
   deleteProject(id: string): void {
-    this.db.prepare("delete from project where id = ?").run(id)
+    this.db.query("delete from project where id = ?").run(id)
   }
 
   updateSession(session: SessionRef, projectId: string, path: string | null): void {
     this.db
-      .prepare(`update ${quote(session.table)} set project_id = ?, path = ? where rowid = ?`)
+      .query(`update ${quote(session.table)} set project_id = ?, path = ? where rowid = ?`)
       .run(projectId, path, session.rowid)
   }
 
@@ -182,10 +187,10 @@ class NodeMigrationDatabase implements MigrationDatabase {
 
   private withSource<T>(sourcePath: string, work: (shared: readonly string[]) => T): T {
     // Only ever another working copy this migration built, never a migration source itself.
-    this.db.prepare("attach database ? as source").run(sourcePath)
+    this.db.query("attach database ? as source").run(sourcePath)
     try {
       const theirs = this.db
-        .prepare("select name from source.sqlite_master where type = 'table' and name not like 'sqlite_%'")
+        .query("select name from source.sqlite_master where type = 'table' and name not like 'sqlite_%'")
         .all() as unknown as { name: string }[]
       const names = new Set(theirs.map((row) => row.name))
       return work(this.tables().filter((table) => names.has(table)))
@@ -209,17 +214,19 @@ class NodeMigrationDatabase implements MigrationDatabase {
   }
 
   private tableInfo(table: string, schema: string): readonly TableInfoRow[] {
-    return this.db.prepare(`pragma ${schema}.table_info(${quote(table)})`).all() as unknown as TableInfoRow[]
+    return this.db.query(`pragma ${schema}.table_info(${quote(table)})`).all() as unknown as TableInfoRow[]
   }
 
   private count(table: string, schema: string): number {
-    return (this.db.prepare(`select count(*) as n from ${schema}.${quote(table)}`).get() as { n: number }).n
+    return (this.db.query(`select count(*) as n from ${schema}.${quote(table)}`).get() as { n: number }).n
   }
 }
 
 /** The migration's writes, on a working copy only. Foreign keys are enforced by the final check instead. */
-export class NodeMigrationStoreAdapter implements MigrationStorePort {
+export class BunMigrationStoreAdapter implements MigrationStorePort {
+  constructor() {}
+
   open(dbPath: string): MigrationDatabase {
-    return new NodeMigrationDatabase(dbPath)
+    return new BunMigrationDatabase(dbPath)
   }
 }

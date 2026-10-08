@@ -1,4 +1,5 @@
-# Used by `coverage:unit` and `coverage:e2e` (`bun --config=bunfig.coverage.toml test …`).
+# Used by `coverage:unit` (`bun scripts/coverage.mjs unit`); the e2e tier has one file per platform,
+# bunfig.coverage.e2e-<platform>.toml.
 # Separate from bunfig.toml because the per-file 100 % gate applies to the tier
 # being measured: each measured tier must reach it on its own, and a plain
 # `bun test tests/component` must not be gated on coverage at all.

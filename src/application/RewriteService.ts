@@ -1,6 +1,6 @@
-import { UNTOUCHED_TABLES, type RewriteReport } from "#domain/model/Migration.ts"
-import type { MigrationDatabase } from "#domain/ports/outbound/MigrationStorePort.ts"
-import type { TextRewriter } from "#domain/services/PathRewriter.ts"
+import { UNTOUCHED_TABLES, type RewriteReport } from "@session-manager/domain/model/Migration"
+import type { MigrationDatabase } from "@session-manager/domain/ports/outbound/MigrationStorePort"
+import type { TextRewriter } from "@session-manager/domain/services/PathRewriter"
 
 function parses(text: string): boolean {
   try {
@@ -17,6 +17,8 @@ function parses(text: string): boolean {
  * valid JSON is parsed again afterwards, and any that no longer parses is counted as broken.
  */
 export class RewriteService {
+  constructor() {}
+
   rewrite(db: MigrationDatabase, rewriter: TextRewriter, source: string): RewriteReport {
     const byColumn: Record<string, number> = {}
     let broken = 0

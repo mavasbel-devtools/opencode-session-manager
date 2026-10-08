@@ -1,31 +1,31 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { BuildAndVerifyService } from "#application/BuildAndVerifyService.ts"
-import { DatabaseSizesService } from "#application/DatabaseSizesService.ts"
-import { GuardService } from "#application/GuardService.ts"
-import { PreflightUseCase } from "#application/PreflightUseCase.ts"
-import { SwapService } from "#application/SwapService.ts"
-import { FingerprintComparer } from "#domain/services/FingerprintComparer.ts"
-import { ParityPolicy } from "#domain/services/ParityPolicy.ts"
-import { NodeFileSystemAdapter } from "#infrastructure/adapters/outbound/NodeFileSystemAdapter.ts"
-import { NodeSqliteAdapter } from "#infrastructure/adapters/outbound/NodeSqliteAdapter.ts"
-import { platformAdapters } from "#main/platform.ts"
-import { fileSha, makeDatabase } from "#test/support/database.ts"
-import { FakeRuntime } from "#test/support/fakes/runtime.ts"
-import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
+import { BuildAndVerifyService } from "@session-manager/application/BuildAndVerifyService"
+import { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
+import { GuardService } from "@session-manager/application/GuardService"
+import { PreflightUseCase } from "@session-manager/application/PreflightUseCase"
+import { SwapService } from "@session-manager/application/SwapService"
+import { FingerprintComparer } from "@session-manager/domain/services/FingerprintComparer"
+import { ParityPolicy } from "@session-manager/domain/services/ParityPolicy"
+import { NodeMaintenanceFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeMaintenanceFileSystemAdapter"
+import { BunSqliteAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSqliteAdapter"
+import { platformAdapters } from "@session-manager/main/cli/platform"
+import { fileSha, makeDatabase } from "@test/support/maintenance/database"
+import { FakeRuntime } from "@test/support/maintenance/fakes/runtime"
+import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 
 const NO_IMAGE = "no-such-image-opencode-db-compact.exe"
 
-test("component: the real adapters compact a real database and prove parity", () => {
+test("component: the real adapters compact a real database and prove parity", async () => {
   const directory = temporaryWorkspace("oc-compact-component-")
   try {
     const source = join(directory, "opencode.db")
     makeDatabase(source)
     const before = fileSha(source)
-    const fileSystem = new NodeFileSystemAdapter()
-    const sqlite = new NodeSqliteAdapter()
+    const fileSystem = new NodeMaintenanceFileSystemAdapter()
+    const sqlite = new BunSqliteAdapter()
     const service = new BuildAndVerifyService(
       sqlite,
       fileSystem,
@@ -52,14 +52,14 @@ test("component: the real adapters compact a real database and prove parity", ()
   }
 })
 
-test("component: preflight and the guard work against a real database", () => {
+test("component: preflight and the guard work against a real database", async () => {
   const directory = temporaryWorkspace("oc-compact-component-")
   try {
     const dbPath = join(directory, "opencode.db")
     makeDatabase(dbPath)
-    const fileSystem = new NodeFileSystemAdapter()
-    const sqlite = new NodeSqliteAdapter()
-    const { processes, holders } = platformAdapters(process.platform, fileSystem, process.pid)
+    const fileSystem = new NodeMaintenanceFileSystemAdapter()
+    const sqlite = new BunSqliteAdapter()
+    const { processes, holders } = await platformAdapters(process.platform, fileSystem, process.pid)
 
     const report = new PreflightUseCase(sqlite, fileSystem, processes, new DatabaseSizesService(fileSystem)).execute({
       dbPath,
@@ -78,10 +78,10 @@ test("component: preflight and the guard work against a real database", () => {
   }
 })
 
-test("component: the swap service moves real files and restores them when a later move fails", () => {
+test("component: the swap service moves real files and restores them when a later move fails", async () => {
   const directory = temporaryWorkspace("oc-compact-component-")
   try {
-    const fileSystem = new NodeFileSystemAdapter()
+    const fileSystem = new NodeMaintenanceFileSystemAdapter()
     const swapper = new SwapService(fileSystem)
     const dbPath = join(directory, "opencode.db")
     const compacted = join(directory, "compact.db")

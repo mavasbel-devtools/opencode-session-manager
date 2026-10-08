@@ -1,14 +1,14 @@
-import type { BuildAndVerifyService } from "#application/BuildAndVerifyService.ts"
-import type { DatabaseSizesService } from "#application/DatabaseSizesService.ts"
-import type { GuardService } from "#application/GuardService.ts"
-import type { SwapService } from "#application/SwapService.ts"
-import type { RequiredSpacePolicy } from "#domain/services/RequiredSpacePolicy.ts"
-import { baseName, dirName, joinPath } from "#domain/model/Paths.ts"
-import type { CompactInput, CompactOutcome, CompactPort } from "#domain/ports/inbound/CompactPort.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import type { ReportSinkPort } from "#domain/ports/outbound/ReportSinkPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
-import type { SqlitePort } from "#domain/ports/outbound/SqlitePort.ts"
+import type { BuildAndVerifyService } from "@session-manager/application/BuildAndVerifyService"
+import type { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
+import type { GuardService } from "@session-manager/application/GuardService"
+import type { SwapService } from "@session-manager/application/SwapService"
+import type { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
+import { baseName, dirName, joinPath } from "@session-manager/domain/model/DatabasePaths"
+import type { CompactInput, CompactOutcome, CompactPort } from "@session-manager/domain/ports/inbound/CompactPort"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import type { ReportSinkPort } from "@session-manager/domain/ports/outbound/ReportSinkPort"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
 
 /** The offline run: guard, build and verify, swap in only if every check passed, keep the originals. */
 export class CompactUseCase implements CompactPort {
@@ -18,7 +18,7 @@ export class CompactUseCase implements CompactPort {
   private readonly sizes: DatabaseSizesService
   private readonly space: RequiredSpacePolicy
   private readonly sqlite: SqlitePort
-  private readonly fileSystem: FileSystemPort
+  private readonly fileSystem: MaintenanceFileSystemPort
   private readonly reports: ReportSinkPort
   private readonly runtime: RuntimePort
 
@@ -29,7 +29,7 @@ export class CompactUseCase implements CompactPort {
     sizes: DatabaseSizesService,
     space: RequiredSpacePolicy,
     sqlite: SqlitePort,
-    fileSystem: FileSystemPort,
+    fileSystem: MaintenanceFileSystemPort,
     reports: ReportSinkPort,
     runtime: RuntimePort,
   ) {

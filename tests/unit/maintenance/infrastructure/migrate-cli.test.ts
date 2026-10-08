@@ -1,11 +1,11 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
-import type { MigrationVerification } from "#domain/model/Migration.ts"
-import type { MigrateInput, MigrateOutcome, MigratePort } from "#domain/ports/inbound/MigratePort.ts"
-import { CliRouter } from "#infrastructure/adapters/inbound/cli/CliRouter.ts"
-import { MIGRATE_USAGE, MigrateCliAdapter, parseMigrateArguments } from "#infrastructure/adapters/inbound/cli/MigrateCliAdapter.ts"
-import { FakeOutput } from "#test/support/fakes/output.ts"
-import { FakeRuntime } from "#test/support/fakes/runtime.ts"
+import type { MigrationVerification } from "@session-manager/domain/model/Migration"
+import type { MigrateInput, MigrateOutcome, MigratePort } from "@session-manager/domain/ports/inbound/MigratePort"
+import { CliRouter } from "@session-manager/infrastructure/adapters/inbound/cli/CliRouter"
+import { MIGRATE_USAGE, MigrateCliAdapter, parseMigrateArguments } from "@session-manager/infrastructure/adapters/inbound/cli/MigrateCliAdapter"
+import { FakeOutput } from "@test/support/maintenance/fakes/output"
+import { FakeRuntime } from "@test/support/maintenance/fakes/runtime"
 
 const PASSING: MigrationVerification = {
   ok: true,
@@ -205,7 +205,7 @@ test("MigrateCliAdapter run: the database's own folder, then SWAPPED with the un
   assert.deepEqual(swapped.output.lines.slice(-3), [
     "SWAPPED backup=/x/db-backup-1 post_integrity_ok=true",
     "report: /r/report.json",
-    "undo: node src/main/cli.ts rollback /x/db-backup-1 --db /x/opencode.db",
+    "undo: opencode-session-manager rollback /x/db-backup-1 --db /x/opencode.db",
   ])
 
   migrate.outcome = { ...migrate.outcome, postIntegrityOk: false }

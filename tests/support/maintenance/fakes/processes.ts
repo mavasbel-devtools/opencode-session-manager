@@ -1,5 +1,5 @@
-import type { ProcessEntry } from "#domain/model/Database.ts"
-import type { ProcessListPort } from "#domain/ports/outbound/ProcessListPort.ts"
+import type { ProcessEntry } from "@session-manager/domain/model/Database"
+import type { ProcessListPort } from "@session-manager/domain/ports/outbound/ProcessListPort"
 
 /** Reports a fixed set of processes, and records every image it was asked about. */
 export class FakeProcessList implements ProcessListPort {

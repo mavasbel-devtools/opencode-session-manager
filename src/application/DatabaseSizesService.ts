@@ -1,12 +1,12 @@
-import type { SidecarSizes } from "#domain/model/Database.ts"
-import { sidecarPaths } from "#domain/model/Sidecars.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
+import type { SidecarSizes } from "@session-manager/domain/model/Database"
+import { sidecarPaths } from "@session-manager/domain/model/Sidecars"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
 
 /** Measured size of the database and each of its sidecars; `null` for one that does not exist. */
 export class DatabaseSizesService {
-  private readonly fileSystem: FileSystemPort
+  private readonly fileSystem: MaintenanceFileSystemPort
 
-  constructor(fileSystem: FileSystemPort) {
+  constructor(fileSystem: MaintenanceFileSystemPort) {
     this.fileSystem = fileSystem
   }
 

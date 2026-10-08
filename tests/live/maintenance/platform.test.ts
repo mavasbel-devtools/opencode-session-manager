@@ -1,17 +1,17 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
-import { defaultDatabasePath } from "#domain/model/Database.ts"
-import { platformAdapters } from "#main/platform.ts"
-import { NodeFileSystemAdapter } from "#infrastructure/adapters/outbound/NodeFileSystemAdapter.ts"
+import { defaultDatabasePath } from "@session-manager/domain/model/Database"
+import { platformAdapters } from "@session-manager/main/cli/platform"
+import { NodeMaintenanceFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeMaintenanceFileSystemAdapter"
 
 /**
  * Read-only: the platform adapters asked about the real OpenCode database and the real OpenCode
  * processes. Neither adapter opens the database, so this runs while OpenCode is using it.
  */
 const liveDatabase = defaultDatabasePath({ XDG_DATA_HOME: process.env["XDG_DATA_HOME"] }, homedir())
-const { processes, holders, image } = platformAdapters(process.platform, new NodeFileSystemAdapter(), process.pid)
+const { processes, holders, image } = await platformAdapters(process.platform, new NodeMaintenanceFileSystemAdapter(), process.pid)
 const running = processes.list(image)
 const skip =
   process.platform !== "linux"
@@ -22,7 +22,7 @@ const skip =
         ? `no ${image} process is running`
         : false
 
-test("the running OpenCode is found holding the live database, by name and pid", { skip }, () => {
+test.skipIf(skip !== false)("the running OpenCode is found holding the live database, by name and pid", async () => {
   const holder = holders.heldBy(liveDatabase)
   assert.notEqual(holder, null, `${liveDatabase} is reported as held while ${image} runs`)
   const named = (holder ?? "").split(", ")

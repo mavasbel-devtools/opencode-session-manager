@@ -2,9 +2,9 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
-import { GLOBAL_PROJECT, type ProjectIdentity } from "#domain/model/Migration.ts"
-import type { ProjectIdentityPort } from "#domain/ports/outbound/ProjectIdentityPort.ts"
-import { normalizeRemote } from "#domain/services/GitRemote.ts"
+import { GLOBAL_PROJECT, type ProjectIdentity } from "@session-manager/domain/model/Migration"
+import type { ProjectIdentityPort } from "@session-manager/domain/ports/outbound/ProjectIdentityPort"
+import { normalizeRemote } from "@session-manager/domain/services/GitRemote"
 
 function sha1(text: string): string {
   return createHash("sha1").update(text).digest("hex")

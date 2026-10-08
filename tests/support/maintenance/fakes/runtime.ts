@@ -1,4 +1,4 @@
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 
 /** Deterministic runtime: the clock advances one tick per read, and every name is pinned. */
 export class FakeRuntime implements RuntimePort {

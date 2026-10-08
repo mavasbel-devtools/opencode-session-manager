@@ -1,4 +1,4 @@
-import type { OutputPort } from "#domain/ports/outbound/OutputPort.ts"
+import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
 
 /** Collects the lines the CLI would print. */
 export class FakeOutput implements OutputPort {

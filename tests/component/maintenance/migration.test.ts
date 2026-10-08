@@ -1,24 +1,24 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
 import { join } from "node:path"
-import { MigrationVerifier } from "#application/MigrationVerifier.ts"
-import { RekeyService } from "#application/RekeyService.ts"
-import { RewriteService } from "#application/RewriteService.ts"
-import { PathRewriter } from "#domain/services/PathRewriter.ts"
-import { GitProjectIdentityAdapter } from "#infrastructure/adapters/outbound/GitProjectIdentityAdapter.ts"
-import { NodeMigrationStoreAdapter } from "#infrastructure/adapters/outbound/NodeMigrationStoreAdapter.ts"
-import { NodeSqliteAdapter } from "#infrastructure/adapters/outbound/NodeSqliteAdapter.ts"
-import { fileSha } from "#test/support/database.ts"
-import { FakeRuntime } from "#test/support/fakes/runtime.ts"
-import { makeMigrationWorld, MOUNT, query, WINDOWS_USER } from "#test/support/migration.ts"
-import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
+import { MigrationVerifier } from "@session-manager/application/MigrationVerifier"
+import { RekeyService } from "@session-manager/application/RekeyService"
+import { RewriteService } from "@session-manager/application/RewriteService"
+import { PathRewriter } from "@session-manager/domain/services/PathRewriter"
+import { GitProjectIdentityAdapter } from "@session-manager/infrastructure/adapters/outbound/project/GitProjectIdentityAdapter"
+import { BunMigrationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMigrationStoreAdapter"
+import { BunSqliteAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSqliteAdapter"
+import { fileSha } from "@test/support/maintenance/database"
+import { FakeRuntime } from "@test/support/maintenance/fakes/runtime"
+import { makeMigrationWorld, MOUNT, query, WINDOWS_USER } from "@test/support/maintenance/migration"
+import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 
 test("component: rewrite, merge, re-key and verify on real copies with real folders and real git", () => {
   const directory = temporaryWorkspace("oc-migrate-component-")
   try {
     const world = makeMigrationWorld(directory)
-    const sqlite = new NodeSqliteAdapter()
-    const store = new NodeMigrationStoreAdapter()
+    const sqlite = new BunSqliteAdapter()
+    const store = new BunMigrationStoreAdapter()
     const identity = new GitProjectIdentityAdapter()
     const rewriter = new PathRewriter({
       home: world.home,

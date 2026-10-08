@@ -1,14 +1,12 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
-import {
-  DatabaseHeldError,
-  DatabaseNotFoundError,
-  InsufficientSpaceError,
-  MissingOriginalError,
-  ProcessRunningError,
-  SwapFailedError,
-  TargetExistsError,
-} from "#domain/errors/DomainErrors.ts"
+import { DatabaseHeldError } from "@session-manager/domain/errors/DatabaseHeldError"
+import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNotFoundError"
+import { InsufficientSpaceError } from "@session-manager/domain/errors/InsufficientSpaceError"
+import { MissingOriginalError } from "@session-manager/domain/errors/MissingOriginalError"
+import { ProcessRunningError } from "@session-manager/domain/errors/ProcessRunningError"
+import { SwapFailedError } from "@session-manager/domain/errors/SwapFailedError"
+import { TargetExistsError } from "@session-manager/domain/errors/TargetExistsError"
 
 test("every error carries its exact operator-facing message and name", () => {
   const held = new DatabaseHeldError("C:/db/opencode.db", "EBUSY")

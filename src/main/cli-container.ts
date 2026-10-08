@@ -1,44 +1,51 @@
-import { BuildAndVerifyService } from "#application/BuildAndVerifyService.ts"
-import { CompactUseCase } from "#application/CompactUseCase.ts"
-import { DatabaseSizesService } from "#application/DatabaseSizesService.ts"
-import { GuardService } from "#application/GuardService.ts"
-import { MigrateUseCase } from "#application/MigrateUseCase.ts"
-import { MigrationVerifier } from "#application/MigrationVerifier.ts"
-import { PreflightUseCase } from "#application/PreflightUseCase.ts"
-import { RehearseUseCase } from "#application/RehearseUseCase.ts"
-import { RekeyService } from "#application/RekeyService.ts"
-import { RewriteService } from "#application/RewriteService.ts"
-import { RollbackUseCase } from "#application/RollbackUseCase.ts"
-import { SwapService } from "#application/SwapService.ts"
-import { joinPath } from "#domain/model/Paths.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import type { MigrationStorePort } from "#domain/ports/outbound/MigrationStorePort.ts"
-import type { OutputPort } from "#domain/ports/outbound/OutputPort.ts"
-import type { DatabaseHoldersPort } from "#domain/ports/outbound/DatabaseHoldersPort.ts"
-import type { ProcessListPort } from "#domain/ports/outbound/ProcessListPort.ts"
-import type { ProjectIdentityPort } from "#domain/ports/outbound/ProjectIdentityPort.ts"
-import type { ReportSinkPort } from "#domain/ports/outbound/ReportSinkPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
-import type { SqlitePort } from "#domain/ports/outbound/SqlitePort.ts"
-import { FingerprintComparer } from "#domain/services/FingerprintComparer.ts"
-import { ParityPolicy } from "#domain/services/ParityPolicy.ts"
-import { RequiredSpacePolicy } from "#domain/services/RequiredSpacePolicy.ts"
-import { CliRouter } from "#infrastructure/adapters/inbound/cli/CliRouter.ts"
-import { CompactCliAdapter, type CliEnvironment } from "#infrastructure/adapters/inbound/cli/CompactCliAdapter.ts"
-import { MigrateCliAdapter } from "#infrastructure/adapters/inbound/cli/MigrateCliAdapter.ts"
-import { ConsoleOutputAdapter } from "#infrastructure/adapters/outbound/ConsoleOutputAdapter.ts"
-import { GitProjectIdentityAdapter } from "#infrastructure/adapters/outbound/GitProjectIdentityAdapter.ts"
-import { JsonReportAdapter } from "#infrastructure/adapters/outbound/JsonReportAdapter.ts"
-import { NodeFileSystemAdapter } from "#infrastructure/adapters/outbound/NodeFileSystemAdapter.ts"
-import { NodeMigrationStoreAdapter } from "#infrastructure/adapters/outbound/NodeMigrationStoreAdapter.ts"
-import { NodeSqliteAdapter } from "#infrastructure/adapters/outbound/NodeSqliteAdapter.ts"
-import { SystemClockAdapter } from "#infrastructure/adapters/outbound/SystemClockAdapter.ts"
-import { platformAdapters } from "#main/platform.ts"
+import { BuildAndVerifyService } from "@session-manager/application/BuildAndVerifyService"
+import { CompactUseCase } from "@session-manager/application/CompactUseCase"
+import { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
+import { GuardService } from "@session-manager/application/GuardService"
+import { MigrateUseCase } from "@session-manager/application/MigrateUseCase"
+import { MigrationVerifier } from "@session-manager/application/MigrationVerifier"
+import { PreflightUseCase } from "@session-manager/application/PreflightUseCase"
+import { RehearseUseCase } from "@session-manager/application/RehearseUseCase"
+import { RekeyService } from "@session-manager/application/RekeyService"
+import { RewriteService } from "@session-manager/application/RewriteService"
+import { RollbackUseCase } from "@session-manager/application/RollbackUseCase"
+import { SwapService } from "@session-manager/application/SwapService"
+import { joinPath } from "@session-manager/domain/model/DatabasePaths"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import type { MigrationStorePort } from "@session-manager/domain/ports/outbound/MigrationStorePort"
+import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
+import type { DatabaseHoldersPort } from "@session-manager/domain/ports/outbound/DatabaseHoldersPort"
+import type { ProcessListPort } from "@session-manager/domain/ports/outbound/ProcessListPort"
+import type { ProjectIdentityPort } from "@session-manager/domain/ports/outbound/ProjectIdentityPort"
+import type { ReportSinkPort } from "@session-manager/domain/ports/outbound/ReportSinkPort"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
+import { FingerprintComparer } from "@session-manager/domain/services/FingerprintComparer"
+import { ParityPolicy } from "@session-manager/domain/services/ParityPolicy"
+import type { PathMapping } from "@session-manager/domain/model/Migration"
+import { PathRewriter, type TextRewriter } from "@session-manager/domain/services/PathRewriter"
+import { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
+import { CliRouter } from "@session-manager/infrastructure/adapters/inbound/cli/CliRouter"
+import { CompactCliAdapter, type CliEnvironment } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
+import { MigrateCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/MigrateCliAdapter"
+import { ConsoleOutputAdapter } from "@session-manager/infrastructure/adapters/outbound/system/ConsoleOutputAdapter"
+import { GitProjectIdentityAdapter } from "@session-manager/infrastructure/adapters/outbound/project/GitProjectIdentityAdapter"
+import { JsonReportAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/JsonReportAdapter"
+import { NodeMaintenanceFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeMaintenanceFileSystemAdapter"
+import { BunMigrationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMigrationStoreAdapter"
+import { BunSqliteAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSqliteAdapter"
+import { SystemClockAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemClockAdapter"
+import { platformAdapters } from "@session-manager/main/cli/platform"
+
+/** The rewriter for one migration's mapping; a migration builds one per run. */
+export function rewriterFor(mapping: PathMapping): TextRewriter {
+  return new PathRewriter(mapping)
+}
 
 /** Outbound adapters a test may replace. Everything else is wired here and nowhere else. */
 export interface ContainerOverrides {
   readonly sqlite?: SqlitePort
-  readonly fileSystem?: FileSystemPort
+  readonly fileSystem?: MaintenanceFileSystemPort
   readonly processes?: ProcessListPort
   readonly holders?: DatabaseHoldersPort
   readonly identity?: ProjectIdentityPort
@@ -55,17 +62,17 @@ export interface Cli {
 }
 
 /** The single composition root: the one place that constructs adapters and use cases. */
-export function buildContainer(environment: CliEnvironment, overrides: ContainerOverrides = {}): Cli {
+export async function buildContainer(environment: CliEnvironment, overrides: ContainerOverrides = {}): Promise<Cli> {
   const runtime = overrides.runtime ?? new SystemClockAdapter()
-  const fileSystem = overrides.fileSystem ?? new NodeFileSystemAdapter()
-  const platform = platformAdapters(runtime.platform(), fileSystem, runtime.pid())
+  const fileSystem = overrides.fileSystem ?? new NodeMaintenanceFileSystemAdapter()
+  const platform = await platformAdapters(runtime.platform(), fileSystem, runtime.pid())
   const processes = overrides.processes ?? platform.processes
   const holders = overrides.holders ?? platform.holders
   const output = overrides.output ?? new ConsoleOutputAdapter()
   const reports = overrides.reports ?? new JsonReportAdapter()
-  const sqlite = overrides.sqlite ?? new NodeSqliteAdapter()
+  const sqlite = overrides.sqlite ?? new BunSqliteAdapter()
   const identity = overrides.identity ?? new GitProjectIdentityAdapter()
-  const store = overrides.store ?? new NodeMigrationStoreAdapter()
+  const store = overrides.store ?? new BunMigrationStoreAdapter()
   const space = overrides.space ?? new RequiredSpacePolicy()
 
   const sizes = new DatabaseSizesService(fileSystem)
@@ -111,6 +118,7 @@ export function buildContainer(environment: CliEnvironment, overrides: Container
       sizes,
       space,
       rewriteService: new RewriteService(),
+      rewriterFor,
       rekeyService: new RekeyService(identity, runtime),
       verifier: new MigrationVerifier(sqlite, identity),
       store,

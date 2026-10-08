@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, renameSync, rmdirSync, rmSync, statSync, statfsSync } from "node:fs"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
 
 /** The only place `node:fs` is used. */
-export class NodeFileSystemAdapter implements FileSystemPort {
+export class NodeMaintenanceFileSystemAdapter implements MaintenanceFileSystemPort {
+  constructor() {}
+
   exists(path: string): boolean {
     return existsSync(path)
   }

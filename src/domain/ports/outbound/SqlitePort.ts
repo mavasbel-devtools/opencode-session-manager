@@ -1,4 +1,4 @@
-import type { Fingerprint, IntegrityReport, JournalMode, PageStats } from "#domain/model/Database.ts"
+import type { Fingerprint, IntegrityReport, JournalMode, PageStats } from "@session-manager/domain/model/Database"
 
 /** Everything this tool asks SQLite to do. The source database is only ever opened read-only. */
 export interface SqlitePort {

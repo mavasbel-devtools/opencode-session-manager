@@ -1,18 +1,18 @@
-import type { BuildAndVerifyService } from "#application/BuildAndVerifyService.ts"
-import type { DatabaseSizesService } from "#application/DatabaseSizesService.ts"
-import { joinPath } from "#domain/model/Paths.ts"
-import type { RehearseInput, RehearseOutcome, RehearsePort } from "#domain/ports/inbound/RehearsePort.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import type { ReportSinkPort } from "#domain/ports/outbound/ReportSinkPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
-import type { SqlitePort } from "#domain/ports/outbound/SqlitePort.ts"
+import type { BuildAndVerifyService } from "@session-manager/application/BuildAndVerifyService"
+import type { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
+import { joinPath } from "@session-manager/domain/model/DatabasePaths"
+import type { RehearseInput, RehearseOutcome, RehearsePort } from "@session-manager/domain/ports/inbound/RehearsePort"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import type { ReportSinkPort } from "@session-manager/domain/ports/outbound/ReportSinkPort"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
 
 /** Builds and checks a compacted copy without touching the live database, then keeps or deletes the copy. */
 export class RehearseUseCase implements RehearsePort {
   private readonly buildAndVerify: BuildAndVerifyService
   private readonly sizes: DatabaseSizesService
   private readonly sqlite: SqlitePort
-  private readonly fileSystem: FileSystemPort
+  private readonly fileSystem: MaintenanceFileSystemPort
   private readonly reports: ReportSinkPort
   private readonly runtime: RuntimePort
 
@@ -20,7 +20,7 @@ export class RehearseUseCase implements RehearsePort {
     buildAndVerify: BuildAndVerifyService,
     sizes: DatabaseSizesService,
     sqlite: SqlitePort,
-    fileSystem: FileSystemPort,
+    fileSystem: MaintenanceFileSystemPort,
     reports: ReportSinkPort,
     runtime: RuntimePort,
   ) {

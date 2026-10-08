@@ -1,13 +1,13 @@
-import { defaultDatabasePath } from "#domain/model/Database.ts"
-import type { Relocation } from "#domain/model/Migration.ts"
-import { dirName } from "#domain/model/Paths.ts"
-import type { MigrateOutcome, MigratePort } from "#domain/ports/inbound/MigratePort.ts"
-import type { OutputPort } from "#domain/ports/outbound/OutputPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
-import type { CliEnvironment } from "#infrastructure/adapters/inbound/cli/CompactCliAdapter.ts"
+import { defaultDatabasePath } from "@session-manager/domain/model/Database"
+import type { Relocation } from "@session-manager/domain/model/Migration"
+import { dirName } from "@session-manager/domain/model/DatabasePaths"
+import type { MigrateOutcome, MigratePort } from "@session-manager/domain/ports/inbound/MigratePort"
+import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import type { CliEnvironment } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
 
 export const MIGRATE_USAGE =
-  "usage: node src/main/cli.ts migrate <rehearse|run> --from <db> [--from <db>]... --windows-user <name> " +
+  "usage: opencode-session-manager migrate <rehearse|run> --from <db> [--from <db>]... --windows-user <name> " +
   "[--drive <letter>] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--db <path>] [--keep]"
 
 export interface MigrateArguments {
@@ -130,7 +130,7 @@ export class MigrateCliAdapter {
     }
     output.line(`SWAPPED backup=${outcome.backupDir} post_integrity_ok=${outcome.postIntegrityOk}`)
     output.line(`report: ${outcome.reportPath}`)
-    output.line(`undo: node src/main/cli.ts rollback ${outcome.backupDir} --db ${dbPath}`)
+    output.line(`undo: opencode-session-manager rollback ${outcome.backupDir} --db ${dbPath}`)
     return outcome.postIntegrityOk ? 0 : 1
   }
 

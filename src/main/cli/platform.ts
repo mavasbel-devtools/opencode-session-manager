@@ -1,9 +1,7 @@
-import { UnsupportedPlatformError } from "#domain/errors/DomainErrors.ts"
-import type { DatabaseHoldersPort } from "#domain/ports/outbound/DatabaseHoldersPort.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import type { ProcessListPort } from "#domain/ports/outbound/ProcessListPort.ts"
-import { linuxAdapters } from "#main/platform/linux.ts"
-import { win32Adapters } from "#main/platform/win32.ts"
+import { UnsupportedPlatformError } from "@session-manager/domain/errors/UnsupportedPlatformError"
+import type { DatabaseHoldersPort } from "@session-manager/domain/ports/outbound/DatabaseHoldersPort"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import type { ProcessListPort } from "@session-manager/domain/ports/outbound/ProcessListPort"
 
 /** The operating-system-specific half of the tool: who is running, who holds the file, and OpenCode's process name. */
 export interface PlatformAdapters {
@@ -13,19 +11,23 @@ export interface PlatformAdapters {
   readonly image: string
 }
 
-export type PlatformFactory = (fileSystem: FileSystemPort, pid: number) => PlatformAdapters
+export type PlatformFactory = (fileSystem: MaintenanceFileSystemPort, pid: number) => PlatformAdapters
 
 /**
- * Each supported `process.platform` value and its wiring. A platform's code lives only in
- * `src/main/platform/<platform>.ts` and `src/infrastructure/adapters/outbound/platform/<platform>/`;
- * the e2e coverage gate measures those folders on their own platform only (see AGENTS.md).
+ * Each supported `process.platform` value and its wiring, loaded on demand: a platform's code
+ * lives only in `src/main/<platform>-container.ts` and
+ * `src/infrastructure/adapters/outbound/platform/<platform>/`, and is never loaded on another
+ * platform, so the e2e coverage gate measures each platform's files on that platform only.
  */
-const FACTORIES: Readonly<Record<string, PlatformFactory>> = { linux: linuxAdapters, win32: win32Adapters }
+const LOADERS: Readonly<Record<string, () => Promise<PlatformFactory>>> = {
+  linux: async () => (await import("@session-manager/main/linux-container")).linuxAdapters,
+  win32: async () => (await import("@session-manager/main/win32-container")).win32Adapters,
+}
 
-export const SUPPORTED_PLATFORMS: readonly string[] = Object.keys(FACTORIES)
+export const SUPPORTED_PLATFORMS: readonly string[] = Object.keys(LOADERS)
 
-export function platformAdapters(platform: string, fileSystem: FileSystemPort, pid: number): PlatformAdapters {
-  const factory = Object.hasOwn(FACTORIES, platform) ? FACTORIES[platform] : undefined
-  if (factory === undefined) throw new UnsupportedPlatformError(platform, SUPPORTED_PLATFORMS)
-  return factory(fileSystem, pid)
+export async function platformAdapters(platform: string, fileSystem: MaintenanceFileSystemPort, pid: number): Promise<PlatformAdapters> {
+  const load = Object.hasOwn(LOADERS, platform) ? LOADERS[platform] : undefined
+  if (load === undefined) throw new UnsupportedPlatformError(platform, SUPPORTED_PLATFORMS)
+  return (await load())(fileSystem, pid)
 }

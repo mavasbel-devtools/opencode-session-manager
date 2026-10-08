@@ -1,4 +1,4 @@
-import type { ComparisonResult, IntegrityReport, PageStats } from "#domain/model/Database.ts"
+import type { ComparisonResult, IntegrityReport, PageStats } from "@session-manager/domain/model/Database"
 
 /** The six checks a compacted copy has to pass, in the order the CLI prints them. */
 export interface BuildChecks {

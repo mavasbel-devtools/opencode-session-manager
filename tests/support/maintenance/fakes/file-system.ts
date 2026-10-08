@@ -1,7 +1,7 @@
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
 
 /** In-memory file system: enough for every use case, including a rename that fails on demand. */
-export class FakeFileSystem implements FileSystemPort {
+export class FakeFileSystem implements MaintenanceFileSystemPort {
   private readonly files = new Map<string, string>()
   private readonly directories = new Set<string>()
 

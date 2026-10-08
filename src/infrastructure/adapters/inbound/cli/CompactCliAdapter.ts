@@ -1,11 +1,11 @@
-import type { BuildAndVerifyResult } from "#domain/model/Build.ts"
-import { defaultDatabasePath } from "#domain/model/Database.ts"
-import type { CompactPort } from "#domain/ports/inbound/CompactPort.ts"
-import type { PreflightPort } from "#domain/ports/inbound/PreflightPort.ts"
-import type { RehearsePort } from "#domain/ports/inbound/RehearsePort.ts"
-import type { RollbackPort } from "#domain/ports/inbound/RollbackPort.ts"
-import type { OutputPort } from "#domain/ports/outbound/OutputPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
+import type { BuildAndVerifyResult } from "@session-manager/domain/model/Build"
+import { defaultDatabasePath } from "@session-manager/domain/model/Database"
+import type { CompactPort } from "@session-manager/domain/ports/inbound/CompactPort"
+import type { PreflightPort } from "@session-manager/domain/ports/inbound/PreflightPort"
+import type { RehearsePort } from "@session-manager/domain/ports/inbound/RehearsePort"
+import type { RollbackPort } from "@session-manager/domain/ports/inbound/RollbackPort"
+import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 
 export interface CliEnvironment {
   readonly XDG_DATA_HOME?: string | undefined
@@ -15,7 +15,7 @@ export interface CliEnvironment {
 }
 
 export const USAGE =
-  "usage: node src/main/cli.ts <preflight|rehearse|run|rollback <backupDir>|migrate …> [--db <path>] [--keep]"
+  "usage: opencode-session-manager <preflight|rehearse|run|rollback <backupDir>|migrate …> [--db <path>] [--keep]"
 
 export interface CliArguments {
   readonly mode: string | undefined

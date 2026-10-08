@@ -1,4 +1,4 @@
-import type { ReportSinkPort } from "#domain/ports/outbound/ReportSinkPort.ts"
+import type { ReportSinkPort } from "@session-manager/domain/ports/outbound/ReportSinkPort"
 
 export interface WrittenReport {
   readonly path: string

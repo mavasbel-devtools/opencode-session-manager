@@ -1,21 +1,21 @@
-import type { DatabaseSizesService } from "#application/DatabaseSizesService.ts"
-import type { GuardService } from "#application/GuardService.ts"
-import type { MigrationVerifier } from "#application/MigrationVerifier.ts"
-import type { RekeyService } from "#application/RekeyService.ts"
-import type { RewriteService } from "#application/RewriteService.ts"
-import type { SwapService } from "#application/SwapService.ts"
-import { DatabaseNotFoundError } from "#domain/errors/DomainErrors.ts"
-import type { MergeReport, MigrationVerification, RekeyReport } from "#domain/model/Migration.ts"
-import { baseName, dirName, joinPath } from "#domain/model/Paths.ts"
-import { SIDECARS } from "#domain/model/Sidecars.ts"
-import type { MigrateInput, MigrateOutcome, MigratePort } from "#domain/ports/inbound/MigratePort.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import type { MigrationStorePort } from "#domain/ports/outbound/MigrationStorePort.ts"
-import type { ReportSinkPort } from "#domain/ports/outbound/ReportSinkPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
-import type { SqlitePort } from "#domain/ports/outbound/SqlitePort.ts"
-import { PathRewriter } from "#domain/services/PathRewriter.ts"
-import type { RequiredSpacePolicy } from "#domain/services/RequiredSpacePolicy.ts"
+import type { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
+import type { GuardService } from "@session-manager/application/GuardService"
+import type { MigrationVerifier } from "@session-manager/application/MigrationVerifier"
+import type { RekeyService } from "@session-manager/application/RekeyService"
+import type { RewriteService } from "@session-manager/application/RewriteService"
+import type { SwapService } from "@session-manager/application/SwapService"
+import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNotFoundError"
+import type { MergeReport, MigrationVerification, PathMapping, RekeyReport } from "@session-manager/domain/model/Migration"
+import { baseName, dirName, joinPath } from "@session-manager/domain/model/DatabasePaths"
+import { SIDECARS } from "@session-manager/domain/model/Sidecars"
+import type { MigrateInput, MigrateOutcome, MigratePort } from "@session-manager/domain/ports/inbound/MigratePort"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import type { MigrationStorePort } from "@session-manager/domain/ports/outbound/MigrationStorePort"
+import type { ReportSinkPort } from "@session-manager/domain/ports/outbound/ReportSinkPort"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
+import type { TextRewriter } from "@session-manager/domain/services/PathRewriter"
+import type { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
 
 export interface MigrateCollaborators {
   readonly guard: GuardService
@@ -23,11 +23,13 @@ export interface MigrateCollaborators {
   readonly sizes: DatabaseSizesService
   readonly space: RequiredSpacePolicy
   readonly rewriteService: RewriteService
+  /** Builds the rewriter for one migration's mapping (the composition root passes `PathRewriter`). */
+  readonly rewriterFor: (mapping: PathMapping) => TextRewriter
   readonly rekeyService: RekeyService
   readonly verifier: MigrationVerifier
   readonly store: MigrationStorePort
   readonly sqlite: SqlitePort
-  readonly fileSystem: FileSystemPort
+  readonly fileSystem: MaintenanceFileSystemPort
   readonly reports: ReportSinkPort
   readonly runtime: RuntimePort
 }
@@ -64,7 +66,7 @@ export class MigrateUseCase implements MigratePort {
     const copies = inputs.map((path, index) => joinPath(work, index === 0 ? "base.db" : `source-${index}.db`))
     inputs.forEach((path, index) => c.sqlite.vacuumInto(path, copies[index] as string))
 
-    const rewriter = new PathRewriter(input.mapping)
+    const rewriter = c.rewriterFor(input.mapping)
     const rewrites = copies.map((copy, index) =>
       this.withDatabase(copy, (db) => c.rewriteService.rewrite(db, rewriter, inputs[index] as string)),
     )

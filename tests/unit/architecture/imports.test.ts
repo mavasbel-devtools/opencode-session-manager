@@ -64,14 +64,26 @@ describe("hexagonal architecture", () => {
   })
 
   it("only main/ imports a composition root", () => {
-    const roots = ["@session-manager/main/server-container", "@session-manager/main/tui-container", "@session-manager/main/v1-container"]
+    const roots = [
+      "@session-manager/main/server-container",
+      "@session-manager/main/tui-container",
+      "@session-manager/main/v1-container",
+      "@session-manager/main/cli-container",
+    ]
     for (const file of files.filter((entry) => layer(entry) !== "main"))
       for (const root of roots) expect(importsOf(file).includes(root)).toBe(false)
   })
 
-  it("keeps one composition root per runtime (v2 server, v2 TUI, v1 TUI), so the server bundle never pulls in the TUI view", () => {
+  it("keeps one composition root per runtime (v2 server, v2 TUI, v1 TUI, CLI and its platform halves), so the server bundle never pulls in the TUI view", () => {
     const roots = files.filter((file) => /^main\/\w+-container\.ts$/.test(relative(file))).map(relative)
-    expect(roots).toEqual(["main/server-container.ts", "main/tui-container.ts", "main/v1-container.ts"])
+    expect(roots).toEqual([
+      "main/cli-container.ts",
+      "main/linux-container.ts",
+      "main/server-container.ts",
+      "main/tui-container.ts",
+      "main/v1-container.ts",
+      "main/win32-container.ts",
+    ])
     const serverGraph = new Set<string>()
     const walk = (entry: string) => {
       if (serverGraph.has(entry)) return

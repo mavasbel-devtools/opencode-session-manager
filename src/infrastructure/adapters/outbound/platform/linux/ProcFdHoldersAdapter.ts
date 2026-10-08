@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, readlinkSync, realpathSync } from "node:fs"
 import { basename, dirname, join, resolve } from "node:path"
-import type { DatabaseHoldersPort } from "#domain/ports/outbound/DatabaseHoldersPort.ts"
-import { isPid, readProc } from "#infrastructure/adapters/outbound/platform/linux/ProcFs.ts"
+import type { DatabaseHoldersPort } from "@session-manager/domain/ports/outbound/DatabaseHoldersPort"
+import { isPid, readProc } from "@session-manager/infrastructure/adapters/outbound/platform/linux/ProcFs"
 
 const SIDECARS = ["", "-wal", "-shm", "-journal"]
 

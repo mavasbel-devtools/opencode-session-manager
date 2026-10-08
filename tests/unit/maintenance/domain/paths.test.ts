@@ -1,8 +1,8 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
-import { defaultDatabasePath } from "#domain/model/Database.ts"
-import { baseName, dirName, joinPath } from "#domain/model/Paths.ts"
-import { SIDECARS, sidecarPaths } from "#domain/model/Sidecars.ts"
+import { defaultDatabasePath } from "@session-manager/domain/model/Database"
+import { baseName, dirName, joinPath } from "@session-manager/domain/model/DatabasePaths"
+import { SIDECARS, sidecarPaths } from "@session-manager/domain/model/Sidecars"
 
 test("baseName understands both separators and a bare name", () => {
   assert.equal(baseName("C:/a/b/opencode.db"), "opencode.db")

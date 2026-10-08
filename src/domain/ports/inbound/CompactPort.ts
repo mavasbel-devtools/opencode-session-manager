@@ -1,4 +1,4 @@
-import type { BuildAndVerifyResult } from "#domain/model/Build.ts"
+import type { BuildAndVerifyResult } from "@session-manager/domain/model/Build"
 
 export interface CompactInput {
   readonly dbPath: string

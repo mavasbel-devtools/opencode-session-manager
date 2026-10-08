@@ -1,11 +1,10 @@
-import { pathToFileURL } from "node:url"
-import { buildContainer } from "#main/container.ts"
-import type { CliEnvironment } from "#infrastructure/adapters/inbound/cli/CompactCliAdapter.ts"
+import type { CliEnvironment } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
+import { buildContainer } from "@session-manager/main/cli-container"
 
 /** Builds the container and runs one command, converting a thrown error into the `ERROR:` line and exit 1. */
-export function bootstrap(argv: readonly string[], environment: CliEnvironment): number {
+export async function bootstrap(argv: readonly string[], environment: CliEnvironment): Promise<number> {
   try {
-    return buildContainer(environment).run(argv)
+    return (await buildContainer(environment)).run(argv)
   } catch (error) {
     console.error(`ERROR: ${error instanceof Error ? error.message : String(error)}`)
     return 1
@@ -13,4 +12,4 @@ export function bootstrap(argv: readonly string[], environment: CliEnvironment):
 }
 
 // Only when this file is the process entrypoint; never when a test imports it.
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = bootstrap(process.argv.slice(2), process.env)
+if (import.meta.main) process.exitCode = await bootstrap(process.argv.slice(2), process.env as CliEnvironment)

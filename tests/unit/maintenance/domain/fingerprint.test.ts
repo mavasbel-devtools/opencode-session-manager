@@ -1,9 +1,9 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
-import type { Fingerprint } from "#domain/model/Database.ts"
-import { FingerprintComparer } from "#domain/services/FingerprintComparer.ts"
-import { ParityPolicy } from "#domain/services/ParityPolicy.ts"
-import { RequiredSpacePolicy } from "#domain/services/RequiredSpacePolicy.ts"
+import type { Fingerprint } from "@session-manager/domain/model/Database"
+import { FingerprintComparer } from "@session-manager/domain/services/FingerprintComparer"
+import { ParityPolicy } from "@session-manager/domain/services/ParityPolicy"
+import { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
 
 const base: Fingerprint = {
   schema: [{ type: "table", name: "t", tblName: "t", sql: "create table t(x)" }],

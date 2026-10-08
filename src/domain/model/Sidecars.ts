@@ -1,4 +1,4 @@
-import { baseName } from "#domain/model/Paths.ts"
+import { baseName } from "@session-manager/domain/model/DatabasePaths"
 
 /** The three files SQLite keeps for one database: the database itself and its two sidecars. */
 export const SIDECARS = ["", "-wal", "-shm"] as const

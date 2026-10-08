@@ -1,4 +1,4 @@
-import type { PageStats, ProcessEntry, SidecarSizes } from "#domain/model/Database.ts"
+import type { PageStats, ProcessEntry, SidecarSizes } from "@session-manager/domain/model/Database"
 
 export interface PreflightInput {
   readonly dbPath: string

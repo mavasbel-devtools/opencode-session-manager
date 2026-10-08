@@ -1,4 +1,4 @@
-import type { PathMapping } from "#domain/model/Migration.ts"
+import type { PathMapping } from "@session-manager/domain/model/Migration"
 
 /** Escapes a literal for use inside a regular expression. */
 function literal(text: string): string {

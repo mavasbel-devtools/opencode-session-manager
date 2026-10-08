@@ -1,9 +1,9 @@
-import type { BuildAndVerifyResult, BuildChecks } from "#domain/model/Build.ts"
-import type { FingerprintComparer } from "#domain/services/FingerprintComparer.ts"
-import type { ParityPolicy } from "#domain/services/ParityPolicy.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
-import type { SqlitePort } from "#domain/ports/outbound/SqlitePort.ts"
+import type { BuildAndVerifyResult, BuildChecks } from "@session-manager/domain/model/Build"
+import type { FingerprintComparer } from "@session-manager/domain/services/FingerprintComparer"
+import type { ParityPolicy } from "@session-manager/domain/services/ParityPolicy"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
 
 export interface BuildAndVerifyInput {
   readonly source: string
@@ -15,14 +15,14 @@ export interface BuildAndVerifyInput {
 /** Builds the compacted copy and proves it, returning the evidence. `ok` is false when a required check fails. */
 export class BuildAndVerifyService {
   private readonly sqlite: SqlitePort
-  private readonly fileSystem: FileSystemPort
+  private readonly fileSystem: MaintenanceFileSystemPort
   private readonly runtime: RuntimePort
   private readonly comparer: FingerprintComparer
   private readonly parity: ParityPolicy
 
   constructor(
     sqlite: SqlitePort,
-    fileSystem: FileSystemPort,
+    fileSystem: MaintenanceFileSystemPort,
     runtime: RuntimePort,
     comparer: FingerprintComparer,
     parity: ParityPolicy,

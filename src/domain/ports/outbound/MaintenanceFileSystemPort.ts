@@ -1,5 +1,5 @@
 /** The file operations this tool needs. No path is ever written without an explicit call here. */
-export interface FileSystemPort {
+export interface MaintenanceFileSystemPort {
   exists(path: string): boolean
   size(path: string): number
   /** Free bytes on the volume that holds `directory`. */

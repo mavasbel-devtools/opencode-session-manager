@@ -1,8 +1,10 @@
 import { homedir, tmpdir } from "node:os"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 
 /** The only place the ambient process state is read. `stamp` takes an optional date so tests can pin it. */
 export class SystemClockAdapter implements RuntimePort {
+  constructor() {}
+
   pid(): number {
     return process.pid
   }

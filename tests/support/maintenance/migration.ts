@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
+import { Database } from "bun:sqlite"
 
 /**
  * Two databases shaped like `opencode.db` — this machine's and a Windows one — and a home folder
@@ -101,55 +101,55 @@ export function makeMigrationWorld(root: string): MigrationWorld {
 
   const live = join(root, "live", "opencode.db")
   mkdirSync(join(root, "live"), { recursive: true })
-  const db = new DatabaseSync(live)
+  const db = new Database(live)
   db.exec(SCHEMA)
   db.exec("pragma journal_mode = wal")
-  const project = db.prepare("insert into project values (?, ?, ?, ?, ?, ?, '[]', 0)")
+  const project = db.query("insert into project values (?, ?, ?, ?, ?, ?, '[]', 0)")
   project.run("global", "/", null, null, 1, 1)
   project.run(ids.liveHome, home, null, "home", 2, 2)
   // The same repository, known here from an older clone: its id matches, its worktree is stale.
   project.run(ids.repo, join(home, "Old", "repo-clone"), "git", "Repo (old clone)", 7, 7)
-  const v2 = db.prepare("insert into session_v2 values (?, ?, ?, ?, ?)")
+  const v2 = db.query("insert into session_v2 values (?, ?, ?, ?, ?)")
   v2.run("ses_l1", ids.liveHome, home, null, "live home")
   v2.run("ses_l2", "global", `${MOUNT}/Users/${WINDOWS_USER}/Dev/repo`, `mnt/windows/Users/${WINDOWS_USER}/Dev/repo`, "mounted")
-  db.prepare("insert into session_message values ('msg_l1', 'ses_l2', ?)").run(
+  db.query("insert into session_message values ('msg_l1', 'ses_l2', ?)").run(
     JSON.stringify({ cwd: `${MOUNT}/Users/${WINDOWS_USER}/Dev/repo` }),
   )
-  db.prepare("insert into permission values (?, ?)").run(ids.liveHome, `${MOUNT}/Users/${WINDOWS_USER}/Notes/*`)
-  db.prepare("insert into kv values ('shared', 'linux')").run()
-  db.prepare("insert into migration values ('m1', 'first')").run()
-  db.prepare("insert into event values (1, 'live event')").run()
+  db.query("insert into permission values (?, ?)").run(ids.liveHome, `${MOUNT}/Users/${WINDOWS_USER}/Notes/*`)
+  db.query("insert into kv values ('shared', 'linux')").run()
+  db.query("insert into migration values ('m1', 'first')").run()
+  db.query("insert into event values (1, 'live event')").run()
   db.close()
 
   const windows = join(root, "windows", "opencode.db")
   mkdirSync(join(root, "windows"), { recursive: true })
-  const win = new DatabaseSync(windows)
+  const win = new Database(windows)
   win.exec(SCHEMA)
-  const wproject = win.prepare("insert into project values (?, ?, ?, ?, ?, ?, '[]', 0)")
+  const wproject = win.query("insert into project values (?, ?, ?, ?, ?, ?, '[]', 0)")
   wproject.run("global", "/", null, null, 1, 1)
   wproject.run("winrepo", "C:/Users/Robin/Dev/repo", "git", "Repo", BIG_TIME, 3)
   wproject.run("winnotes", "C:/Users/Robin/Notes", null, "Notes", 4, 4)
   wproject.run("winmoved", "C:/Users/Robin/Old/proj", null, "Moved", 5, 5)
   wproject.run("wingone", "C:/Users/Robin/Gone", null, "Gone", 6, 6)
-  win.prepare("insert into project_directory values ('winrepo', ?)").run("C:/Users/Robin/Dev/repo")
+  win.query("insert into project_directory values ('winrepo', ?)").run("C:/Users/Robin/Dev/repo")
   // The same folder in the other spelling: both rows collapse into one once rewritten.
-  win.prepare("insert into project_directory values ('winrepo', ?)").run("C:\\Users\\Robin\\Dev\\repo")
-  win.prepare("insert into worktree values (?, 'winrepo')").run("C:/Users/Robin/Dev/repo-wt")
-  win.prepare("insert into permission values ('winrepo', ?)").run("C:\\Users\\Robin\\Dev\\repo\\*")
-  win.prepare("insert into permission values ('winmoved', ?)").run("C:/Users/Robin/Old/proj/*")
-  const v1 = win.prepare("insert into session values (?, ?, ?, ?, ?)")
+  win.query("insert into project_directory values ('winrepo', ?)").run("C:\\Users\\Robin\\Dev\\repo")
+  win.query("insert into worktree values (?, 'winrepo')").run("C:/Users/Robin/Dev/repo-wt")
+  win.query("insert into permission values ('winrepo', ?)").run("C:\\Users\\Robin\\Dev\\repo\\*")
+  win.query("insert into permission values ('winmoved', ?)").run("C:/Users/Robin/Old/proj/*")
+  const v1 = win.query("insert into session values (?, ?, ?, ?, ?)")
   v1.run("ses_w1", "winrepo", "C:/Users/Robin/Dev/repo/sub", "sub", "repo sub")
   v1.run("ses_w2", "global", "C:\\Users\\Robin", "Users/Robin", "profile")
-  win.prepare("insert into message values ('msg_w1', 'ses_w1', ?)").run(
+  win.query("insert into message values ('msg_w1', 'ses_w1', ?)").run(
     // The big number has to come out byte-identical: the rewrite never re-serializes JSON.
     `{"path":{"cwd":"C:\\\\Users\\\\Robin\\\\Dev\\\\repo\\\\sub","root":"/"},"n":12345678901234567890}`,
   )
-  win.prepare("insert into part values ('prt_w1', 'msg_w1', ?)").run(
+  win.query("insert into part values ('prt_w1', 'msg_w1', ?)").run(
     JSON.stringify({ input: JSON.stringify({ command: "dir C:\\Users\\Robin\\Notes" }), title: "Users\\Robin\\Notes\\a.md" }),
   )
-  win.prepare("insert into part values ('prt_w2', 'msg_w1', ?)").run("plain text, no path")
-  win.prepare("insert into todo values ('ses_w1', 0, 'do it')").run()
-  const wv2 = win.prepare("insert into session_v2 values (?, ?, ?, ?, ?)")
+  win.query("insert into part values ('prt_w2', 'msg_w1', ?)").run("plain text, no path")
+  win.query("insert into todo values ('ses_w1', 0, 'do it')").run()
+  const wv2 = win.query("insert into session_v2 values (?, ?, ?, ?, ?)")
   wv2.run("ses_w3", "winnotes", "C:/Users/Robin/Notes", null, "notes")
   wv2.run("ses_w4", "winmoved", "C:/Users/Robin/Old/proj", null, "moved")
   wv2.run("ses_w5", "wingone", "C:/Users/Robin/Gone/x", "x", "gone")
@@ -162,19 +162,19 @@ export function makeMigrationWorld(root: string): MigrationWorld {
   wv2.run("ses_w10", "global", "C:/Users/Robin/Scp", "Users/Robin/Scp", "scp remote")
   wv2.run("ses_w11", "global", "C:/Users/Robin/afile", "Users/Robin/afile", "a file")
   // Looks like JSON but is not, before or after the rewrite.
-  win.prepare("insert into part values ('prt_w3', 'msg_w1', ?)").run("[oops C:/Users/Robin/x")
+  win.query("insert into part values ('prt_w3', 'msg_w1', ?)").run("[oops C:/Users/Robin/x")
   // A drive glued to a word (binary output): left alone, and reported as residual.
-  win.prepare("insert into part values ('prt_w4', 'msg_w1', ?)").run("dump xC:\\Users\\Robin\\y")
-  win.prepare("insert into session_message values ('msg_w3', 'ses_w3', ?)").run(
+  win.query("insert into part values ('prt_w4', 'msg_w1', ?)").run("dump xC:\\Users\\Robin\\y")
+  win.query("insert into session_message values ('msg_w3', 'ses_w3', ?)").run(
     `{"text":"see @fs/C:/Users/Robin/Notes/b.md and C:/Users/Robin/Old/proj/c.md"}`,
   )
-  win.prepare("insert into kv values ('shared', 'windows')").run()
-  win.prepare("insert into kv values ('windows-only', 'C:/Users/Robin/x')").run()
-  win.prepare("insert into migration values ('m1', 'first')").run()
-  win.prepare("insert into credential values ('c1', 'C:/Users/Robin/.secret')").run()
-  win.prepare("insert into event values (1, 'windows event')").run()
-  win.prepare("insert into note values ('dup')").run()
-  win.prepare("insert into note values ('dup')").run()
+  win.query("insert into kv values ('shared', 'windows')").run()
+  win.query("insert into kv values ('windows-only', 'C:/Users/Robin/x')").run()
+  win.query("insert into migration values ('m1', 'first')").run()
+  win.query("insert into credential values ('c1', 'C:/Users/Robin/.secret')").run()
+  win.query("insert into event values (1, 'windows event')").run()
+  win.query("insert into note values ('dup')").run()
+  win.query("insert into note values ('dup')").run()
   win.close()
 
   return { home, live, windows, moved: { from: join(home, "Old", "proj"), to: join(home, "New", "proj") }, ids }
@@ -182,9 +182,9 @@ export function makeMigrationWorld(root: string): MigrationWorld {
 
 /** Runs a query read-only and returns plain objects. */
 export function query<T>(dbPath: string, sql: string, ...params: (string | number)[]): T[] {
-  const db = new DatabaseSync(dbPath, { readOnly: true })
+  const db = new Database(dbPath, { readonly: true })
   try {
-    return db.prepare(sql).all(...params).map((row) => ({ ...row })) as unknown as T[]
+    return (db.query(sql).all(...params) as Record<string, unknown>[]).map((row) => ({ ...row })) as T[]
   } finally {
     db.close()
   }

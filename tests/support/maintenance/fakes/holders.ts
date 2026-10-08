@@ -1,4 +1,4 @@
-import type { DatabaseHoldersPort } from "#domain/ports/outbound/DatabaseHoldersPort.ts"
+import type { DatabaseHoldersPort } from "@session-manager/domain/ports/outbound/DatabaseHoldersPort"
 
 /** Reports a fixed holder (or none), and records every path it was asked about. */
 export class FakeHolders implements DatabaseHoldersPort {

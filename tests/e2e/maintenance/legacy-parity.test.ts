@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, test } from "node:test"
+import { afterEach, beforeEach, test } from "bun:test"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { mkdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { fileSha, makeDatabase } from "#test/support/database.ts"
-import { legacyEnvironment } from "#test/support/platform.ts"
-import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
+import { fileSha, makeDatabase } from "@test/support/maintenance/database"
+import { legacyEnvironment } from "@test/support/maintenance/platform"
+import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 
 /**
  * The tool as it was before the restructure, kept verbatim under tests/support/fixtures/legacy.
@@ -14,8 +14,8 @@ import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
  * directory, with the same file name — and their output is compared, so the restructure is proven
  * to preserve behaviour.
  */
-const legacy = fileURLToPath(new URL("../support/fixtures/legacy/compact.mjs", import.meta.url))
-const modern = fileURLToPath(new URL("../../src/main/cli.ts", import.meta.url))
+const legacy = fileURLToPath(new URL("../../support/maintenance/fixtures/legacy/compact.mjs", import.meta.url))
+const modern = fileURLToPath(new URL("../../../src/main/cli/cli.ts", import.meta.url))
 const NO_IMAGE = "no-such-image-opencode-db-compact.exe"
 
 let directory: string
@@ -42,7 +42,7 @@ interface Outcome {
 }
 
 function run(script: string, args: readonly string[], rehearsal: string): Outcome {
-  const result = spawnSync(process.execPath, ["--no-warnings", script, ...args], {
+  const result = spawnSync(process.execPath, [script, ...args], {
     encoding: "utf8",
     env: legacyEnvironment(directory, { ...process.env, OPENCODE_DB_COMPACT_IMAGE: NO_IMAGE, OPENCODE_DB_COMPACT_REHEARSAL_DIR: rehearsal }),
   })

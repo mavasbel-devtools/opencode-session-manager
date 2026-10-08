@@ -1,8 +1,8 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
-import { bootstrap } from "#main/cli.ts"
+import { bootstrap } from "@session-manager/main/cli/cli"
 
-test("bootstrap runs a command, and turns a thrown error into an ERROR line and exit code 1", () => {
+test("bootstrap runs a command, and turns a thrown error into an ERROR line and exit code 1", async () => {
   const logged: string[] = []
   const errored: string[] = []
   const originalLog = console.log
@@ -16,8 +16,8 @@ test("bootstrap runs a command, and turns a thrown error into an ERROR line and 
   let usageCode: number
   let errorCode: number
   try {
-    usageCode = bootstrap(["bogus"], { OPENCODE_DB_COMPACT_IMAGE: "no-such.exe" })
-    errorCode = bootstrap(["rollback", "C:/definitely/missing-backup", "--db", "C:/nope/opencode.db"], {
+    usageCode = await bootstrap(["bogus"], { OPENCODE_DB_COMPACT_IMAGE: "no-such.exe" })
+    errorCode = await bootstrap(["rollback", "C:/definitely/missing-backup", "--db", "C:/nope/opencode.db"], {
       OPENCODE_DB_COMPACT_IMAGE: "no-such.exe",
     })
   } finally {
@@ -26,6 +26,6 @@ test("bootstrap runs a command, and turns a thrown error into an ERROR line and 
   }
   assert.equal(usageCode, 2)
   assert.equal(errorCode, 1)
-  assert.match(logged.join("\n"), /usage: node src\/main\/cli\.ts/)
+  assert.match(logged.join("\n"), /usage: opencode-session-manager/)
   assert.match(errored.join("\n"), /ERROR: no original database/)
 })

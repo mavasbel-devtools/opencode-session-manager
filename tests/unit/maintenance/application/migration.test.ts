@@ -1,24 +1,24 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
-import { DatabaseSizesService } from "#application/DatabaseSizesService.ts"
-import { GuardService } from "#application/GuardService.ts"
-import { MigrateUseCase } from "#application/MigrateUseCase.ts"
-import { MigrationVerifier } from "#application/MigrationVerifier.ts"
-import { RekeyService } from "#application/RekeyService.ts"
-import { RewriteService } from "#application/RewriteService.ts"
-import { SwapService } from "#application/SwapService.ts"
-import { DatabaseNotFoundError } from "#domain/errors/DomainErrors.ts"
-import type { PathMapping, RewriteReport } from "#domain/model/Migration.ts"
-import type { MigrateInput } from "#domain/ports/inbound/MigratePort.ts"
-import { PathRewriter, type TextRewriter } from "#domain/services/PathRewriter.ts"
-import { RequiredSpacePolicy } from "#domain/services/RequiredSpacePolicy.ts"
-import { FakeFileSystem } from "#test/support/fakes/file-system.ts"
-import { FakeHolders } from "#test/support/fakes/holders.ts"
-import { FakeIdentity, FakeMigrationDatabase, FakeMigrationStore } from "#test/support/fakes/migration-store.ts"
-import { FakeProcessList } from "#test/support/fakes/processes.ts"
-import { FakeReportSink } from "#test/support/fakes/report-sink.ts"
-import { FakeRuntime } from "#test/support/fakes/runtime.ts"
-import { FakeSqlite } from "#test/support/fakes/sqlite.ts"
+import { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
+import { GuardService } from "@session-manager/application/GuardService"
+import { MigrateUseCase } from "@session-manager/application/MigrateUseCase"
+import { MigrationVerifier } from "@session-manager/application/MigrationVerifier"
+import { RekeyService } from "@session-manager/application/RekeyService"
+import { RewriteService } from "@session-manager/application/RewriteService"
+import { SwapService } from "@session-manager/application/SwapService"
+import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNotFoundError"
+import type { PathMapping, RewriteReport } from "@session-manager/domain/model/Migration"
+import type { MigrateInput } from "@session-manager/domain/ports/inbound/MigratePort"
+import { PathRewriter, type TextRewriter } from "@session-manager/domain/services/PathRewriter"
+import { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
+import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
+import { FakeHolders } from "@test/support/maintenance/fakes/holders"
+import { FakeIdentity, FakeMigrationDatabase, FakeMigrationStore } from "@test/support/maintenance/fakes/migration-store"
+import { FakeProcessList } from "@test/support/maintenance/fakes/processes"
+import { FakeReportSink } from "@test/support/maintenance/fakes/report-sink"
+import { FakeRuntime } from "@test/support/maintenance/fakes/runtime"
+import { FakeSqlite } from "@test/support/maintenance/fakes/sqlite"
 
 const MAPPING: PathMapping = { home: "/home/me", windowsUser: "Robin", drive: "C", mounts: [], relocations: [] }
 const rewriter = new PathRewriter(MAPPING)
@@ -238,6 +238,7 @@ function migrateWorld(): MigrateWorld {
     sizes: new DatabaseSizesService(fileSystem),
     space: new RequiredSpacePolicy(),
     rewriteService: new RewriteService(),
+    rewriterFor: (mapping) => new PathRewriter(mapping),
     rekeyService: new RekeyService(identity, runtime),
     verifier: new MigrationVerifier(sqlite, identity),
     store,

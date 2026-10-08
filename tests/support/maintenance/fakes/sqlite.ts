@@ -1,5 +1,5 @@
-import type { Fingerprint, IntegrityReport, JournalMode, PageStats } from "#domain/model/Database.ts"
-import type { SqlitePort } from "#domain/ports/outbound/SqlitePort.ts"
+import type { Fingerprint, IntegrityReport, JournalMode, PageStats } from "@session-manager/domain/model/Database"
+import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
 
 export interface FakeSqliteOptions {
   readonly pages?: PageStats

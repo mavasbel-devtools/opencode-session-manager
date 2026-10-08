@@ -1,4 +1,4 @@
-import type { MigrationInputs, MigrationVerification, RekeyReport, RewriteReport, MergeReport } from "#domain/model/Migration.ts"
+import type { MigrationInputs, MigrationVerification, RekeyReport, RewriteReport, MergeReport } from "@session-manager/domain/model/Migration"
 
 export type MigrateMode = "rehearse" | "run"
 

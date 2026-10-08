@@ -62,6 +62,22 @@ async function bundle(entry, file, plugins, directory = outdir) {
  * real module the host maps it to; otherwise the host fails the import at load
  * and silently drops the sidebar. Checked against the pinned packages.
  */
+/**
+ * The offline maintenance CLI as one self-contained executable (`dist/cli/opencode-session-manager`,
+ * `.exe` on Windows), built for the platform running the build, like OpenCode itself ships.
+ */
+async function compileCli() {
+  const outfile = path.join(dist, "cli", process.platform === "win32" ? "opencode-session-manager.exe" : "opencode-session-manager")
+  const result = await Bun.build({
+    entrypoints: [path.join(project, "src", "main", "cli", "cli.ts")],
+    compile: { outfile },
+    target: "bun",
+    minify: false,
+  })
+  if (!result.success) throw new AggregateError(result.logs, "CLI build failed")
+  return outfile
+}
+
 export async function assertRuntimeImports(file) {
   const code = await Bun.file(file).text()
   const pattern = /import\s*\{([^}]*)\}\s*from\s*"(opentui:runtime-module:[^"]+)"/g
@@ -98,5 +114,6 @@ if (import.meta.main) {
   await bundle(path.join("v1", "server.ts"), "session-manager.js", [], v1outdir)
   await bundle(path.join("v1", "tui.ts"), "session-manager.tui.js", [], v1outdir)
   const imports = await assertRuntimeImports(path.join(outdir, "tui.js"))
-  console.log(JSON.stringify({ outdir: dist, runtimeImports: imports }, null, 2))
+  const cli = await compileCli()
+  console.log(JSON.stringify({ outdir: dist, runtimeImports: imports, cli }, null, 2))
 }

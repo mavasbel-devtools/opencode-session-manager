@@ -1,6 +1,6 @@
-import type { MergeTable, ProjectIdentity, ProjectRecord, ProjectReference, SessionRef } from "#domain/model/Migration.ts"
-import type { MigrationDatabase, MigrationStorePort } from "#domain/ports/outbound/MigrationStorePort.ts"
-import type { ProjectIdentityPort } from "#domain/ports/outbound/ProjectIdentityPort.ts"
+import type { MergeTable, ProjectIdentity, ProjectRecord, ProjectReference, SessionRef } from "@session-manager/domain/model/Migration"
+import type { MigrationDatabase, MigrationStorePort } from "@session-manager/domain/ports/outbound/MigrationStorePort"
+import type { ProjectIdentityPort } from "@session-manager/domain/ports/outbound/ProjectIdentityPort"
 
 type Row = Record<string, unknown>
 

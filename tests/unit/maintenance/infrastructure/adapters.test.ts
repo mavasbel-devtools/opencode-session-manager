@@ -1,21 +1,21 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
-import { ConsoleOutputAdapter } from "#infrastructure/adapters/outbound/ConsoleOutputAdapter.ts"
-import { JsonReportAdapter } from "#infrastructure/adapters/outbound/JsonReportAdapter.ts"
-import { NodeFileSystemAdapter } from "#infrastructure/adapters/outbound/NodeFileSystemAdapter.ts"
-import { SystemClockAdapter } from "#infrastructure/adapters/outbound/SystemClockAdapter.ts"
+import { ConsoleOutputAdapter } from "@session-manager/infrastructure/adapters/outbound/system/ConsoleOutputAdapter"
+import { JsonReportAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/JsonReportAdapter"
+import { NodeMaintenanceFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeMaintenanceFileSystemAdapter"
+import { SystemClockAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemClockAdapter"
 
 function temporaryDirectory(): string {
   return mkdtempSync(join(tmpdir(), "oc-compact-unit-"))
 }
 
-test("NodeFileSystemAdapter performs the real file operations", () => {
+test("NodeMaintenanceFileSystemAdapter performs the real file operations", () => {
   const directory = temporaryDirectory()
   try {
-    const fileSystem = new NodeFileSystemAdapter()
+    const fileSystem = new NodeMaintenanceFileSystemAdapter()
     const file = join(directory, "a.txt")
     assert.equal(fileSystem.exists(file), false)
     writeFileSync(file, "hello")

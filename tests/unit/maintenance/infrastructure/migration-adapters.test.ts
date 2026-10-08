@@ -1,13 +1,13 @@
-import { afterEach, beforeEach, test } from "node:test"
+import { afterEach, beforeEach, test } from "bun:test"
 import assert from "node:assert/strict"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
-import { GitProjectIdentityAdapter } from "#infrastructure/adapters/outbound/GitProjectIdentityAdapter.ts"
-import { NodeFileSystemAdapter } from "#infrastructure/adapters/outbound/NodeFileSystemAdapter.ts"
-import { NodeMigrationStoreAdapter } from "#infrastructure/adapters/outbound/NodeMigrationStoreAdapter.ts"
-import { BIG_TIME, makeMigrationWorld, makeRepository, query, sha1 } from "#test/support/migration.ts"
-import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
+import { Database } from "bun:sqlite"
+import { GitProjectIdentityAdapter } from "@session-manager/infrastructure/adapters/outbound/project/GitProjectIdentityAdapter"
+import { NodeMaintenanceFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeMaintenanceFileSystemAdapter"
+import { BunMigrationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMigrationStoreAdapter"
+import { BIG_TIME, makeMigrationWorld, makeRepository, query, sha1 } from "@test/support/maintenance/migration"
+import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 
 let directory: string
 
@@ -18,9 +18,9 @@ afterEach(() => {
   removeTemporary(directory)
 })
 
-test("NodeMigrationStoreAdapter reads tables, columns, sessions, projects and project references", () => {
+test("BunMigrationStoreAdapter reads tables, columns, sessions, projects and project references", () => {
   const world = makeMigrationWorld(directory)
-  const db = new NodeMigrationStoreAdapter().open(world.windows)
+  const db = new BunMigrationStoreAdapter().open(world.windows)
   try {
     assert.deepEqual(db.tables().slice(0, 3), ["project", "project_directory", "worktree"])
     assert.deepEqual(db.columns("worktree"), ["directory", "project_id"])
@@ -45,23 +45,25 @@ test("NodeMigrationStoreAdapter reads tables, columns, sessions, projects and pr
   }
 })
 
-test("NodeMigrationStoreAdapter edits text cells in batches, and a collision keeps the later row", () => {
+test("BunMigrationStoreAdapter edits text cells in batches, and a collision keeps the later row", () => {
   const world = makeMigrationWorld(directory)
-  const db = new NodeMigrationStoreAdapter().open(world.windows)
+  const db = new BunMigrationStoreAdapter().open(world.windows)
   try {
     const written = db.editText("project_directory", "directory", (value) => value.replaceAll("\\", "/"))
     assert.equal(written, 1)
     assert.equal(db.rowCounts()["project_directory"], 1, "both spellings of the folder became one row")
     assert.equal(db.editText("event", "id", () => "never"), 0, "an integer column has no text cells")
-    const many = new DatabaseSync(world.live)
+    const many = new Database(world.live)
     many.exec("create table big(v text)")
-    const insert = many.prepare("insert into big values (?)")
-    for (let index = 0; index < 4500; index++) insert.run(`v${index}`)
+    const insert = many.query("insert into big values (?)")
+    many.transaction(() => {
+      for (let index = 0; index < 4500; index++) insert.run(`v${index}`)
+    })()
     many.close()
   } finally {
     db.close()
   }
-  const live = new NodeMigrationStoreAdapter().open(world.live)
+  const live = new BunMigrationStoreAdapter().open(world.live)
   try {
     assert.equal(live.editText("big", "v", (value) => `${value}!`), 4500)
   } finally {
@@ -70,17 +72,17 @@ test("NodeMigrationStoreAdapter edits text cells in batches, and a collision kee
   assert.equal(query<{ v: string }>(world.live, "select v from big where rowid = 4500")[0]?.v, "v4499!")
 })
 
-test("NodeMigrationStoreAdapter merges absent rows only, by primary key or by whole row, and counts what is missing", () => {
+test("BunMigrationStoreAdapter merges absent rows only, by primary key or by whole row, and counts what is missing", () => {
   const world = makeMigrationWorld(directory)
   const base = join(directory, "base.db")
-  const db = new DatabaseSync(world.live)
+  const db = new Database(world.live)
   db.exec(`vacuum into '${base}'`)
   db.close()
-  const extra = new DatabaseSync(world.windows)
+  const extra = new Database(world.windows)
   extra.exec("create table only_windows(x text); alter table kv add column extra text")
   extra.close()
 
-  const store = new NodeMigrationStoreAdapter().open(base)
+  const store = new BunMigrationStoreAdapter().open(base)
   try {
     assert.deepEqual(store.missingRows(world.windows, ["kv", "event", "note", "absent"]), { kv: 1, event: 0, note: 2 })
     const merged = Object.fromEntries(store.merge(world.windows).map((table) => [table.name, table]))
@@ -95,9 +97,9 @@ test("NodeMigrationStoreAdapter merges absent rows only, by primary key or by wh
   assert.deepEqual(query(base, "select value from kv order by key"), [{ value: "linux" }, { value: "C:/Users/Robin/x" }])
 })
 
-test("NodeMigrationStoreAdapter writes projects and sessions, repoints references, and rolls a failed transaction back", () => {
+test("BunMigrationStoreAdapter writes projects and sessions, repoints references, and rolls a failed transaction back", () => {
   const world = makeMigrationWorld(directory)
-  const db = new NodeMigrationStoreAdapter().open(world.windows)
+  const db = new BunMigrationStoreAdapter().open(world.windows)
   try {
     const template = db.projects().find((project) => project.id === "winrepo")
     db.insertProject({ ...(template as Record<string, unknown>), id: "new", worktree: "/r" } as never)
@@ -174,7 +176,7 @@ test("GitProjectIdentityAdapter derives OpenCode's ids: remote, stored id, root 
   assert.equal(identity.resolve(hg), null)
 })
 
-test("GitProjectIdentityAdapter falls back to the marker's folder when git cannot answer", { skip: process.platform === "win32" ? "uses a POSIX shell stand-in for git" : false }, () => {
+test.skipIf(process.platform === "win32")("GitProjectIdentityAdapter falls back to the marker's folder when git cannot answer", () => {
   const repo = join(directory, "repo")
   makeRepository(repo, { remote: "https://host/r" })
   mkdirSync(join(repo, "sub"))
@@ -190,8 +192,8 @@ test("GitProjectIdentityAdapter falls back to the marker's folder when git canno
   assert.deepEqual(new GitProjectIdentityAdapter("false").resolve(repo), { id: "global", worktree: "/", vcs: "git", real: repo })
 })
 
-test("NodeFileSystemAdapter.removeDirectory removes an empty folder and refuses a full one", () => {
-  const fileSystem = new NodeFileSystemAdapter()
+test("NodeMaintenanceFileSystemAdapter.removeDirectory removes an empty folder and refuses a full one", () => {
+  const fileSystem = new NodeMaintenanceFileSystemAdapter()
   const empty = join(directory, "empty")
   const full = join(directory, "full")
   mkdirSync(empty)

@@ -1,20 +1,20 @@
-import type { DatabaseSizesService } from "#application/DatabaseSizesService.ts"
-import { dirName } from "#domain/model/Paths.ts"
-import type { PreflightInput, PreflightPort, PreflightReport } from "#domain/ports/inbound/PreflightPort.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import type { ProcessListPort } from "#domain/ports/outbound/ProcessListPort.ts"
-import type { SqlitePort } from "#domain/ports/outbound/SqlitePort.ts"
+import type { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
+import { dirName } from "@session-manager/domain/model/DatabasePaths"
+import type { PreflightInput, PreflightPort, PreflightReport } from "@session-manager/domain/ports/inbound/PreflightPort"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import type { ProcessListPort } from "@session-manager/domain/ports/outbound/ProcessListPort"
+import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
 
 /** Read-only: what exists, how big it is, how much free disk there is, and whether OpenCode is running. */
 export class PreflightUseCase implements PreflightPort {
   private readonly sqlite: SqlitePort
-  private readonly fileSystem: FileSystemPort
+  private readonly fileSystem: MaintenanceFileSystemPort
   private readonly processes: ProcessListPort
   private readonly sizes: DatabaseSizesService
 
   constructor(
     sqlite: SqlitePort,
-    fileSystem: FileSystemPort,
+    fileSystem: MaintenanceFileSystemPort,
     processes: ProcessListPort,
     sizes: DatabaseSizesService,
   ) {

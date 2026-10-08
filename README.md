@@ -1,8 +1,18 @@
 # opencode-session-manager
 
-An OpenCode plugin for working with sessions. It replaces two earlier plugins,
-`opencode-session-id` and `opencode-sessions-transfer`, whose histories are
-merged into this repository.
+Tools for working with OpenCode sessions, in two parts:
+
+- **an OpenCode plugin**, used inside OpenCode (below);
+- **an offline maintenance CLI**, `opencode-session-manager`, for an OpenCode 2
+  `opencode.db` while OpenCode is closed: verified compaction and migration of
+  sessions from another machine, each with a rename-only swap and a rollback
+  (see [Offline maintenance CLI](#offline-maintenance-cli)).
+
+It replaces three earlier projects, `opencode-session-id`,
+`opencode-sessions-transfer` and `opencode-db-manager` (formerly
+`opencode-db-compact`), whose histories are merged into this repository.
+
+The plugin:
 
 1. **Session ID in the sidebar** — the active session's ID is the first row of
    the session sidebar, directly under the title, in the theme's muted colour.
@@ -75,6 +85,76 @@ removes the other lane's files and those of the two plugins this one replaces
 configuration is written. A running v2 host activates the plugin as soon as it
 lands; restart the TUI to see the sidebar line.
 
+## Offline maintenance CLI
+
+`opencode-session-manager` works on the database itself, so it runs only while
+every OpenCode process is closed (`opencode service stop` too, if the service
+runs). It never kills a process: it refuses while OpenCode runs or while any
+process holds the database open, and names the holders on Linux.
+
+```
+bun run build                                   # dist/cli/opencode-session-manager (.exe on Windows)
+opencode-session-manager preflight              # read-only: sizes, page statistics, free disk, running OpenCode
+opencode-session-manager rehearse [--keep]      # build a compacted copy and verify it
+opencode-session-manager run                    # guard, build, verify, swap, write evidence
+opencode-session-manager rollback <backupDir>   # put the originals back
+opencode-session-manager migrate <rehearse|run> --from <db>... --windows-user <name> \
+  [--drive C] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--keep]
+```
+
+From a checkout, `bun run cli -- <arguments>` runs the same thing. The database
+defaults to `$XDG_DATA_HOME/opencode/opencode.db`
+(`~/.local/share/opencode/opencode.db` when unset); `--db <path>` overrides it.
+
+### Compaction
+
+OpenCode never compacts its database and SQLite's auto-compaction is off, so a
+database that has seen a lot of deletion keeps every freed page. The compacted
+copy is made with `VACUUM INTO` from a read-only connection, so the source is
+never written, then checked six ways (integrity, foreign keys, zero free pages,
+per-table row parity, WAL journal mode, no leftover sidecars). Only then is it
+swapped in by renames: the original database and its sidecars move into
+`db-backup-<timestamp>/` and stay there. Any failure aborts before the swap and
+keeps the failed copy for inspection.
+
+- `run` refuses while the process named by `OPENCODE_DB_COMPACT_IMAGE` (default
+  `opencode`, `opencode.exe` on Windows) runs, while any process holds the
+  database or a sidecar open, or when there is no room for two copies.
+- `rehearse` works in `OPENCODE_DB_COMPACT_REHEARSAL_DIR` (default
+  `<temp>/opencode/compact-rehearsal`) and writes `report-<timestamp>.json`
+  there; `--keep` keeps the copy. `run` keeps its evidence in
+  `db-backup-<timestamp>/report.json`.
+
+### Migration from a Windows machine
+
+`migrate` merges another machine's sessions into the local database, with every
+Windows profile path rewritten to this home, so each session shows up under its
+folder here as if it had been started on this machine.
+
+1. **Copy** the local database and every `--from` database with `VACUUM INTO`;
+   nothing below touches an original.
+2. **Rewrite** every text cell except the credential tables and OpenCode's
+   migration log: `C:\Users\<user>`, `C:/Users/<user>`, the same escaped once,
+   twice or three times inside nested JSON, `file:///C:/…`, `@fs/C:/…`,
+   `/mnt/c/…`, `/cygdrive/c/…`, `/c/…`, the drive's mount folder here (`--mount`),
+   and the `Users/<user>` form stored below the root project. Only matched paths
+   change, so JSON stays byte-identical otherwise. `--relocate <from>=<to>` then
+   moves folders that live elsewhere here.
+3. **Merge** source rows whose primary key is absent; the local row wins.
+4. **Re-key** every session onto the project id OpenCode derives for its folder
+   here (`sha1("git-remote:" + host/path)` for a repository with a remote, else
+   its stored id, else its root commit; `sha1("directory:" + realpath)` for a
+   plain folder), and recompute `session.path`. A session whose folder is missing
+   keeps its project and is listed in the report.
+5. **Verify** seven gates (integrity, foreign keys, rows kept, no Windows session
+   folder, clean folder columns, consistent subpaths, intact JSON), then **swap**
+   (`run` only) exactly as compaction does. `rollback` undoes it.
+
+`migrate rehearse` works in `OPENCODE_DB_MIGRATE_REHEARSAL_DIR` (default
+`<temp>/opencode/migrate-rehearsal`). A Windows `opencode.db` on an NTFS
+partition is often NTFS-compressed, which Linux's `ntfs3` driver cannot open for
+SQLite: copy the `.db`, `-wal` and `-shm` files to a Linux filesystem first.
+
 ## Architecture
 
 Strict hexagonal, dependencies point inward only; the full contract is in
@@ -101,6 +181,34 @@ flowchart LR
     TS --> FS
 ```
 
+The CLI has its own composition root, `src/main/cli-container.ts`, plus one
+per operating system (`src/main/linux-container.ts`, `src/main/win32-container.ts`),
+loaded on demand by `src/main/cli/platform.ts`:
+
+```mermaid
+flowchart LR
+    CLI[cli/cli.ts] --> ROUTER[CliRouter]
+    ROUTER --> CC[CompactCliAdapter]
+    ROUTER --> MC[MigrateCliAdapter]
+    CC --> PF[PreflightUseCase]
+    CC --> RH[RehearseUseCase]
+    CC --> CP[CompactUseCase]
+    CC --> RB[RollbackUseCase]
+    MC --> MG[MigrateUseCase]
+    CP --> BV[BuildAndVerifyService]
+    CP --> GD[GuardService]
+    CP --> SW[SwapService]
+    MG --> RW[RewriteService]
+    MG --> RK[RekeyService]
+    MG --> MV[MigrationVerifier]
+    MG --> GD
+    MG --> SW
+    BV --> SQ[SqlitePort -> BunSqliteAdapter]
+    RW --> MS[MigrationStorePort -> BunMigrationStoreAdapter]
+    RK --> PI[ProjectIdentityPort -> GitProjectIdentityAdapter]
+    GD --> PL[ProcessListPort / DatabaseHoldersPort -> platform adapters]
+```
+
 Composition roots: `src/main/server-container.ts` (v2 server),
 `src/main/tui-container.ts` (v2 TUI), `src/main/v1-container.ts` (v1 TUI).
 Entrypoints: `src/main/v2/server.ts`, `src/main/v2/tui.ts`,
@@ -119,18 +227,26 @@ bun run lint:diagrams
 The four tiers live under `tests/{unit,component,e2e,live}`:
 
 - **unit** — one class at a time with stand-ins, plus the architecture, SOLID,
-  host-fixture and coverage-completeness gates. Coverage-gated.
-- **component** — the wired plugin painted by the real OpenTUI renderer, and the
-  tool's parity with the hand-written plugin it replaced.
+  platform, host-fixture and coverage-completeness gates. Coverage-gated.
+- **component** — the wired plugin painted by the real OpenTUI renderer, the
+  tool's parity with the hand-written plugin it replaced, and real SQLite
+  compacting and migrating real databases over real folders and git repositories.
 - **e2e** — the real entries in-process: the v2 TUI loaded by the real 2.0.14
-  `Host`, the v1 entries over a real SQLite store and real git repositories.
-  Coverage-gated.
+  `Host`, the v1 entries over a real SQLite store and real git repositories, and
+  the CLI's container over real databases, including a same-behaviour comparison
+  with the frozen original compactor (`tests/support/maintenance/fixtures/legacy/`).
+  Coverage-gated, per platform.
 - **live** — the real `opencode` executable, the built bundles, the installer,
   and the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`),
-  all under isolated XDG directories. Invisible to coverage by construction.
+  all under isolated XDG directories; for the CLI, a read-only snapshot of the
+  real `opencode.db` through preflight, a full run and a rollback, and (when
+  `OPENCODE_DB_MIGRATE_LIVE_SOURCE` and `OPENCODE_DB_MIGRATE_LIVE_USER` name a
+  Windows database and user) a real migration rehearsal listed by a sandboxed
+  OpenCode. Invisible to coverage by construction.
 
 `bun run coverage` requires 100 % lines and functions on every `src` file, in the
-unit and the e2e tier separately. The live tier needs `node` (for the
+unit and the e2e tier separately. The e2e gate is per platform: each platform's
+run gates every file except the other platforms' adapters and containers. The live tier needs `node` (for the
 pseudo-terminal) and finds OpenCode at `OPENCODE_V2_EXECUTABLE`, else
 `~/.opencode/bin/opencode` (`~/.local/bin/opencode.exe` on Windows), else `PATH`.
 

@@ -1,15 +1,15 @@
-import { afterEach, beforeEach, test } from "node:test"
+import { afterEach, beforeEach, test } from "bun:test"
 import assert from "node:assert/strict"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
-import { bootstrap } from "#main/cli.ts"
-import { buildContainer } from "#main/container.ts"
-import type { CliEnvironment } from "#infrastructure/adapters/inbound/cli/CompactCliAdapter.ts"
-import { captureConsole, captureConsoleError } from "#test/support/console.ts"
-import { fileSha } from "#test/support/database.ts"
-import { makeMigrationWorld, MOUNT, query, sha1, WINDOWS_USER, type MigrationWorld } from "#test/support/migration.ts"
-import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
+import { Database } from "bun:sqlite"
+import { bootstrap } from "@session-manager/main/cli/cli"
+import { buildContainer } from "@session-manager/main/cli-container"
+import type { CliEnvironment } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
+import { captureConsole, captureConsoleError } from "@test/support/maintenance/console"
+import { fileSha } from "@test/support/maintenance/database"
+import { makeMigrationWorld, MOUNT, query, sha1, WINDOWS_USER, type MigrationWorld } from "@test/support/maintenance/migration"
+import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 
 let directory: string
 let world: MigrationWorld
@@ -49,10 +49,10 @@ function migrateArgs(mode: string, ...extra: string[]): string[] {
   ]
 }
 
-function runCli(argv: readonly string[]): { code: number; lines: string[] } {
+async function runCli(argv: readonly string[]): Promise<{ code: number; lines: string[] }> {
   const capture = captureConsole()
   try {
-    return { code: buildContainer(environment()).run(argv), lines: capture.lines }
+    return { code: (await buildContainer(environment())).run(argv), lines: capture.lines }
   } finally {
     capture.restore()
   }
@@ -72,10 +72,10 @@ const ALL_PASS = [
   "PASS json_intact",
 ]
 
-test("migrate rehearse proves the migration on copies and leaves only the report behind", () => {
+test("migrate rehearse proves the migration on copies and leaves only the report behind", async () => {
   const live = fileSha(world.live)
   const windows = fileSha(world.windows)
-  const { code, lines } = runCli(migrateArgs("rehearse"))
+  const { code, lines } = await runCli(migrateArgs("rehearse"))
   assert.equal(code, 0, lines.join("\n"))
   for (const line of ALL_PASS) assert.ok(lines.includes(line), line)
   assert.ok(lines.includes("REHEARSAL OK"))
@@ -98,8 +98,8 @@ test("migrate rehearse proves the migration on copies and leaves only the report
   assert.ok(report.rekey.missing_directories.includes(join(world.home, "afile")))
 })
 
-test("migrate rehearse --keep: every session lands under home with the project OpenCode derives here", () => {
-  const { code, lines } = runCli(migrateArgs("rehearse", "--keep"))
+test("migrate rehearse --keep: every session lands under home with the project OpenCode derives here", async () => {
+  const { code, lines } = await runCli(migrateArgs("rehearse", "--keep"))
   assert.equal(code, 0, lines.join("\n"))
   const kept = lines.find((line) => line.startsWith("REHEARSAL OK migrated="))
   const migrated = kept?.slice("REHEARSAL OK migrated=".length) ?? ""
@@ -153,30 +153,30 @@ test("migrate rehearse --keep: every session lands under home with the project O
   assert.deepEqual(query(migrated, "pragma journal_mode"), [{ journal_mode: "wal" }])
 })
 
-test("migrate run swaps the migrated database in, and rollback restores the original", () => {
+test("migrate run swaps the migrated database in, and rollback restores the original", async () => {
   const original = fileSha(world.live)
-  const { code, lines } = runCli(migrateArgs("run"))
+  const { code, lines } = await runCli(migrateArgs("run"))
   assert.equal(code, 0, lines.join("\n"))
   const swapped = lines.find((line) => line.startsWith("SWAPPED backup="))
   assert.match(swapped ?? "", /post_integrity_ok=true$/)
   const backupDir = (swapped ?? "").split(" ")[1]?.slice("backup=".length) ?? ""
   assert.equal(fileSha(join(backupDir, "opencode.db")), original, "the original is kept byte for byte")
   assert.ok(existsSync(join(backupDir, "opencode.db-wal")))
-  assert.ok(lines.includes(`undo: node src/main/cli.ts rollback ${backupDir} --db ${world.live}`))
+  assert.ok(lines.includes(`undo: opencode-session-manager rollback ${backupDir} --db ${world.live}`))
   assert.deepEqual(workFolders(join(directory, "live")), [], "the work folder is gone")
   assert.equal(query(world.live, "select id from session_v2 where id = 'ses_w3'").length, 1)
 
-  const rolledBack = runCli(["rollback", backupDir, "--db", world.live])
+  const rolledBack = await runCli(["rollback", backupDir, "--db", world.live])
   assert.equal(rolledBack.code, 0, rolledBack.lines.join("\n"))
   assert.equal(fileSha(world.live), original)
 })
 
-test("migrate run aborts before the swap when a session folder stays a Windows path", () => {
-  const windows = new DatabaseSync(world.windows)
-  windows.prepare("insert into session_v2 values ('ses_d', 'global', 'D:/Work', 'D:/Work', 'other drive')").run()
+test("migrate run aborts before the swap when a session folder stays a Windows path", async () => {
+  const windows = new Database(world.windows)
+  windows.query("insert into session_v2 values ('ses_d', 'global', 'D:/Work', 'D:/Work', 'other drive')").run()
   windows.close()
   const original = fileSha(world.live)
-  const { code, lines } = runCli(migrateArgs("run"))
+  const { code, lines } = await runCli(migrateArgs("run"))
   assert.equal(code, 1)
   assert.ok(lines.includes("FAIL windows_sessions_gone"))
   assert.ok(lines.includes("  windows session folder: D:/Work"))
@@ -186,29 +186,29 @@ test("migrate run aborts before the swap when a session folder stays a Windows p
   assert.equal(fileSha(world.live), original)
 })
 
-test("migrate reports rows the merge could not bring over, as a failed rehearsal", () => {
-  const live = new DatabaseSync(world.live)
+test("migrate reports rows the merge could not bring over, as a failed rehearsal", async () => {
+  const live = new Database(world.live)
   live.exec("create unique index kv_value on kv(value)")
   live.close()
-  const windows = new DatabaseSync(world.windows)
-  windows.prepare("insert into kv values ('taken', 'linux')").run()
+  const windows = new Database(world.windows)
+  windows.query("insert into kv values ('taken', 'linux')").run()
   windows.close()
-  const { code, lines } = runCli(migrateArgs("rehearse"))
+  const { code, lines } = await runCli(migrateArgs("rehearse"))
   assert.equal(code, 1)
   assert.ok(lines.includes("FAIL rows_kept"))
   assert.ok(lines.some((line) => line.startsWith("  missing: kv 1 rows from ") && line.endsWith("source-1.db")))
   assert.ok(lines.includes("REHEARSAL FAILED"))
 })
 
-test("migrate rolls a refused write back and reports it as an error, the live database untouched", () => {
-  const live = new DatabaseSync(world.live)
+test("migrate rolls a refused write back and reports it as an error, the live database untouched", async () => {
+  const live = new Database(world.live)
   live.exec("create trigger no_new_projects before insert on project begin select raise(abort, 'no new projects'); end")
   live.close()
   const original = fileSha(world.live)
   const out = captureConsole()
   const err = captureConsoleError()
   try {
-    assert.equal(bootstrap(migrateArgs("run"), environment()), 1)
+    assert.equal(await bootstrap(migrateArgs("run"), environment()), 1)
   } finally {
     out.restore()
     err.restore()
@@ -217,9 +217,9 @@ test("migrate rolls a refused write back and reports it as an error, the live da
   assert.equal(fileSha(world.live), original)
 })
 
-test("migrate prints its usage and the problems for bad arguments", () => {
-  const { code, lines } = runCli(["migrate", "run", "--from", world.windows, "--relocate", "nope", "--db", world.live])
+test("migrate prints its usage and the problems for bad arguments", async () => {
+  const { code, lines } = await runCli(["migrate", "run", "--from", world.windows, "--relocate", "nope", "--db", world.live])
   assert.equal(code, 2)
   assert.ok(lines.includes("--relocate expects <from>=<to>, got nope"))
-  assert.match(lines.at(-1) ?? "", /^usage: node src\/main\/cli.ts migrate <rehearse\|run>/)
+  assert.match(lines.at(-1) ?? "", /^usage: opencode-session-manager migrate <rehearse\|run>/)
 })

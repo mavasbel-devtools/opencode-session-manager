@@ -1,15 +1,15 @@
-import { after, before, test } from "node:test"
+import { afterAll, beforeAll, test } from "bun:test"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, copyFileSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { defaultDatabasePath } from "#domain/model/Database.ts"
-import { GitProjectIdentityAdapter } from "#infrastructure/adapters/outbound/GitProjectIdentityAdapter.ts"
-import { snapshotDatabase } from "#test/live/snapshot.ts"
-import { query } from "#test/support/migration.ts"
-import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
+import { defaultDatabasePath } from "@session-manager/domain/model/Database"
+import { GitProjectIdentityAdapter } from "@session-manager/infrastructure/adapters/outbound/project/GitProjectIdentityAdapter"
+import { snapshotDatabase } from "@test/live/maintenance/snapshot"
+import { query } from "@test/support/maintenance/migration"
+import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 
 /**
  * Rehearses a real migration: a read-only snapshot of this machine's `opencode.db` and of a
@@ -34,13 +34,13 @@ const skip =
       ? "set OPENCODE_DB_MIGRATE_LIVE_SOURCE and OPENCODE_DB_MIGRATE_LIVE_USER to rehearse a real migration"
       : false
 const hasOpencode = spawnSync(opencode, ["--version"], { encoding: "utf8" }).status === 0
-const cli = fileURLToPath(new URL("../../src/main/cli.ts", import.meta.url))
+const cli = fileURLToPath(new URL("../../../src/main/cli/cli.ts", import.meta.url))
 
 let directory: string
 let migrated: string
 let stdout: string
 
-before(async () => {
+beforeAll(async () => {
   if (skip !== false) return
   directory = temporaryWorkspace("oc-migrate-live-")
   const snapshot = join(directory, "opencode.db")
@@ -50,7 +50,6 @@ before(async () => {
   const result = spawnSync(
     process.execPath,
     [
-      "--no-warnings",
       cli,
       "migrate",
       "rehearse",
@@ -74,11 +73,11 @@ before(async () => {
   migrated = line?.slice("REHEARSAL OK migrated=".length) ?? ""
 })
 
-after(() => {
+afterAll(() => {
   removeTemporary(directory)
 })
 
-test("a real migration rehearses with every gate passing", { skip }, () => {
+test.skipIf(skip !== false)("a real migration rehearses with every gate passing", () => {
   assert.ok(existsSync(migrated), stdout)
   for (const gate of ["integrity_ok", "foreign_keys_ok", "rows_kept", "windows_sessions_gone", "structured_paths_clean"]) {
     assert.ok(stdout.includes(`PASS ${gate}`), `${gate}\n${stdout}`)
@@ -90,9 +89,7 @@ test("a real migration rehearses with every gate passing", { skip }, () => {
   assert.equal(windowsFolders[0]?.n, 0)
 })
 
-test("a sandboxed OpenCode lists the home folder's sessions from the migrated copy", {
-  skip: skip !== false ? skip : hasOpencode ? false : `no opencode binary (${opencode})`,
-}, () => {
+test.skipIf(skip !== false || !hasOpencode)("a sandboxed OpenCode lists the home folder's sessions from the migrated copy", () => {
   const sandbox = join(directory, "sandbox")
   for (const folder of ["data/opencode", "state", "cache", "config/opencode"]) mkdirSync(join(sandbox, folder), { recursive: true })
   copyFileSync(migrated, join(sandbox, "data", "opencode", "opencode.db"))

@@ -1,4 +1,4 @@
-import type { MergeTable, ProjectRecord, ProjectReference, SessionRef } from "#domain/model/Migration.ts"
+import type { MergeTable, ProjectRecord, ProjectReference, SessionRef } from "@session-manager/domain/model/Migration"
 
 /**
  * Writes to a migration's working copy. It is only ever opened on a copy this tool built with

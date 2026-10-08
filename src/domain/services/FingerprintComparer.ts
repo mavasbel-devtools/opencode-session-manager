@@ -1,7 +1,9 @@
-import type { ComparisonResult, Fingerprint, TableComparison } from "#domain/model/Database.ts"
+import type { ComparisonResult, Fingerprint, TableComparison } from "@session-manager/domain/model/Database"
 
 /** Compares two fingerprints and names every difference: schema, header, row count or row content. */
 export class FingerprintComparer {
+  constructor() {}
+
   compare(source: Fingerprint, target: Fingerprint): ComparisonResult {
     const failures: string[] = []
     if (JSON.stringify(source.schema) !== JSON.stringify(target.schema)) failures.push("schema differs")

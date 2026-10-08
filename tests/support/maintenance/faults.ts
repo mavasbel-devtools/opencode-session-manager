@@ -1,7 +1,7 @@
-import { DatabaseSync } from "node:sqlite"
-import type { Fingerprint, IntegrityReport, JournalMode, PageStats } from "#domain/model/Database.ts"
-import type { SqlitePort } from "#domain/ports/outbound/SqlitePort.ts"
-import { RequiredSpacePolicy } from "#domain/services/RequiredSpacePolicy.ts"
+import { Database } from "bun:sqlite"
+import type { Fingerprint, IntegrityReport, JournalMode, PageStats } from "@session-manager/domain/model/Database"
+import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
+import { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
 
 /** Demands more space than any real disk has, so the guard's disk check runs against a real statfs. */
 export class DemandingSpacePolicy extends RequiredSpacePolicy {
@@ -49,7 +49,7 @@ export class TamperingSqlite implements SqlitePort {
 
   vacuumInto(source: string, target: string): void {
     this.inner.vacuumInto(source, target)
-    const db = new DatabaseSync(target)
+    const db = new Database(target)
     try {
       db.exec(this.statement)
     } finally {

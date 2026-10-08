@@ -4,12 +4,12 @@ import {
   type MigrationVerification,
   type ProjectRecord,
   type RewriteReport,
-} from "#domain/model/Migration.ts"
-import type { MigrationDatabase } from "#domain/ports/outbound/MigrationStorePort.ts"
-import type { ProjectIdentityPort } from "#domain/ports/outbound/ProjectIdentityPort.ts"
-import type { SqlitePort } from "#domain/ports/outbound/SqlitePort.ts"
-import type { TextRewriter } from "#domain/services/PathRewriter.ts"
-import { isWithin, sessionSubpath } from "#domain/services/PosixPaths.ts"
+} from "@session-manager/domain/model/Migration"
+import type { MigrationDatabase } from "@session-manager/domain/ports/outbound/MigrationStorePort"
+import type { ProjectIdentityPort } from "@session-manager/domain/ports/outbound/ProjectIdentityPort"
+import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
+import type { TextRewriter } from "@session-manager/domain/services/PathRewriter"
+import { isWithin, sessionSubpath } from "@session-manager/domain/services/PosixPaths"
 
 export interface VerifyInput {
   readonly db: MigrationDatabase

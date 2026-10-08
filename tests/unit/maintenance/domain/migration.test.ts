@@ -1,9 +1,9 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
-import type { PathMapping } from "#domain/model/Migration.ts"
-import { normalizeRemote } from "#domain/services/GitRemote.ts"
-import { PathRewriter } from "#domain/services/PathRewriter.ts"
-import { isWithin, sessionSubpath } from "#domain/services/PosixPaths.ts"
+import type { PathMapping } from "@session-manager/domain/model/Migration"
+import { normalizeRemote } from "@session-manager/domain/services/GitRemote"
+import { PathRewriter } from "@session-manager/domain/services/PathRewriter"
+import { isWithin, sessionSubpath } from "@session-manager/domain/services/PosixPaths"
 
 const MAPPING: PathMapping = {
   home: "/home/me",

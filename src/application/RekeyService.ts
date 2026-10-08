@@ -1,8 +1,8 @@
-import { GLOBAL_PROJECT, type ProjectIdentity, type ProjectRecord, type RekeyReport } from "#domain/model/Migration.ts"
-import type { MigrationDatabase } from "#domain/ports/outbound/MigrationStorePort.ts"
-import type { ProjectIdentityPort } from "#domain/ports/outbound/ProjectIdentityPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
-import { isWithin, sessionSubpath } from "#domain/services/PosixPaths.ts"
+import { GLOBAL_PROJECT, type ProjectIdentity, type ProjectRecord, type RekeyReport } from "@session-manager/domain/model/Migration"
+import type { MigrationDatabase } from "@session-manager/domain/ports/outbound/MigrationStorePort"
+import type { ProjectIdentityPort } from "@session-manager/domain/ports/outbound/ProjectIdentityPort"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import { isWithin, sessionSubpath } from "@session-manager/domain/services/PosixPaths"
 
 /**
  * Gives every session the project OpenCode derives for its folder on this machine. OpenCode only

@@ -1,13 +1,13 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
-import type { BuildAndVerifyResult } from "#domain/model/Build.ts"
-import type { CompactPort } from "#domain/ports/inbound/CompactPort.ts"
-import type { PreflightPort } from "#domain/ports/inbound/PreflightPort.ts"
-import type { RehearsePort } from "#domain/ports/inbound/RehearsePort.ts"
-import type { RollbackPort } from "#domain/ports/inbound/RollbackPort.ts"
-import { CompactCliAdapter, USAGE, parseArguments } from "#infrastructure/adapters/inbound/cli/CompactCliAdapter.ts"
-import { FakeOutput } from "#test/support/fakes/output.ts"
-import { FakeRuntime } from "#test/support/fakes/runtime.ts"
+import type { BuildAndVerifyResult } from "@session-manager/domain/model/Build"
+import type { CompactPort } from "@session-manager/domain/ports/inbound/CompactPort"
+import type { PreflightPort } from "@session-manager/domain/ports/inbound/PreflightPort"
+import type { RehearsePort } from "@session-manager/domain/ports/inbound/RehearsePort"
+import type { RollbackPort } from "@session-manager/domain/ports/inbound/RollbackPort"
+import { CompactCliAdapter, USAGE, parseArguments } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
+import { FakeOutput } from "@test/support/maintenance/fakes/output"
+import { FakeRuntime } from "@test/support/maintenance/fakes/runtime"
 
 function buildResult(overrides: Partial<BuildAndVerifyResult> = {}): BuildAndVerifyResult {
   return {

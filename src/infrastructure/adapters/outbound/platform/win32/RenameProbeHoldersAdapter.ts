@@ -1,15 +1,15 @@
-import type { DatabaseHoldersPort } from "#domain/ports/outbound/DatabaseHoldersPort.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
+import type { DatabaseHoldersPort } from "@session-manager/domain/ports/outbound/DatabaseHoldersPort"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
 
 /**
  * Windows: renames the file away and back. Windows refuses the rename (EBUSY) while any process holds
  * an open handle, so the refusal code is the answer. It cannot name the holder.
  */
 export class RenameProbeHoldersAdapter implements DatabaseHoldersPort {
-  private readonly fileSystem: FileSystemPort
+  private readonly fileSystem: MaintenanceFileSystemPort
   private readonly pid: number
 
-  constructor(fileSystem: FileSystemPort, pid: number) {
+  constructor(fileSystem: MaintenanceFileSystemPort, pid: number) {
     this.fileSystem = fileSystem
     this.pid = pid
   }

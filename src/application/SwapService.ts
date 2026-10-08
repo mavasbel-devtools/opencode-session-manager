@@ -1,8 +1,8 @@
-import { SwapFailedError } from "#domain/errors/DomainErrors.ts"
-import { baseName } from "#domain/model/Paths.ts"
-import { SIDECARS } from "#domain/model/Sidecars.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import { joinPath } from "#domain/model/Paths.ts"
+import { SwapFailedError } from "@session-manager/domain/errors/SwapFailedError"
+import { baseName } from "@session-manager/domain/model/DatabasePaths"
+import { SIDECARS } from "@session-manager/domain/model/Sidecars"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import { joinPath } from "@session-manager/domain/model/DatabasePaths"
 
 export interface SwapInput {
   readonly dbPath: string
@@ -12,9 +12,9 @@ export interface SwapInput {
 
 /** Moves the database and its sidecars into the backup, then moves the compacted copy into place. */
 export class SwapService {
-  private readonly fileSystem: FileSystemPort
+  private readonly fileSystem: MaintenanceFileSystemPort
 
-  constructor(fileSystem: FileSystemPort) {
+  constructor(fileSystem: MaintenanceFileSystemPort) {
     this.fileSystem = fileSystem
   }
 

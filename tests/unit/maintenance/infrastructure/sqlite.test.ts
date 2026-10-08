@@ -1,13 +1,13 @@
-import { test } from "node:test"
+import { test } from "bun:test"
 import assert from "node:assert/strict"
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
-import { NodeSqliteAdapter } from "#infrastructure/adapters/outbound/NodeSqliteAdapter.ts"
-import { fileSha, makeDatabase, makePlainDatabase } from "#test/support/database.ts"
+import { Database } from "bun:sqlite"
+import { BunSqliteAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSqliteAdapter"
+import { fileSha, makeDatabase, makePlainDatabase } from "@test/support/maintenance/database"
 
-const adapter = new NodeSqliteAdapter()
+const adapter = new BunSqliteAdapter()
 
 test("pageStats and journalMode read the real file", () => {
   const directory = mkdtempSync(join(tmpdir(), "oc-compact-sqlite-"))
@@ -49,7 +49,7 @@ test("fingerprint is deterministic and encodes blobs, int64 and every key shape"
     assert.equal(first.tables["seq"]?.rows, 1)
     assert.deepEqual(first.schema.map((entry) => entry.name).includes("session_message_seq"), true)
 
-    const db = new DatabaseSync(file)
+    const db = new Database(file)
     db.exec("update session_v2 set big = big + 1 where id = 'ses_0'")
     db.close()
     assert.notEqual(adapter.fingerprint(file).tables["session_v2"]?.sha256, first.tables["session_v2"]?.sha256)

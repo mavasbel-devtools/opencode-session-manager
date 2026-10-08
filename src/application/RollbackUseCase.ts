@@ -1,20 +1,21 @@
-import type { GuardService } from "#application/GuardService.ts"
-import { MissingOriginalError, ProcessRunningError } from "#domain/errors/DomainErrors.ts"
-import { baseName, joinPath } from "#domain/model/Paths.ts"
-import { SIDECARS } from "#domain/model/Sidecars.ts"
-import type { RollbackInput, RollbackOutcome, RollbackPort } from "#domain/ports/inbound/RollbackPort.ts"
-import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
-import type { ProcessListPort } from "#domain/ports/outbound/ProcessListPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
+import type { GuardService } from "@session-manager/application/GuardService"
+import { MissingOriginalError } from "@session-manager/domain/errors/MissingOriginalError"
+import { ProcessRunningError } from "@session-manager/domain/errors/ProcessRunningError"
+import { baseName, joinPath } from "@session-manager/domain/model/DatabasePaths"
+import { SIDECARS } from "@session-manager/domain/model/Sidecars"
+import type { RollbackInput, RollbackOutcome, RollbackPort } from "@session-manager/domain/ports/inbound/RollbackPort"
+import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
+import type { ProcessListPort } from "@session-manager/domain/ports/outbound/ProcessListPort"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 
 /** Puts the original database back and parks whatever was in place. */
 export class RollbackUseCase implements RollbackPort {
-  private readonly fileSystem: FileSystemPort
+  private readonly fileSystem: MaintenanceFileSystemPort
   private readonly processes: ProcessListPort
   private readonly guard: GuardService
   private readonly runtime: RuntimePort
 
-  constructor(fileSystem: FileSystemPort, processes: ProcessListPort, guard: GuardService, runtime: RuntimePort) {
+  constructor(fileSystem: MaintenanceFileSystemPort, processes: ProcessListPort, guard: GuardService, runtime: RuntimePort) {
     this.fileSystem = fileSystem
     this.processes = processes
     this.guard = guard
