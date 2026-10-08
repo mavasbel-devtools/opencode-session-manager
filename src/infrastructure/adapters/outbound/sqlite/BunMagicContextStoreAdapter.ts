@@ -45,12 +45,26 @@ export class BunMagicContextStoreAdapter implements MagicContextStorePort {
           project: projects.get(id)?.project ?? null,
         }
       }
-      const version = tables.has("schema_migrations")
-        ? ((db.query("select max(version) as v from schema_migrations").get() as { v: number | null }).v ?? null)
-        : null
-      return { available: true, schemaVersion: version, sessions }
+      return { available: true, schemaVersion: formatOf(db, tables), sessions }
     } finally {
       db.close()
     }
   }
+
+  formatVersion(dbPath: string): number | null {
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      const tables = new Set(
+        (db.query("select name from sqlite_master where type = 'table'").all() as { name: string }[]).map((row) => row.name),
+      )
+      return formatOf(db, tables)
+    } finally {
+      db.close()
+    }
+  }
+}
+
+function formatOf(db: Database, tables: ReadonlySet<string>): number | null {
+  if (!tables.has("schema_migrations")) return null
+  return (db.query("select max(version) as v from schema_migrations").get() as { v: number | null }).v
 }

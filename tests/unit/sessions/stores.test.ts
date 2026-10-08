@@ -106,3 +106,14 @@ describe("BunMagicContextStoreAdapter", () => {
     expect(new BunMagicContextStoreAdapter().summary(empty).schemaVersion).toBeNull()
   })
 })
+
+describe("BunMagicContextStoreAdapter.formatVersion", () => {
+  it("reads the recorded format, or null without one", () => {
+    const recorded = join(directory, "recorded.db")
+    makeContextStore(recorded, { version: 3 })
+    expect(new BunMagicContextStoreAdapter().formatVersion(recorded)).toBe(3)
+    const none = join(directory, "none.db")
+    makeContextStore(none, { omit: ["schema_migrations"] })
+    expect(new BunMagicContextStoreAdapter().formatVersion(none)).toBeNull()
+  })
+})

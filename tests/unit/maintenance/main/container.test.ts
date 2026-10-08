@@ -54,7 +54,7 @@ test("overrides replace the session and Magic Context stores behind `sessions`",
       runtime: new FakeRuntime(),
       output,
       sessionStore: { sessions: () => [] },
-      magicContextStore: { summary: () => ({ available: true, schemaVersion: 1, sessions: {} }) },
+      magicContextStore: { summary: () => ({ available: true, schemaVersion: 1, sessions: {} }), formatVersion: () => 1 },
     },
   )
   assert.equal(cli.run(["sessions", "--data", "/d"]), 0)

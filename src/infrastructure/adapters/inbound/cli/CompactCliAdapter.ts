@@ -12,10 +12,13 @@ export interface CliEnvironment {
   readonly OPENCODE_DB_COMPACT_IMAGE?: string | undefined
   readonly OPENCODE_DB_COMPACT_REHEARSAL_DIR?: string | undefined
   readonly OPENCODE_DB_MIGRATE_REHEARSAL_DIR?: string | undefined
+  readonly XDG_CACHE_HOME?: string | undefined
+  /** An explicit Magic Context package folder, instead of the one in OpenCode's package cache. */
+  readonly OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT?: string | undefined
 }
 
 export const USAGE =
-  "usage: opencode-session-manager <preflight|rehearse|run|rollback <backupDir>|migrate …|sessions …> [--db <path>] [--keep]"
+  "usage: opencode-session-manager <preflight|rehearse|run|rollback <backupDir>|migrate …|sessions …|context …> [--db <path>] [--keep]"
 
 export interface CliArguments {
   readonly mode: string | undefined

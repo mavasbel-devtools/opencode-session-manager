@@ -17,7 +17,7 @@ code is wrong until one of them is deliberately changed.
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | deployed at (v1) | `<plugins>/session-manager.js`, `<plugins>/session-manager.tui.js` | v1.18.32 forbids `server` and `tui` in one module |
 | build outputs | `dist/v2/{server,tui}.js`, `dist/v1/session-manager{,.tui}.js` | the entrypoints the hosts load |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `migrate <rehearse\|run> --from <db>... --windows-user <name> [--drive C] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--db <path>] [--keep]`, `sessions [--data <dataHome>] [--json]` (read-only) |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `migrate <rehearse\|run> --from <db>... --windows-user <name> [--drive C] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--db <path>] [--keep]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>` |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
@@ -63,9 +63,15 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
    `VACUUM INTO` from a read-only connection.
 7. A migration **only ever writes copies it made itself**, and the result passes
    the seven gates of `MigrationVerifier` before the same swap.
-8. Reading a profile (`sessions`) opens both stores **read-only** and is the only
-   command allowed while OpenCode runs.
-9. A migration **never rewrites credentials** (`account`, `control_account`,
+8. Reading a profile (`sessions`) and copying a Magic Context store
+   (`context copy`) open their sources **read-only**; they are the only
+   commands allowed while OpenCode runs.
+9. Magic Context's own code runs **only on copies, only in a child process**
+   whose `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` and
+   `XDG_CONFIG_HOME` point into a throwaway sandbox
+   (`InstalledMagicContextAdapter`); a store newer than the installed release is
+   refused, never migrated down.
+10. A migration **never rewrites credentials** (`account`, `control_account`,
    `credential`) or OpenCode's own `migration` log, and never re-serializes
    JSON: it edits matched paths inside the raw text.
 

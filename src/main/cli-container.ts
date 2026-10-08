@@ -1,3 +1,7 @@
+import { CopyMagicContextUseCase } from "@session-manager/application/CopyMagicContextUseCase"
+import type { MagicContextReleasePort } from "@session-manager/domain/ports/outbound/MagicContextReleasePort"
+import { ContextCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/ContextCliAdapter"
+import { InstalledMagicContextAdapter } from "@session-manager/infrastructure/adapters/outbound/magic-context/InstalledMagicContextAdapter"
 import { CatalogProfileUseCase } from "@session-manager/application/CatalogProfileUseCase"
 import type { MagicContextStorePort } from "@session-manager/domain/ports/outbound/MagicContextStorePort"
 import type { SessionStorePort } from "@session-manager/domain/ports/outbound/SessionStorePort"
@@ -58,6 +62,7 @@ export interface ContainerOverrides {
   readonly store?: MigrationStorePort
   readonly sessionStore?: SessionStorePort
   readonly magicContextStore?: MagicContextStorePort
+  readonly magicContextRelease?: MagicContextReleasePort
   readonly runtime?: RuntimePort
   readonly reports?: ReportSinkPort
   readonly output?: OutputPort
@@ -153,5 +158,18 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     environment,
   })
 
-  return new CliRouter(compactCli, { migrate: migrateCli, sessions: sessionsCli })
+  const magicContextRelease =
+    overrides.magicContextRelease ??
+    new InstalledMagicContextAdapter(
+      [joinPath(environment.XDG_CACHE_HOME || joinPath(runtime.homeDirectory(), ".cache"), "opencode")],
+      environment.OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT || undefined,
+      process.execPath,
+      runtime.temporaryDirectory(),
+    )
+  const contextCli = new ContextCliAdapter({
+    copy: new CopyMagicContextUseCase(sqlite, magicContextStore, magicContextRelease, fileSystem),
+    output,
+  })
+
+  return new CliRouter(compactCli, { migrate: migrateCli, sessions: sessionsCli, context: contextCli })
 }

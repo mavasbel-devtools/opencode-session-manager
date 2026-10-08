@@ -107,6 +107,7 @@ closed:
 
 ```
 opencode-session-manager sessions [--data <dataHome>] [--json]
+opencode-session-manager context copy --from <context.db> --to <file>
 ```
 
 It lists one **profile** — an OpenCode installation's `opencode/opencode.db` and,
@@ -116,6 +117,15 @@ under one XDG data home (`--data`, default `$XDG_DATA_HOME` or
 what Magic Context holds for it (history summaries, tags, notes, memories it
 created). A Windows profile on an NTFS-compressed mount cannot be read in place;
 copy its stores to a Linux filesystem first.
+
+`context copy` copies a Magic Context store and brings the copy to the format
+the installed Magic Context writes, so stores from two machines can exchange
+rows. The upgrade is Magic Context's own code (the same migrations it runs on
+its live store when OpenCode starts), taken from OpenCode's package cache
+(`$XDG_CACHE_HOME/opencode`, else `~/.cache/opencode`; the newest installed
+version wins, or `OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT` names a package
+folder). It runs in a child process whose XDG folders point into a throwaway
+sandbox. A store newer than the installed Magic Context is refused.
 
 From a checkout, `bun run cli -- <arguments>` runs the same thing. The database
 defaults to `$XDG_DATA_HOME/opencode/opencode.db`
