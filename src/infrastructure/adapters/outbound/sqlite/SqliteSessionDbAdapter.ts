@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite"
 import path from "node:path"
 import os from "node:os"
-import type { SessionSummary } from "@transfer/domain/entities"
-import { DatabaseError } from "@transfer/domain/errors"
-import type { SessionDbPort } from "@transfer/domain/ports"
+import type { SessionSummary } from "@session-manager/domain/model/Session"
+import { DatabaseError } from "@session-manager/domain/errors/DatabaseError"
+import type { SessionDbPort } from "@session-manager/domain/ports/outbound/SessionDbPort"
 
 export class SqliteSessionDbAdapter implements SessionDbPort {
   private db: Database | null = null

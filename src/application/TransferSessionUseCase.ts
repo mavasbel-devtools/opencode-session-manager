@@ -1,6 +1,10 @@
-import type { TransferResult } from "@transfer/domain/entities"
-import { SessionNotFoundError, InvalidDirectoryError } from "@transfer/domain/errors"
-import type { FileSystemPort, SessionDbPort, ProjectResolverPort, TransferSessionPort } from "@transfer/domain/ports"
+import type { TransferResult } from "@session-manager/domain/model/Session"
+import { InvalidDirectoryError } from "@session-manager/domain/errors/InvalidDirectoryError"
+import { SessionNotFoundError } from "@session-manager/domain/errors/SessionNotFoundError"
+import type { TransferSessionPort } from "@session-manager/domain/ports/inbound/TransferSessionPort"
+import type { FileSystemPort } from "@session-manager/domain/ports/outbound/FileSystemPort"
+import type { ProjectResolverPort } from "@session-manager/domain/ports/outbound/ProjectResolverPort"
+import type { SessionDbPort } from "@session-manager/domain/ports/outbound/SessionDbPort"
 
 export class TransferSessionUseCase implements TransferSessionPort {
   constructor(

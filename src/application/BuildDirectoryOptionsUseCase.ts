@@ -1,6 +1,8 @@
-import type { DirectoryOption } from "@transfer/domain/entities"
-import { abbreviateHome } from "@transfer/domain/paths"
-import type { BuildDirectoryOptionsPort, FileSystemPort, KnownDirectoriesPort } from "@transfer/domain/ports"
+import type { DirectoryOption } from "@session-manager/domain/model/Session"
+import { abbreviateHome } from "@session-manager/domain/model/Paths"
+import type { BuildDirectoryOptionsPort } from "@session-manager/domain/ports/inbound/BuildDirectoryOptionsPort"
+import type { FileSystemPort } from "@session-manager/domain/ports/outbound/FileSystemPort"
+import type { KnownDirectoriesPort } from "@session-manager/domain/ports/outbound/KnownDirectoriesPort"
 
 /**
  * Builds the flat option list shown by the transfer dialog.

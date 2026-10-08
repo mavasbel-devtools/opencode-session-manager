@@ -1,6 +1,5 @@
 [test]
-coverage = true
-coverageReporter = ["text"]
-coverageSkipTestFiles = true
-coveragePathIgnorePatterns = ["test/**", "dist/**", "**/*.test.ts", "**/*.spec.ts"]
-coverageThreshold = { lines = 1.0, functions = 1.0 }
+preload = ["@opentui/solid/preload"]
+# Coverage is requested per tier (`coverage:unit`, `coverage:e2e`), because each
+# measured tier must reach the threshold on its own: see bunfig.coverage.toml.
+coverage = false

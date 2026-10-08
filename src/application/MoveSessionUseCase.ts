@@ -1,6 +1,9 @@
-import type { MoveResult } from "@transfer/domain/entities"
-import { InvalidDirectoryError, SessionNotFoundError } from "@transfer/domain/errors"
-import type { FileSystemPort, MoveSessionPort, SessionHostPort } from "@transfer/domain/ports"
+import type { MoveResult } from "@session-manager/domain/model/Session"
+import { InvalidDirectoryError } from "@session-manager/domain/errors/InvalidDirectoryError"
+import { SessionNotFoundError } from "@session-manager/domain/errors/SessionNotFoundError"
+import type { MoveSessionPort } from "@session-manager/domain/ports/inbound/MoveSessionPort"
+import type { FileSystemPort } from "@session-manager/domain/ports/outbound/FileSystemPort"
+import type { SessionHostPort } from "@session-manager/domain/ports/outbound/SessionHostPort"
 
 /**
  * OpenCode 2 transfer: the host's `session.move` already re-resolves the

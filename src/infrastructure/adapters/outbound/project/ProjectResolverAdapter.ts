@@ -1,7 +1,7 @@
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import type { ProjectResolverPort } from "@transfer/domain/ports"
+import type { ProjectResolverPort, ResolvedProject } from "@session-manager/domain/ports/outbound/ProjectResolverPort"
 
 export class ProjectResolverAdapter implements ProjectResolverPort {
   constructor() {}

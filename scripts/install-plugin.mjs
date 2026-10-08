@@ -7,34 +7,43 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 /**
  * Installs the plugin into an OpenCode `plugins` directory, where the host auto-discovers it.
  *
- * - v1 (1.18.32): two files, `sessions-transfer.js` (server) and `sessions-transfer.tui.js` ({ id, tui }).
- *   A v1 module may export server() or tui(), never both (opencode/src/plugin/shared.ts:293-295 at v1.18.32).
- * - v2 (2.0.14): one folder, `sessions-transfer/` with `server.js` and `tui.js`. A loose file only ever gets
- *   a server entrypoint; the TUI entrypoint is resolved for a directory alone (plugin/src/host.ts:17-44),
- *   and the TUI is this plugin's whole feature.
+ * - v2: one folder, `session-manager/` with `server.js` and `tui.js`. A loose file only ever gets a
+ *   server entrypoint; the TUI entrypoint is resolved for a directory alone (plugin/src/host.ts:17-44).
+ * - v1 (1.18.32): two files, `session-manager.js` (server) and `session-manager.tui.js` ({ id, tui }).
+ *   A v1 module may export server() or tui(), never both (opencode/src/plugin/shared.ts:293-295).
  *
  * One plugin owns one slot per directory: installing a lane removes this plugin's artifacts of the other
- * form (only these exact names), so a v2 host never loads both. Nothing else is written and no
- * configuration is edited — the host finds the plugin by auto-discovery.
+ * form, and the forms of the two plugins it replaces (opencode-session-id, opencode-sessions-transfer),
+ * so a host never loads a feature twice. Only these exact names are touched, a non-empty folder is never
+ * removed, and no configuration is edited — the host finds the plugin by auto-discovery.
  */
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
-const pluginId = "opencode-sessions-transfer"
-const folder = "sessions-transfer"
+const pluginId = "session-manager"
+const folder = "session-manager"
+const dist = path.join(project, "dist")
+
 const lanes = {
-  v1: {
-    files: [
-      // The v1 server bundle's default export is the legacy plugin function itself.
-      { source: path.join(project, "dist", "sessions-transfer.js"), target: "sessions-transfer.js", check: (entry) => typeof entry === "function", shape: "a default plugin function" },
-      { source: path.join(project, "dist", "sessions-transfer.tui.js"), target: "sessions-transfer.tui.js", check: (entry) => entry?.id === `${pluginId}-tui` && typeof entry?.tui === "function", shape: `{ id: "${pluginId}-tui", tui }` },
-    ],
-  },
-  v2: {
-    files: [
-      { source: path.join(project, "dist", "v2", "server.js"), target: path.join(folder, "server.js"), check: (entry) => entry?.id === pluginId && typeof entry?.setup === "function", shape: `{ id: "${pluginId}", setup }` },
-      { source: path.join(project, "dist", "v2", "tui.js"), target: path.join(folder, "tui.js"), check: (entry) => entry?.id === pluginId && typeof entry?.setup === "function", shape: `{ id: "${pluginId}", setup }` },
-    ],
-  },
+  v1: [
+    // The v1 server bundle's default export is the legacy plugin function itself.
+    { source: path.join(dist, "v1", "session-manager.js"), target: "session-manager.js", kind: "v1-server" },
+    { source: path.join(dist, "v1", "session-manager.tui.js"), target: "session-manager.tui.js", kind: "v1-tui" },
+  ],
+  v2: [
+    { source: path.join(dist, "v2", "server.js"), target: path.join(folder, "server.js"), kind: "v2-server" },
+    { source: path.join(dist, "v2", "tui.js"), target: path.join(folder, "tui.js"), kind: "v2-tui" },
+  ],
 }
+
+/** Artifacts of the plugins this one replaces; retired by either lane. */
+const legacy = [
+  "sessions-transfer.js",
+  "sessions-transfer.tui.js",
+  path.join("sessions-transfer", "server.js"),
+  path.join("sessions-transfer", "tui.js"),
+  path.join("session-id", "server.js"),
+  path.join("session-id", "tui.js"),
+]
+const legacyFolders = ["sessions-transfer", "session-id"]
 
 const command = process.argv[2]
 if (!new Set(["v1", "v2", "validate-v1", "validate-v2"]).has(command)) {
@@ -68,34 +77,51 @@ async function exists(target) {
   }
 }
 
+async function removeIfEmpty(name) {
+  const target = path.join(directory, name)
+  if ((await exists(target)) && (await readdir(target)).length === 0) await rmdir(target)
+}
+
 async function install() {
-  for (const file of lanes[lane].files) {
+  for (const file of lanes[lane]) {
     const target = path.join(directory, file.target)
     await mkdir(path.dirname(target), { recursive: true })
     const temporary = `${target}.${process.pid}.tmp`
     await copyFile(file.source, temporary)
     await rename(temporary, target)
   }
-  // Retire the other form of this same plugin (exact names only; a non-empty folder is never removed).
-  for (const file of lanes[other].files) await rm(path.join(directory, file.target), { force: true })
-  if (other === "v2" && (await exists(path.join(directory, folder))) && (await readdir(path.join(directory, folder))).length === 0) {
-    await rmdir(path.join(directory, folder))
+  const retired = [...lanes[other].map((file) => file.target), ...legacy]
+  for (const name of retired) await rm(path.join(directory, name), { force: true })
+  for (const name of lane === "v1" ? [folder, ...legacyFolders] : legacyFolders) await removeIfEmpty(name)
+}
+
+/**
+ * `tui.js` of the v2 lane imports the host's `opentui:runtime-module:*` registry, which only exists inside
+ * the OpenCode TUI process, so its shape is checked statically here and dynamically by the live tier.
+ */
+async function checkShape(file, target) {
+  if (file.kind === "v2-tui") {
+    const code = await readFile(target, "utf8")
+    return code.includes(`"${pluginId}"`) && /export\s*\{[^}]*\bas default\b/.test(code)
   }
+  const entry = (await import(`${pathToFileURL(target).href}?validate=${Date.now()}`)).default
+  if (file.kind === "v1-server") return typeof entry === "function"
+  if (file.kind === "v1-tui") return entry?.id === `${pluginId}-tui` && typeof entry?.tui === "function"
+  return entry?.id === pluginId && typeof entry?.setup === "function"
 }
 
 async function validate() {
   const report = []
-  for (const file of lanes[lane].files) {
+  for (const file of lanes[lane]) {
     const target = path.join(directory, file.target)
     const [built, deployed] = await Promise.all([readFile(file.source), readFile(target)])
     if (sha256(built) !== sha256(deployed)) throw new Error(`${target} differs from ${path.relative(project, file.source)}`)
-    const module = await import(`${pathToFileURL(target).href}?validate=${Date.now()}`)
-    if (!file.check(module.default)) throw new Error(`${target} must export ${file.shape}`)
+    if (!(await checkShape(file, target))) throw new Error(`${target} does not expose the ${file.kind} module shape`)
     report.push({ file: file.target, bytes: deployed.byteLength, sha256: sha256(deployed) })
   }
-  for (const file of lanes[other].files) {
-    if (await exists(path.join(directory, file.target))) {
-      throw new Error(`${path.join(directory, file.target)} (${other} form) must not coexist with the ${lane} form`)
+  for (const name of [...lanes[other].map((file) => file.target), ...legacy]) {
+    if (await exists(path.join(directory, name))) {
+      throw new Error(`${path.join(directory, name)} must not coexist with the ${lane} form of ${pluginId}`)
     }
   }
   console.log(JSON.stringify({ host: lane, directory, files: report, status: "valid" }))
