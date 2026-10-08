@@ -37,70 +37,86 @@ function commit(cwd: string, message: string): void {
   git(cwd, ["commit", "-m", message])
 }
 
-describe("ProjectResolverAdapter (URL normalization)", () => {
-  it("normalizes HTTP and HTTPS git URLs correctly", () => {
-    const normalize = (adapter as any).normalizeRemoteUrl.bind(adapter)
+const sha1 = (value: string) => createHash("sha1").update(value).digest("hex")
+
+function rootCommitOf(dir: string): string {
+  return spawnSync("git", ["rev-list", "--max-parents=0", "HEAD"], { cwd: dir, windowsHide: true, encoding: "utf8" }).stdout.trim()
+}
+
+describe("ProjectResolverAdapter (v1.18.32 remote normalization)", () => {
+  const normalize = (adapter as any).normalizeRemoteUrl.bind(adapter) as (url: string) => string | undefined
+
+  it("normalizes any URL scheme, stripping the leading slash, .git and trailing slashes", () => {
     expect(normalize("https://github.com/anomalyco/opencode.git")).toBe("github.com/anomalyco/opencode")
-    expect(normalize("http://gitlab.com/group/repo.git/")).toBe("gitlab.com/group/repo")
+    expect(normalize("http://GitLab.com/group/repo.git/")).toBe("gitlab.com/group/repo")
+    expect(normalize("ssh://git@host.example:2222/team/repo.git")).toBe("host.example/team/repo")
+    expect(normalize("https://host.example/mnt/git/itam/relational-dbs/")).toBe("host.example/mnt/git/itam/relational-dbs")
   })
 
-  it("normalizes SCP-like SSH git URLs correctly", () => {
-    const normalize = (adapter as any).normalizeRemoteUrl.bind(adapter)
+  it("normalizes the scp form [user@]host:path", () => {
     expect(normalize("git@github.com:anomalyco/opencode.git")).toBe("github.com/anomalyco/opencode")
     expect(normalize("user@bitbucket.org:team/project.git")).toBe("bitbucket.org/team/project")
   })
 
-  it("returns null for empty or non-URL remotes", () => {
-    const normalize = (adapter as any).normalizeRemoteUrl.bind(adapter)
-    expect(normalize("")).toBeNull()
-    expect(normalize("   ")).toBeNull()
-    expect(normalize("just-a-name")).toBeNull()
+  it("rejects file: URLs, empty values, bare names, and URLs without a host or a path", () => {
+    expect(normalize("file:///srv/git/repo.git")).toBeUndefined()
+    expect(normalize("")).toBeUndefined()
+    expect(normalize("   ")).toBeUndefined()
+    expect(normalize("just-a-name")).toBeUndefined()
+    expect(normalize("github.com:a/b")).toBeUndefined()
+    expect(normalize("https://host.example/")).toBeUndefined()
   })
 })
 
 describe("ProjectResolverAdapter (real repositories)", () => {
-  it.skipIf(!gitAvailable)("resolves a non-git directory to the global project", async () => {
+  it.skipIf(!gitAvailable)("resolves a directory outside any repository to the global project at /", async () => {
     const dir = tmpRepo()
     try {
-      const resolved = await adapter.resolve(dir)
-      expect(resolved.projectId).toBe("global")
-      expect(resolved.worktree).toBe(path.parse(dir).root)
+      const resolved = await adapter.resolve(path.join(dir, "child"))
+      expect(resolved).toEqual({
+        projectId: "global",
+        worktree: "/",
+        relativePath: path.relative(path.parse(dir).root, path.join(dir, "child")).replaceAll("\\", "/"),
+      })
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  it.skipIf(!gitAvailable)("hashes the remote origin when present", async () => {
+  it.skipIf(!gitAvailable)("hashes the origin remote when it normalizes", async () => {
     const dir = tmpRepo()
     try {
       git(dir, ["init", "--quiet"])
       commit(dir, "root commit")
       git(dir, ["remote", "add", "origin", "https://github.com/example/project.git"])
-
       const resolved = await adapter.resolve(dir)
-      const expected = createHash("sha1").update("git-remote:github.com/example/project").digest("hex")
-      expect(resolved.projectId).toBe(expected)
+      expect(resolved.projectId).toBe(sha1("git-remote:github.com/example/project"))
       expect(resolved.relativePath).toBe("")
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  it.skipIf(!gitAvailable)("falls back to the root commit when the remote is not a URL", async () => {
+  it.skipIf(!gitAvailable)("uses the id cached in <git-common-dir>/opencode before the root commit", async () => {
     const dir = tmpRepo()
     try {
       git(dir, ["init", "--quiet"])
       commit(dir, "root commit")
       git(dir, ["remote", "add", "origin", "just-a-name"])
+      fs.writeFileSync(path.join(dir, ".git", "opencode"), "cached-project-id\n")
+      expect((await adapter.resolve(dir)).projectId).toBe("cached-project-id")
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
 
-      const rootCommit = spawnSync("git", ["rev-list", "--max-parents=0", "HEAD"], {
-        cwd: dir,
-        windowsHide: true,
-        encoding: "utf8",
-      }).stdout.trim()
-
-      const resolved = await adapter.resolve(dir)
-      expect(resolved.projectId).toBe(rootCommit)
+  it.skipIf(!gitAvailable)("ignores an empty cache file and falls back to the root commit", async () => {
+    const dir = tmpRepo()
+    try {
+      git(dir, ["init", "--quiet"])
+      commit(dir, "root commit")
+      fs.writeFileSync(path.join(dir, ".git", "opencode"), "  \n")
+      expect((await adapter.resolve(dir)).projectId).toBe(rootCommitOf(dir))
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
@@ -111,27 +127,29 @@ describe("ProjectResolverAdapter (real repositories)", () => {
     try {
       git(dir, ["init", "--quiet"])
       commit(dir, "root commit")
-
-      const rootCommit = spawnSync("git", ["rev-list", "--max-parents=0", "HEAD"], {
-        cwd: dir,
-        windowsHide: true,
-        encoding: "utf8",
-      }).stdout.trim()
-
-      const resolved = await adapter.resolve(dir)
-      expect(resolved.projectId).toBe(rootCommit)
+      expect((await adapter.resolve(dir)).projectId).toBe(rootCommitOf(dir))
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  it.skipIf(!gitAvailable)("falls back to a path hash for a repo without commits", async () => {
+  it.skipIf(!gitAvailable)("resolves a repository without commits to global, at its worktree", async () => {
     const dir = tmpRepo()
     try {
       git(dir, ["init", "--quiet"])
       const resolved = await adapter.resolve(dir)
-      const expected = createHash("sha1").update(path.resolve(dir).toLowerCase()).digest("hex")
-      expect(resolved.projectId).toBe(expected)
+      expect(resolved.projectId).toBe("global")
+      expect(resolved.worktree).toBe(fs.realpathSync.native(dir))
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.skipIf(!gitAvailable)("treats a .git that git rejects as no repository", async () => {
+    const dir = tmpRepo()
+    try {
+      fs.mkdirSync(path.join(dir, ".git"))
+      expect((await adapter.resolve(dir)).projectId).toBe("global")
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
@@ -144,9 +162,8 @@ describe("ProjectResolverAdapter (real repositories)", () => {
       commit(dir, "root commit")
       const nested = path.join(dir, "packages", "core")
       fs.mkdirSync(nested, { recursive: true })
-
       const resolved = await adapter.resolve(nested)
-      expect(resolved.worktree.toLowerCase()).toBe(fs.realpathSync.native(dir).toLowerCase())
+      expect(resolved.worktree).toBe(fs.realpathSync.native(dir))
       expect(resolved.relativePath).toBe("packages/core")
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })

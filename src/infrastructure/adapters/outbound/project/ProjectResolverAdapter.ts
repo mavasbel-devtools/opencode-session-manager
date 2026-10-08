@@ -1,94 +1,110 @@
-import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import fs from "node:fs"
+import path from "node:path"
 import type { ProjectResolverPort, ResolvedProject } from "@session-manager/domain/ports/outbound/ProjectResolverPort"
 
+const GLOBAL = "global"
+
+interface Repository {
+  readonly worktree: string
+  readonly commonDirectory: string
+}
+
+/**
+ * Resolves a directory to a project exactly as the OpenCode 1.18.32 host does
+ * (packages/core/src/project.ts `Project.resolve` and packages/core/src/git.ts
+ * at tag v1.18.32), because the v1 lane writes the session row itself:
+ *
+ *   no `.git` above the directory → `global`, worktree `/`
+ *   git repository → sha1(`git-remote:<host>/<path>`) of `origin`
+ *                    ?? the id cached in `<git-common-dir>/opencode`
+ *                    ?? the first sorted root commit
+ *                    ?? `global`
+ */
 export class ProjectResolverAdapter implements ProjectResolverPort {
   constructor() {}
 
-  async resolve(directory: string): Promise<{
-    projectId: string
-    worktree: string
-    relativePath: string
-  }> {
-    const resolvedDir = path.resolve(directory)
-
-    // Check if git repository
-    const gitTopLevel = this.execGit(["rev-parse", "--show-toplevel"], resolvedDir)
-    if (!gitTopLevel) {
-      const parsed = path.parse(resolvedDir)
-      return {
-        projectId: "global",
-        worktree: parsed.root,
-        relativePath: path.relative(parsed.root, resolvedDir).replaceAll("\\", "/"),
-      }
+  async resolve(directory: string): Promise<ResolvedProject> {
+    const resolved = path.resolve(directory)
+    const repository = this.discover(resolved)
+    if (!repository) {
+      return { projectId: GLOBAL, worktree: "/", relativePath: this.relative(path.parse(resolved).root, resolved) }
     }
+    const projectId = this.remoteId(repository) ?? this.cachedId(repository) ?? this.rootCommit(repository) ?? GLOBAL
+    return { projectId, worktree: repository.worktree, relativePath: this.relative(repository.worktree, resolved) }
+  }
 
-    const worktree = path.resolve(gitTopLevel)
-    const relativePath = path.relative(worktree, resolvedDir).replaceAll("\\", "/")
-
-    // Check remote origin
-    const remoteOrigin = this.execGit(["config", "--get", "remote.origin.url"], worktree)
-    if (remoteOrigin) {
-      const normalized = this.normalizeRemoteUrl(remoteOrigin)
-      if (normalized) {
-        const hash = createHash("sha1").update(`git-remote:${normalized}`).digest("hex")
-        return {
-          projectId: hash,
-          worktree,
-          relativePath,
-        }
-      }
+  /** v1 `Git.repo.discover`: the nearest `.git` upwards, then `rev-parse` from its parent. */
+  private discover(start: string): Repository | undefined {
+    let current = start
+    while (!fs.existsSync(path.join(current, ".git"))) {
+      const parent = path.dirname(current)
+      if (parent === current) return undefined
+      current = parent
     }
-
-    // Check root commit
-    const rootCommit = this.execGit(["rev-list", "--max-parents=0", "HEAD"], worktree)
-    if (rootCommit) {
-      return {
-        projectId: rootCommit.split("\n")[0] ?? rootCommit,
-        worktree,
-        relativePath,
-      }
-    }
-
-    // Fallback deterministic hash of worktree path
-    const fallbackId = createHash("sha1").update(worktree.toLowerCase()).digest("hex")
+    const topLevel = this.git(["rev-parse", "--show-toplevel"], current)
+    const commonDirectory = this.git(["rev-parse", "--git-common-dir"], current)
+    if (commonDirectory === undefined) return undefined
     return {
-      projectId: fallbackId,
-      worktree,
-      relativePath,
+      worktree: topLevel === undefined ? current : path.resolve(current, topLevel),
+      commonDirectory: path.resolve(current, commonDirectory),
     }
   }
 
-  private normalizeRemoteUrl(url: string): string | null {
-    const trimmed = url.trim()
-    if (!trimmed) return null
-
-    try {
-      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-        const parsed = new URL(trimmed)
-        const pathname = parsed.pathname.replace(/^\/+/, "").replace(/\.git\/?$/, "")
-        return `${parsed.hostname.toLowerCase()}/${pathname}`
-      }
-    } catch (_) {}
-
-    const scp = trimmed.match(/^([^@/:]+@)?([^/:]+):(.+)$/)
-    if (scp && scp[2] && scp[3]) {
-      const host = scp[2].toLowerCase()
-      const pathname = scp[3].replace(/^\/+/, "").replace(/\.git\/?$/, "")
-      return `${host}/${pathname}`
-    }
-
-    return null
+  private remoteId(repository: Repository): string | undefined {
+    const normalized = this.normalizeRemoteUrl(this.git(["remote", "get-url", "origin"], repository.worktree) ?? "")
+    return normalized === undefined ? undefined : createHash("sha1").update(`git-remote:${normalized}`).digest("hex")
   }
 
-  private execGit(args: string[], cwd: string): string | null {
+  private cachedId(repository: Repository): string | undefined {
     try {
-      const res = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true })
-      if (res.status === 0 && res.stdout) {
-        return res.stdout.trim()
-      }
-    } catch (_) {}
-    return null
+      return fs.readFileSync(path.join(repository.commonDirectory, "opencode"), "utf8").trim() || undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  private rootCommit(repository: Repository): string | undefined {
+    const roots = this.git(["rev-list", "--max-parents=0", "HEAD"], repository.worktree)
+    return roots
+      ?.split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .sort()[0]
+  }
+
+  /** v1 `url` + `parts`: any URL scheme except `file:`, else the scp form `[user@]host:path`. */
+  private normalizeRemoteUrl(url: string): string | undefined {
+    const value = url.trim()
+    if (!value) return undefined
+    let host: string
+    let name: string
+    try {
+      const parsed = new URL(value)
+      if (parsed.protocol === "file:") return undefined
+      host = parsed.hostname
+      name = parsed.pathname
+    } catch {
+      const scp = value.match(/^([^@/:]+@)?([^/:]+):(.+)$/)
+      if (!scp) return undefined
+      host = scp[2]!
+      name = scp[3]!
+    }
+    const pathname = name
+      .replace(/^\/+/, "")
+      .replace(/\.git\/?$/, "")
+      .replace(/\/+$/, "")
+    if (!host || !pathname) return undefined
+    return `${host.toLowerCase()}/${pathname}`
+  }
+
+  private relative(from: string, to: string): string {
+    return path.relative(from, to).replaceAll("\\", "/")
+  }
+
+  private git(args: readonly string[], cwd: string): string | undefined {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true })
+    return result.status === 0 ? result.stdout.trim() : undefined
   }
 }
