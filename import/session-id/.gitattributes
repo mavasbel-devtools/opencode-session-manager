@@ -1,0 +1,5 @@
+# The machine's global core.autocrlf would rewrite line endings on checkout, and
+# two fixtures are verified byte-for-byte against recorded SHA-256 hashes
+# (tests/support/fixtures/**). Nothing here may be converted.
+* text eol=lf
+tests/support/fixtures/** -text

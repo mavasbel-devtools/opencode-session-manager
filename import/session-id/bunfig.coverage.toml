@@ -1,0 +1,15 @@
+# Used by `coverage:unit` and `coverage:e2e` (`bun --config=bunfig.coverage.toml test …`).
+# Separate from bunfig.toml because the per-file 100 % gate applies to the tier
+# being measured: each measured tier must reach it on its own, and a plain
+# `bun test tests/component` must not be gated on coverage at all.
+#
+# Measured: a `--coverage` flag on the command line does not switch coverage on
+# when bunfig.toml says `coverage = false`, and `--config` is a global flag, so
+# it must come before `test`.
+[test]
+preload = ["@opentui/solid/preload"]
+coverage = true
+coverageReporter = ["text"]
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = ["tests/**", "dist/**", "build/**", "scripts/**", "**/*.test.ts", "**/*.test.tsx"]
+coverageThreshold = { lines = 1.0, functions = 1.0 }
