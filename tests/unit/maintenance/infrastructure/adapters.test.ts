@@ -77,7 +77,21 @@ test("SystemClockAdapter exposes the ambient runtime", () => {
   assert.equal(runtime.platform(), process.platform)
   assert.ok(runtime.now() >= 0)
   assert.equal(runtime.temporaryDirectory(), tmpdir())
-  assert.equal(runtime.homeDirectory(), homedir())
+  const saved = { HOME: process.env["HOME"], USERPROFILE: process.env["USERPROFILE"] }
+  try {
+    process.env["HOME"] = "/tmp/home-from-env"
+    assert.equal(runtime.homeDirectory(), "/tmp/home-from-env", "HOME is read on every call")
+    delete process.env["HOME"]
+    process.env["USERPROFILE"] = "C:/Users/Someone"
+    assert.equal(runtime.homeDirectory(), "C:/Users/Someone")
+    delete process.env["USERPROFILE"]
+    assert.equal(runtime.homeDirectory(), homedir())
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
   assert.match(runtime.stamp(), /^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/)
   assert.equal(runtime.stamp(new Date(2026, 8, 6, 7, 5, 3)), "2026-09-06-07-05-03")
 })

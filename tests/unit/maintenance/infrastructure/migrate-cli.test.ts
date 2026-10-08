@@ -220,14 +220,19 @@ test("MigrateCliAdapter run: the database's own folder, then SWAPPED with the un
   ])
 })
 
-test("CliRouter sends migrate to the migrate adapter without the word itself, everything else to compact", () => {
+test("CliRouter sends a command family to its adapter without the family word, everything else to compact", () => {
   const seen: string[] = []
   const router = new CliRouter(
     { run: (argv) => (seen.push(`compact:${argv.join(" ")}`), 3) },
-    { run: (argv) => (seen.push(`migrate:${argv.join(" ")}`), 4) },
+    {
+      migrate: { run: (argv) => (seen.push(`migrate:${argv.join(" ")}`), 4) },
+      sessions: { run: (argv) => (seen.push(`sessions:${argv.join(" ")}`), 5) },
+    },
   )
   assert.equal(router.run(["migrate", "rehearse"]), 4)
+  assert.equal(router.run(["sessions", "--json"]), 5)
   assert.equal(router.run(["preflight"]), 3)
+  assert.equal(router.run(["toString"]), 3)
   assert.equal(router.run([]), 3)
-  assert.deepEqual(seen, ["migrate:rehearse", "compact:preflight", "compact:"])
+  assert.deepEqual(seen, ["migrate:rehearse", "sessions:--json", "compact:preflight", "compact:toString", "compact:"])
 })

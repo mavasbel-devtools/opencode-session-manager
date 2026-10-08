@@ -33,7 +33,8 @@ export class SystemClockAdapter implements RuntimePort {
     return tmpdir()
   }
 
+  /** Read per call: Bun's `os.homedir()` caches its first answer and ignores a later `HOME`. */
   homeDirectory(): string {
-    return homedir()
+    return process.env["HOME"] || process.env["USERPROFILE"] || homedir()
   }
 }

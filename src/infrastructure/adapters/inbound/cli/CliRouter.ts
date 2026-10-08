@@ -3,17 +3,18 @@ export interface CommandAdapter {
   run(argv: readonly string[]): number
 }
 
-/** Sends `migrate …` to the migrate adapter and every other mode to the compact adapter. */
+/** Sends `<family> …` to that family's adapter (without the family word), and every other mode to the compact adapter. */
 export class CliRouter {
   private readonly compact: CommandAdapter
-  private readonly migrate: CommandAdapter
+  private readonly families: Readonly<Record<string, CommandAdapter>>
 
-  constructor(compact: CommandAdapter, migrate: CommandAdapter) {
+  constructor(compact: CommandAdapter, families: Readonly<Record<string, CommandAdapter>>) {
     this.compact = compact
-    this.migrate = migrate
+    this.families = families
   }
 
   run(argv: readonly string[]): number {
-    return argv[0] === "migrate" ? this.migrate.run(argv.slice(1)) : this.compact.run(argv)
+    const family = argv[0] !== undefined && Object.hasOwn(this.families, argv[0]) ? this.families[argv[0]] : undefined
+    return family === undefined ? this.compact.run(argv) : family.run(argv.slice(1))
   }
 }

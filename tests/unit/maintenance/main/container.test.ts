@@ -42,3 +42,22 @@ test("rewriterFor builds the path rewriter for a migration's mapping", () => {
   assert.equal(rewriter.rewrite("C:\\Users\\Robin\\x"), "/home/me/x")
   assert.equal(rewriter.residual("Users/Robin"), true)
 })
+
+test("overrides replace the session and Magic Context stores behind `sessions`", async () => {
+  const output = new FakeOutput()
+  const fileSystem = new FakeFileSystem()
+  fileSystem.add("/d/opencode/opencode.db")
+  const cli = await buildContainer(
+    {},
+    {
+      fileSystem,
+      runtime: new FakeRuntime(),
+      output,
+      sessionStore: { sessions: () => [] },
+      magicContextStore: { summary: () => ({ available: true, schemaVersion: 1, sessions: {} }) },
+    },
+  )
+  assert.equal(cli.run(["sessions", "--data", "/d"]), 0)
+  assert.equal(output.lines[0], "opencode.db: /d/opencode/opencode.db (0 sessions)")
+  assert.equal(output.lines[1], "context.db: /d/cortexkit/magic-context/context.db (no Magic Context store)")
+})

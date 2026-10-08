@@ -1,3 +1,9 @@
+import { CatalogProfileUseCase } from "@session-manager/application/CatalogProfileUseCase"
+import type { MagicContextStorePort } from "@session-manager/domain/ports/outbound/MagicContextStorePort"
+import type { SessionStorePort } from "@session-manager/domain/ports/outbound/SessionStorePort"
+import { SessionsCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/SessionsCliAdapter"
+import { BunMagicContextStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextStoreAdapter"
+import { BunSessionStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSessionStoreAdapter"
 import { BuildAndVerifyService } from "@session-manager/application/BuildAndVerifyService"
 import { CompactUseCase } from "@session-manager/application/CompactUseCase"
 import { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
@@ -50,6 +56,8 @@ export interface ContainerOverrides {
   readonly holders?: DatabaseHoldersPort
   readonly identity?: ProjectIdentityPort
   readonly store?: MigrationStorePort
+  readonly sessionStore?: SessionStorePort
+  readonly magicContextStore?: MagicContextStorePort
   readonly runtime?: RuntimePort
   readonly reports?: ReportSinkPort
   readonly output?: OutputPort
@@ -73,6 +81,8 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
   const sqlite = overrides.sqlite ?? new BunSqliteAdapter()
   const identity = overrides.identity ?? new GitProjectIdentityAdapter()
   const store = overrides.store ?? new BunMigrationStoreAdapter()
+  const sessionStore = overrides.sessionStore ?? new BunSessionStoreAdapter()
+  const magicContextStore = overrides.magicContextStore ?? new BunMagicContextStoreAdapter()
   const space = overrides.space ?? new RequiredSpacePolicy()
 
   const sizes = new DatabaseSizesService(fileSystem)
@@ -136,5 +146,12 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
       joinPath(runtime.temporaryDirectory(), "opencode", "migrate-rehearsal"),
   })
 
-  return new CliRouter(compactCli, migrateCli)
+  const sessionsCli = new SessionsCliAdapter({
+    catalog: new CatalogProfileUseCase(sessionStore, magicContextStore, fileSystem),
+    output,
+    runtime,
+    environment,
+  })
+
+  return new CliRouter(compactCli, { migrate: migrateCli, sessions: sessionsCli })
 }

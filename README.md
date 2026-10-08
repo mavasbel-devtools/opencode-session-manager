@@ -102,6 +102,21 @@ opencode-session-manager migrate <rehearse|run> --from <db>... --windows-user <n
   [--drive C] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--keep]
 ```
 
+`sessions` is read-only and safe while OpenCode runs; the other commands need it
+closed:
+
+```
+opencode-session-manager sessions [--data <dataHome>] [--json]
+```
+
+It lists one **profile** — an OpenCode installation's `opencode/opencode.db` and,
+when Magic Context is installed, its `cortexkit/magic-context/context.db`, both
+under one XDG data home (`--data`, default `$XDG_DATA_HOME` or
+`~/.local/share`) — newest session first, with each session's entry count and
+what Magic Context holds for it (history summaries, tags, notes, memories it
+created). A Windows profile on an NTFS-compressed mount cannot be read in place;
+copy its stores to a Linux filesystem first.
+
 From a checkout, `bun run cli -- <arguments>` runs the same thing. The database
 defaults to `$XDG_DATA_HOME/opencode/opencode.db`
 (`~/.local/share/opencode/opencode.db` when unset); `--db <path>` overrides it.
