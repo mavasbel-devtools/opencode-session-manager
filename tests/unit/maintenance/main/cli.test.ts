@@ -1,18 +1,11 @@
 import { test } from "bun:test"
 import assert from "node:assert/strict"
 import { bootstrap } from "@session-manager/main/cli/cli"
+import { captureConsole, captureConsoleError } from "@test/support/maintenance/console"
 
 test("bootstrap runs a command, and turns a thrown error into an ERROR line and exit code 1", async () => {
-  const logged: string[] = []
-  const errored: string[] = []
-  const originalLog = console.log
-  const originalError = console.error
-  console.log = (value?: unknown) => {
-    logged.push(String(value))
-  }
-  console.error = (value?: unknown) => {
-    errored.push(String(value))
-  }
+  const logged = captureConsole()
+  const errored = captureConsoleError()
   let usageCode: number
   let errorCode: number
   try {
@@ -21,11 +14,11 @@ test("bootstrap runs a command, and turns a thrown error into an ERROR line and 
       OPENCODE_DB_COMPACT_IMAGE: "no-such.exe",
     })
   } finally {
-    console.log = originalLog
-    console.error = originalError
+    logged.restore()
+    errored.restore()
   }
   assert.equal(usageCode, 2)
   assert.equal(errorCode, 1)
-  assert.match(logged.join("\n"), /usage: opencode-session-manager/)
-  assert.match(errored.join("\n"), /ERROR: no original database/)
+  assert.match(logged.lines.join("\n"), /usage: opencode-session-manager/)
+  assert.match(errored.lines.join("\n"), /ERROR: no original database/)
 })

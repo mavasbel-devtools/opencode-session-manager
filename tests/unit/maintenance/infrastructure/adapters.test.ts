@@ -55,20 +55,21 @@ test("JsonReportAdapter writes indented JSON and creates the directory", () => {
   }
 })
 
-test("ConsoleOutputAdapter writes one line per call", () => {
-  const original = console.log
-  const lines: string[] = []
-  console.log = (value?: unknown) => {
-    lines.push(String(value))
-  }
+test("ConsoleOutputAdapter writes one line per call to stdout", () => {
+  const original = process.stdout.write
+  const chunks: string[] = []
+  process.stdout.write = ((chunk: string) => {
+    chunks.push(chunk)
+    return true
+  }) as typeof process.stdout.write
   try {
     const output = new ConsoleOutputAdapter()
     output.line("first")
     output.line("second")
   } finally {
-    console.log = original
+    process.stdout.write = original
   }
-  assert.deepEqual(lines, ["first", "second"])
+  assert.deepEqual(chunks, ["first\n", "second\n"])
 })
 
 test("SystemClockAdapter exposes the ambient runtime", () => {
@@ -94,4 +95,20 @@ test("SystemClockAdapter exposes the ambient runtime", () => {
   }
   assert.match(runtime.stamp(), /^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/)
   assert.equal(runtime.stamp(new Date(2026, 8, 6, 7, 5, 3)), "2026-09-06-07-05-03")
+})
+
+test("NodeMaintenanceFileSystemAdapter copies a file and removes a folder tree", () => {
+  const root = mkdtempSync(join(tmpdir(), "oc-fs-copy-"))
+  try {
+    const fs = new NodeMaintenanceFileSystemAdapter()
+    fs.mkdirp(join(root, "tree", "deep"))
+    writeFileSync(join(root, "source"), "bytes")
+    fs.copyFile(join(root, "source"), join(root, "tree", "deep", "copy"))
+    assert.equal(readFileSync(join(root, "tree", "deep", "copy"), "utf8"), "bytes")
+    fs.removeTree(join(root, "tree"))
+    assert.equal(fs.exists(join(root, "tree")), false)
+    assert.equal(fs.exists(join(root, "source")), true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })

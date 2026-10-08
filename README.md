@@ -3,10 +3,12 @@
 Tools for working with OpenCode sessions, in two parts:
 
 - **an OpenCode plugin**, used inside OpenCode (below);
-- **an offline maintenance CLI**, `opencode-session-manager`, for an OpenCode 2
-  `opencode.db` while OpenCode is closed: verified compaction and migration of
-  sessions from another machine, each with a rename-only swap and a rollback
-  (see [Offline maintenance CLI](#offline-maintenance-cli)).
+- **a standalone program**, `opencode-session-manager`: a two-pane session
+  browser (`tui`) for this machine's and another machine's OpenCode with their
+  Magic Context state, and offline maintenance of `opencode.db` while OpenCode is
+  closed: verified compaction and migration of sessions from another machine,
+  each with a rename-only swap and a rollback (see
+  [Offline maintenance CLI](#offline-maintenance-cli)).
 
 It replaces three earlier projects, `opencode-session-id`,
 `opencode-sessions-transfer` and `opencode-db-manager` (formerly
@@ -106,17 +108,30 @@ opencode-session-manager migrate <rehearse|run> --from <db>... --windows-user <n
 closed:
 
 ```
+opencode-session-manager tui [--left <dataHome>] [--right <dataHome>]
 opencode-session-manager sessions [--data <dataHome>] [--json]
 opencode-session-manager context copy --from <context.db> --to <file>
 ```
+
+`tui` opens the **session browser**: one profile per pane (`--left` defaults to
+this machine's), sessions grouped by folder with the newest first, each with its
+message count and Magic Context summaries (`S`) and tags (`T`), and a detail
+panel for the selected row. With two panes, each session is marked against the
+session with the same id on the other side: `+` only here, `=` same, `>` newer
+here, `<` older here. Keys: `↑↓`/`jk` move, `PgUp`/`PgDn`, `g`/`G` top and
+bottom, `Enter` folds a folder, `/` filters by id, title or folder (`Esc`
+clears), `Tab` or `←→`/`hl` switch panes, `q` quits; the mouse selects rows and
+scrolls a pane. It only reads, for now; syncing and forking are being added.
 
 It lists one **profile** — an OpenCode installation's `opencode/opencode.db` and,
 when Magic Context is installed, its `cortexkit/magic-context/context.db`, both
 under one XDG data home (`--data`, default `$XDG_DATA_HOME` or
 `~/.local/share`) — newest session first, with each session's entry count and
 what Magic Context holds for it (history summaries, tags, notes, memories it
-created). A Windows profile on an NTFS-compressed mount cannot be read in place;
-copy its stores to a Linux filesystem first.
+created). A store SQLite cannot open where it lies (for example an
+NTFS-compressed Windows partition mounted on Linux) is copied, with its `-wal`
+and `-shm`, into a temporary folder and read there; `tui` and `sessions` do this
+on their own and remove the copy when they finish.
 
 `context copy` copies a Magic Context store and brings the copy to the format
 the installed Magic Context writes, so stores from two machines can exchange

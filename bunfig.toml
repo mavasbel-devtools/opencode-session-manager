@@ -1,3 +1,7 @@
+# `bun run cli` / `bun src/main/cli/cli.ts`: compile the session browser's Solid JSX with OpenTUI's
+# transform (the compiled CLI gets the same transform from scripts/build.mjs).
+preload = ["@opentui/solid/preload"]
+
 [test]
 preload = ["@opentui/solid/preload"]
 # Coverage is requested per tier (`coverage:unit`, `coverage:e2e`), because each

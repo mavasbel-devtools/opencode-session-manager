@@ -63,16 +63,22 @@ async function bundle(entry, file, plugins, directory = outdir) {
  * and silently drops the sidebar. Checked against the pinned packages.
  */
 /**
- * The offline maintenance CLI as one self-contained executable (`dist/cli/opencode-session-manager`,
+ * The CLI (maintenance commands and the session browser) as one self-contained executable (`dist/cli/opencode-session-manager`,
  * `.exe` on Windows), built for the platform running the build, like OpenCode itself ships.
  */
 async function compileCli() {
   const outfile = path.join(dist, "cli", process.platform === "win32" ? "opencode-session-manager.exe" : "opencode-session-manager")
   const result = await Bun.build({
     entrypoints: [path.join(project, "src", "main", "cli", "cli.ts")],
-    compile: { outfile },
+    // A user's folder is not this project: never read its bunfig.toml (a preload there broke the
+    // executable), .env, tsconfig.json or package.json at run time.
+    compile: { outfile, autoloadBunfig: false, autoloadDotenv: false, autoloadTsconfig: false, autoloadPackageJson: false },
     target: "bun",
     minify: false,
+    // The session browser's JSX, compiled against the Solid and OpenTUI copies bundled into the
+    // executable (unlike the plugin's TUI bundle, which binds the host's runtime). OpenTUI's native
+    // library is embedded by its own `import … with { type: "file" }`.
+    plugins: [createSolidTransformPlugin()],
   })
   if (!result.success) throw new AggregateError(result.logs, "CLI build failed")
   return outfile

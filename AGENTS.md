@@ -17,7 +17,7 @@ code is wrong until one of them is deliberately changed.
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | deployed at (v1) | `<plugins>/session-manager.js`, `<plugins>/session-manager.tui.js` | v1.18.32 forbids `server` and `tui` in one module |
 | build outputs | `dist/v2/{server,tui}.js`, `dist/v1/session-manager{,.tui}.js` | the entrypoints the hosts load |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `migrate <rehearse\|run> --from <db>... --windows-user <name> [--drive C] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--db <path>] [--keep]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>` |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `migrate <rehearse\|run> --from <db>... --windows-user <name> [--drive C] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--db <path>] [--keep]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `tui [--left <dataHome>] [--right <dataHome>]` (read-only session browser) |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
@@ -63,9 +63,10 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
    `VACUUM INTO` from a read-only connection.
 7. A migration **only ever writes copies it made itself**, and the result passes
    the seven gates of `MigrationVerifier` before the same swap.
-8. Reading a profile (`sessions`) and copying a Magic Context store
+8. Reading a profile (`sessions`, `tui`) and copying a Magic Context store
    (`context copy`) open their sources **read-only**; they are the only
-   commands allowed while OpenCode runs.
+   commands allowed while OpenCode runs. A store that cannot be opened in place
+   is read from a private temporary copy, removed afterwards.
 9. Magic Context's own code runs **only on copies, only in a child process**
    whose `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` and
    `XDG_CONFIG_HOME` point into a throwaway sandbox
@@ -144,6 +145,19 @@ finalized, and `query()` statements are finalized by `close()` (measured: a
 closed connection with one `prepare()`d statement still held the file, and the
 guard then refused the test's own database as "held open"). Bulk writes in tests
 go inside a transaction; one fsync per insert made a 4 500-row test take 30 s.
+
+### The session browser (`tui`)
+
+Its state is pure (`src/domain/model/Browser.ts`: rows, cursor, window, filter,
+reducer); `src/infrastructure/adapters/inbound/manager-tui/` turns keys into
+actions (`keys.ts`), state into text (`format.ts`) and paints it
+(`OpenTuiBrowser.tsx`, the only file there that imports OpenTUI at run time).
+It bundles its own Solid and OpenTUI: `scripts/build.mjs` compiles it with
+OpenTUI's Solid transform, and `bunfig.toml` preloads the same transform for
+`bun run cli`. The compiled executable is built with `autoloadBunfig`,
+`autoloadDotenv`, `autoloadTsconfig` and `autoloadPackageJson` off: it once
+read the preload of a `bunfig.toml` in the folder it was started from, and
+failed. OpenTUI's native library is embedded in the executable.
 
 ### The home directory is a port
 

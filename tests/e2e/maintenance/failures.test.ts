@@ -35,7 +35,7 @@ async function attempt(
 ): Promise<{ code: number; lines: string[] }> {
   const capture = captureConsole()
   try {
-    return { code: (await buildContainer(environment(), overrides)).run(argv), lines: capture.lines }
+    return { code: await (await buildContainer(environment(), overrides)).run(argv), lines: capture.lines }
   } finally {
     capture.restore()
   }

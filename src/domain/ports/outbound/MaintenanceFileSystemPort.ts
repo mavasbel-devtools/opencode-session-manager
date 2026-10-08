@@ -9,4 +9,8 @@ export interface MaintenanceFileSystemPort {
   remove(path: string): void
   /** Removes a folder only if it is empty. */
   removeDirectory(directory: string): void
+  /** Copies one file's bytes; the source is only read. */
+  copyFile(from: string, to: string): void
+  /** Removes a folder this tool created, with everything in it. */
+  removeTree(directory: string): void
 }

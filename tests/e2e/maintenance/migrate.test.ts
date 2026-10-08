@@ -52,7 +52,7 @@ function migrateArgs(mode: string, ...extra: string[]): string[] {
 async function runCli(argv: readonly string[]): Promise<{ code: number; lines: string[] }> {
   const capture = captureConsole()
   try {
-    return { code: (await buildContainer(environment())).run(argv), lines: capture.lines }
+    return { code: await (await buildContainer(environment())).run(argv), lines: capture.lines }
   } finally {
     capture.restore()
   }

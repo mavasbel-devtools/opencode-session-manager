@@ -29,7 +29,7 @@ describe("context copy (real stores, a real release in a child process, wired co
     const out = captureConsole()
     let code: number
     try {
-      code = (await buildContainer({ XDG_CACHE_HOME: cache })).run(["context", "copy", "--from", source, "--to", target])
+      code = await (await buildContainer({ XDG_CACHE_HOME: cache })).run(["context", "copy", "--from", source, "--to", target])
     } finally {
       out.restore()
     }

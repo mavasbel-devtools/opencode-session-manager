@@ -1,3 +1,7 @@
+import { OpenProfileUseCase } from "@session-manager/application/OpenProfileUseCase"
+import type { BrowserState } from "@session-manager/domain/model/Browser"
+import { BrowseCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/BrowseCliAdapter"
+import { showBrowser, terminalRenderer } from "@session-manager/infrastructure/adapters/inbound/manager-tui/OpenTuiBrowser"
 import { CopyMagicContextUseCase } from "@session-manager/application/CopyMagicContextUseCase"
 import type { MagicContextReleasePort } from "@session-manager/domain/ports/outbound/MagicContextReleasePort"
 import { ContextCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/ContextCliAdapter"
@@ -63,6 +67,8 @@ export interface ContainerOverrides {
   readonly sessionStore?: SessionStorePort
   readonly magicContextStore?: MagicContextStorePort
   readonly magicContextRelease?: MagicContextReleasePort
+  /** Shows the session browser; the default paints it on this terminal. */
+  readonly show?: (initial: BrowserState) => Promise<void>
   readonly runtime?: RuntimePort
   readonly reports?: ReportSinkPort
   readonly output?: OutputPort
@@ -71,7 +77,7 @@ export interface ContainerOverrides {
 }
 
 export interface Cli {
-  run(argv: readonly string[]): number
+  run(argv: readonly string[]): number | Promise<number>
 }
 
 /** The single composition root: the one place that constructs adapters and use cases. */
@@ -151,8 +157,9 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
       joinPath(runtime.temporaryDirectory(), "opencode", "migrate-rehearsal"),
   })
 
+  const profiles = new OpenProfileUseCase(new CatalogProfileUseCase(sessionStore, magicContextStore, fileSystem), fileSystem, runtime)
   const sessionsCli = new SessionsCliAdapter({
-    catalog: new CatalogProfileUseCase(sessionStore, magicContextStore, fileSystem),
+    profiles,
     output,
     runtime,
     environment,
@@ -171,5 +178,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     output,
   })
 
-  return new CliRouter(compactCli, { migrate: migrateCli, sessions: sessionsCli, context: contextCli })
+  const browseCli = new BrowseCliAdapter({ profiles, output, runtime, environment, show: overrides.show ?? showBrowser(terminalRenderer) })
+
+  return new CliRouter(compactCli, { migrate: migrateCli, sessions: sessionsCli, context: contextCli, tui: browseCli })
 }

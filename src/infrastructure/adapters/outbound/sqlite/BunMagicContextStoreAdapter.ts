@@ -31,7 +31,8 @@ export class BunMagicContextStoreAdapter implements MagicContextStorePort {
       )
       const projects = counts(
         "session_projects",
-        "select session_id as id, 1 as n, project_path as project from session_projects where harness = 'opencode'",
+        // OpenCode 1 sessions are labelled `opencode`, OpenCode 2 sessions `opencode2`; the later label wins.
+        "select session_id as id, 1 as n, project_path as project from session_projects where harness in ('opencode', 'opencode2') order by harness",
       )
       const ids = new Set([...compartments.keys(), ...tags.keys(), ...notes.keys(), ...memories.keys(), ...projects.keys()])
       const sessions: Record<string, MagicContextSessionStats> = {}

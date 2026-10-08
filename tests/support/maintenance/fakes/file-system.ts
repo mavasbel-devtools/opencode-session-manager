@@ -58,4 +58,16 @@ export class FakeFileSystem implements MaintenanceFileSystemPort {
     if ([...this.files.keys()].some((file) => file.startsWith(prefix))) throw new Error(`ENOTEMPTY: ${directory}`)
     this.directories.delete(directory)
   }
+
+  copyFile(from: string, to: string): void {
+    const content = this.files.get(from)
+    if (content === undefined) throw new Error(`ENOENT: ${from}`)
+    this.files.set(to, content)
+  }
+
+  removeTree(directory: string): void {
+    const prefix = `${directory}/`
+    for (const file of [...this.files.keys()]) if (file.startsWith(prefix)) this.files.delete(file)
+    for (const folder of [...this.directories]) if (folder === directory || folder.startsWith(prefix)) this.directories.delete(folder)
+  }
 }

@@ -36,7 +36,7 @@ async function runCli(
 ): Promise<{ code: number; lines: string[] }> {
   const capture = captureConsole()
   try {
-    return { code: (await buildContainer(env, overrides)).run(argv), lines: capture.lines }
+    return { code: await (await buildContainer(env, overrides)).run(argv), lines: capture.lines }
   } finally {
     capture.restore()
   }

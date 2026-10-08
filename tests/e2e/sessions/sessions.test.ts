@@ -17,7 +17,7 @@ afterEach(() => {
 async function run(argv: readonly string[], environment: Record<string, string> = {}) {
   const out = captureConsole()
   try {
-    return { code: (await buildContainer(environment)).run(argv), lines: out.lines }
+    return { code: await (await buildContainer(environment)).run(argv), lines: out.lines }
   } finally {
     out.restore()
   }
