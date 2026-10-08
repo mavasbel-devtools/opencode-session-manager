@@ -6,6 +6,7 @@ import { DatabaseError } from "@session-manager/domain/errors/DatabaseError"
 import { InvalidDirectoryError } from "@session-manager/domain/errors/InvalidDirectoryError"
 import { SessionNotFoundError } from "@session-manager/domain/errors/SessionNotFoundError"
 import { SqliteSessionDbAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/SqliteSessionDbAdapter"
+import { removeTemporarySync } from "@test/support/live/process"
 
 describe("domain errors", () => {
   it("SessionNotFoundError carries the session id", () => {
@@ -39,7 +40,7 @@ describe("SqliteSessionDbAdapter failure path", () => {
       await expect(adapter.listSessions()).rejects.toThrow(DatabaseError)
       adapter.close()
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      removeTemporarySync(dir)
     }
   })
 })

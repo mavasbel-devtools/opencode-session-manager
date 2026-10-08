@@ -1,118 +1,139 @@
-# opencode-sessions-transfer
+# opencode-session-manager
 
-OpenCode plugin that relocates a session's working directory to **any** folder —
-a nested project, a sibling repository, a plain non-git folder, or a path that
-does not exist yet — from the TUI.
+An OpenCode plugin for working with sessions. It replaces two earlier plugins,
+`opencode-session-id` and `opencode-sessions-transfer`, whose histories are
+merged into this repository.
 
-It is the installable companion to the upstream `/move` fix
-([anomalyco/opencode#49560](https://github.com/anomalyco/opencode/pull/49560))
-for users running a build that does not yet include it.
+1. **Session ID in the sidebar** — the active session's ID is the first row of
+   the session sidebar, directly under the title, in the theme's muted colour.
+2. **The `session-id` tool** — returns the running session's ID to the agent.
+3. **`/transfer-session`** (alias `/relocate`, palette "Transfer session") —
+   moves a session to any folder: another project, a plain folder, or a folder
+   that does not exist yet (it is created).
 
-## Usage
-
-* **Slash command:** `/transfer-session` (alias: `/relocate`)
-* **Command palette:** `Transfer session` (`session.transfer`)
-
-Flow:
-
-1. Inside a session, run `/transfer-session`.
-2. Pick a known directory (all session directories are listed, nested projects
-   included), or choose **Enter custom path…** to type any path.
-3. The destination is created when missing, the session row is re-pointed at the
-   new project, and the agent is notified of the new working directory.
-
+```
+┌ sidebar ─────────────────────────────┐
+│ <session title>                      │
+│                                      │
+│ ses_0123456789abCDEFGHIJKLMNOP       │  ← prepend on sidebar.content
+│ Context …                            │
+```
 
 ## OpenCode compatibility
 
-| Host | Exact tested plugin SDK | Built entrypoints |
-|---|---:|---|
-| OpenCode v1.18.32 | `@opencode-ai/plugin@1.18.32` | `dist/sessions-transfer.js`, `dist/sessions-transfer.tui.js` |
-| OpenCode v2.0.14 | `@opencode/plugin@2.0.14` | `dist/v2/server.js`, `dist/v2/tui.js` |
+| Host | Tested plugin SDK | Features | Built entrypoints |
+|---|---|---|---|
+| OpenCode 2 (2.0.14 contract; verified on 2.0.24) | `@opencode/plugin@2.0.14` | all three | `dist/v2/server.js`, `dist/v2/tui.js` |
+| OpenCode 1.18.32 | `@opencode-ai/plugin@1.18.32` | `/transfer-session` | `dist/v1/session-manager.js`, `dist/v1/session-manager.tui.js` |
 
-### OpenCode v2
+### OpenCode 2
 
-`bun run build` also emits a v2 directory plugin at `dist/v2/`:
+- `dist/v2/server.js` registers the `session-id` tool.
+- `dist/v2/tui.js` prepends the ID line to `sidebar.content` and registers
+  `/transfer-session` from an `app` slot (where `keymap.layer` runs in-tree).
+  Its cleanup removes both.
 
-* `dist/v2/server.js` — no-op server entry `{ id, setup }`; required because a
-  v2 directory plugin is admitted through `<dir>/server` (or `<dir>/index`),
-  and it is what makes the server advertise `features.tui`.
-* `dist/v2/tui.js` — TUI entry `{ id, setup }` registering `/transfer-session`
-  (alias `/relocate`, palette “Transfer session”).
-
-`bun run install:plugin:v2` copies both entries into one folder,
-`<plugins>/sessions-transfer/` (`server.js`, `tui.js`), where OpenCode 2.0.14
-**auto-discovers** it — no configuration entry is needed or written. It must be a
-folder: v2 resolves a TUI entrypoint only for a directory, and a loose file would
-get the (no-op) server entry alone.
-
-### OpenCode v1
-
-`bun run install:plugin:v1` writes the v1 server and TUI bundles,
-`sessions-transfer.js` and `sessions-transfer.tui.js`, into `<plugins>`. They are
-two files because v1.18.32 rejects a module exporting both `server()` and `tui()`.
-Its v1 dependency is pinned to `@opencode-ai/plugin@1.18.32`; v1 never loads the
-v2 `{ id, setup }` entries (its `{plugin,plugins}/*.{ts,js}` scan reads files only,
-never the v2 folder).
-
-`<plugins>` is `OPENCODE_V1_PLUGIN_DIR` / `OPENCODE_V2_PLUGIN_DIR` when set,
-otherwise `$XDG_CONFIG_HOME/opencode/plugins` (default `~/.config/opencode/plugins`).
-Installing one lane removes this plugin's files of the other lane, so a v2 host
-never loads both forms. Never list the plugin in `opencode.jsonc` (v2.0.14 rejects
-a file path in `plugins`). Writing into the live `plugins` directory hot-activates
-the plugin in a running v2 host.
-
-v2 already ships `/cd <path>` (moves the open session to any existing folder,
-cross-project included) and `/worktrees` (current project's worktrees only).
-On v2 this plugin adds: a picker over **every** registered project root,
-worktree and session directory across projects; moving a session other than
-the open one; and creating a destination that does not exist yet. The move
-itself goes through the host `session.move` API — no SQLite writes on v2 — so
+The move goes through the host's `session.move` API — no database writes — so
 the host re-resolves the project and tells the agent about the new directory.
-Folder creation happens in the TUI process (same machine as a local server).
+Over the built-in `/cd` and `/worktrees`, the plugin adds a picker over every
+project root, worktree and session directory across projects, moving a session
+other than the open one, and creating a destination that does not exist yet.
+
+### OpenCode 1
+
+v1 has no session-move API, so `/transfer-session` writes the v1 SQLite store
+directly and resolves the destination project exactly as the v1.18.32 host does
+(`sha1("git-remote:<host>/<path>")` of `origin`, else the id cached in
+`<git-common-dir>/opencode`, else the first root commit, else `global`), then
+leaves a synthetic reminder so the agent adopts the new directory.
+
+## What it can and cannot do
+
+- The title box has no plugin slot, so the ID is the first row of the sidebar's
+  scroll area and scrolls with the sidebar content. No OpenCode setting
+  (`opencode.jsonc` or `cli.json`) shows the session ID.
+- The sidebar only appears when the terminal is wide enough
+  (`session.sidebar: "auto"` in `cli.json`).
+- The transfer dialog cannot autocomplete paths live or drill into folders with
+  the arrow keys: the plugin dialog API exposes no filter handle or bindings. It
+  lists every known directory instead, plus "Enter custom path…" (`~` works).
+
+## Install
+
+```
+bun install --frozen-lockfile
+bun run install:plugin:v2      # or install:plugin:v1 for an OpenCode 1 host
+```
+
+The v2 installer builds, then writes the folder `<plugins>/session-manager/`
+(`server.js`, `tui.js`); the v1 installer writes `session-manager.js` and
+`session-manager.tui.js`. `<plugins>` is `OPENCODE_V2_PLUGIN_DIR` /
+`OPENCODE_V1_PLUGIN_DIR`, else `$XDG_CONFIG_HOME/opencode/plugins` (default
+`~/.config/opencode/plugins`), where the host auto-discovers it. Either lane
+removes the other lane's files and those of the two plugins this one replaces
+(`session-id/`, `sessions-transfer/`, `sessions-transfer{,.tui}.js`). No
+configuration is written. A running v2 host activates the plugin as soon as it
+lands; restart the TUI to see the sidebar line.
 
 ## Architecture
 
-Hexagonal:
+Strict hexagonal, dependencies point inward only; the full contract is in
+`AGENTS.md`. There is one composition root per host runtime, because the
+entrypoints load into different processes.
 
-* `src/domain/` — pure entities, ports, and `paths` helpers (`expandHome`, `abbreviateHome`). Zero I/O.
-* `src/application/` — `TransferSessionUseCase`, `BuildDirectoryOptionsUseCase`, `ListRecentDirectoriesUseCase`.
-* `src/infrastructure/adapters/outbound/` — `SqliteSessionDbAdapter`, `ProjectResolverAdapter`, `DirectoryScannerAdapter`.
-* `src/infrastructure/adapters/inbound/tui/` — command + dialog wiring.
-* `src/main/` — composition root and bundle entrypoints.
-
-## What this plugin can and cannot do
-
-OpenCode's TUI plugin API is intentionally narrow. Verified against
-`packages/plugin/src/tui.ts` and `packages/tui/src/plugin/adapters.tsx`:
-
-| Behaviour | Supported |
-|---|---|
-| Relocate a session to an arbitrary / non-git / new directory | **Yes** (direct SQLite + agent notification) |
-| List every known session directory (nested projects discoverable) | **Yes** |
-| Free-form path entry (with `~` expansion and on-disk casing) | **Yes** |
-| Replace or restyle the builtin `/move` command | **No** |
-| Live filesystem autocomplete inside the filter box | **No** — `DialogSelect` exposes no filter handle to plugins |
-| Left/Right arrow directory drill-down inside the dialog | **No** — plugins get no `bindings`/`ref` on `DialogSelect` |
-| Live footer directory indicator refresh | **No** — builtin `useDirectory` is not slot-replaceable |
-
-Those last four are delivered by the upstream core change; this plugin is the
-best-effort equivalent for stock builds.
-
-## Development & Test
-
-```bash
-bun test
-bun run typecheck
-bun run coverage
-bun run build
-bun run install:plugin:v2      # or install:plugin:v1
-bun run validate:installed:v2  # or validate:installed:v1
+```mermaid
+flowchart LR
+    SRV[OpenCode 2 server] -->|tool.transform| TA[SessionIdToolV2Adapter]
+    TUI2[OpenCode 2 TUI] -->|slot prepend sidebar.content| SB[SessionIdSidebarSlotV2Adapter]
+    TUI2 -->|slot append app + keymap| T2[SessionTransferV2TuiAdapter]
+    TUI1[OpenCode 1 TUI] -->|keymap.registerLayer| T1[SessionTransferV1TuiAdapter]
+    TA --> RU[ResolveSessionIdToolUseCase]
+    SB --> RE[RenderSidebarEntryUseCase]
+    T2 --> MS[MoveSessionUseCase]
+    T1 --> TS[TransferSessionUseCase]
+    T2 --> BD[BuildDirectoryOptionsUseCase]
+    T1 --> BD
+    RE --> TP[ThemePalettePort / SidebarViewPort]
+    MS --> HP[SessionHostPort -> OpenCode2HostAdapter]
+    TS --> DB[SessionDbPort -> SqliteSessionDbAdapter]
+    TS --> PR[ProjectResolverPort -> ProjectResolverAdapter]
+    MS --> FS[FileSystemPort -> NodeFileSystemAdapter]
+    TS --> FS
 ```
 
-Both installers build first and never edit configuration. Validation compares
-every installed file byte-for-byte with `dist/`, imports it exactly as the host
-does, and fails if the other lane's form is present. `test/e2e/installer-contract.test.ts`
-covers the slot handover, the XDG default and tamper rejection;
-`test/e2e/v2-host-discovery.test.ts` proves a real OpenCode 2.0.14 host with an empty
-config auto-discovers `plugins/sessions-transfer/` and reports it active with
-`features.tui`.
+Composition roots: `src/main/server-container.ts` (v2 server),
+`src/main/tui-container.ts` (v2 TUI), `src/main/v1-container.ts` (v1 TUI).
+Entrypoints: `src/main/v2/server.ts`, `src/main/v2/tui.ts`,
+`src/main/v1/server.ts`, `src/main/v1/tui.ts`. `scripts/build.mjs` binds the v2
+TUI bundle to the host's shared Solid/OpenTUI runtime.
+
+## Build and test
+
+```
+bun run typecheck
+bun run test
+bun run coverage
+bun run lint:diagrams
+```
+
+The four tiers live under `tests/{unit,component,e2e,live}`:
+
+- **unit** — one class at a time with stand-ins, plus the architecture, SOLID,
+  host-fixture and coverage-completeness gates. Coverage-gated.
+- **component** — the wired plugin painted by the real OpenTUI renderer, and the
+  tool's parity with the hand-written plugin it replaced.
+- **e2e** — the real entries in-process: the v2 TUI loaded by the real 2.0.14
+  `Host`, the v1 entries over a real SQLite store and real git repositories.
+  Coverage-gated.
+- **live** — the real `opencode` executable, the built bundles, the installer,
+  and the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`),
+  all under isolated XDG directories. Invisible to coverage by construction.
+
+`bun run coverage` requires 100 % lines and functions on every `src` file, in the
+unit and the e2e tier separately. The live tier needs `node` (for the
+pseudo-terminal) and finds OpenCode at `OPENCODE_V2_EXECUTABLE`, else
+`~/.opencode/bin/opencode` (`~/.local/bin/opencode.exe` on Windows), else `PATH`.
+
+## License
+
+MIT © mavasbel

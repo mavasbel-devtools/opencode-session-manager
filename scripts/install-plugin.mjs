@@ -117,12 +117,14 @@ async function validate() {
     const [built, deployed] = await Promise.all([readFile(file.source), readFile(target)])
     if (sha256(built) !== sha256(deployed)) throw new Error(`${target} differs from ${path.relative(project, file.source)}`)
     if (!(await checkShape(file, target))) throw new Error(`${target} does not expose the ${file.kind} module shape`)
-    report.push({ file: file.target, bytes: deployed.byteLength, sha256: sha256(deployed) })
+    report.push({ file: path.basename(file.target), bytes: deployed.byteLength, sha256: sha256(deployed) })
   }
   for (const name of [...lanes[other].map((file) => file.target), ...legacy]) {
     if (await exists(path.join(directory, name))) {
       throw new Error(`${path.join(directory, name)} must not coexist with the ${lane} form of ${pluginId}`)
     }
   }
-  console.log(JSON.stringify({ host: lane, directory, files: report, status: "valid" }))
+  // v2 reports its folder (the plugin directory the host resolves), v1 the plugins directory holding its files.
+  const installed = lane === "v2" ? path.join(directory, folder) : directory
+  console.log(JSON.stringify({ host: lane, directory: installed, files: report, status: "valid" }))
 }

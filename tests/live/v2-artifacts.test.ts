@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "bun:test"
+import { builtinModules } from "node:module"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { requireBun, root, run } from "@test/support/live/process"
@@ -22,11 +23,15 @@ describe("built v2 artifacts", () => {
     expect(await added[0]!.execute({}, { sessionID: ID })).toEqual({ content: ID })
   })
 
-  it("tui.js imports only host runtime modules and no bundled Solid/OpenTUI copy", async () => {
+  it("tui.js imports only host runtime modules and runtime built-ins, and no bundled Solid/OpenTUI copy", async () => {
     const code = await Bun.file(path.join(dist, "tui.js")).text()
-    const specifiers = [...code.matchAll(/from\s*"([^"]+)"/g)].map((match) => match[1])
-    expect(specifiers.length).toBeGreaterThan(0)
-    for (const specifier of specifiers) expect(specifier).toStartWith("opentui:runtime-module:")
+    const specifiers = [...code.matchAll(/from\s*"([^"]+)"/g)].map((match) => match[1]!)
+    expect(specifiers.some((specifier) => specifier.startsWith("opentui:runtime-module:"))).toBe(true)
+    // The transfer command creates folders and reads the home directory: the TUI runs on Bun, where the
+    // Node built-ins exist, and the host shares them like any other runtime module.
+    const builtins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]))
+    for (const specifier of specifiers)
+      expect({ specifier, allowed: specifier.startsWith("opentui:runtime-module:") || builtins.has(specifier) }).toEqual({ specifier, allowed: true })
     expect(code).not.toContain("createRoot")
   })
 
@@ -36,11 +41,14 @@ describe("built v2 artifacts", () => {
     expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!)).toEqual({
       isPlugin: true,
       id: "session-manager",
-      claims: [["prepend", "render"]],
+      claims: [
+        ["prepend", "render"],
+        ["append", "render"],
+      ],
       prepend: "sidebar.content",
       line: ID,
       fg: "#808080",
-      disposed: 1,
+      disposed: 2,
     })
   }, 60_000)
 })

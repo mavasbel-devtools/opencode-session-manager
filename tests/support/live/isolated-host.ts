@@ -1,4 +1,4 @@
-// A real OpenCode 2.0.14 host (`opencode.exe serve`) with fully isolated XDG
+// A real OpenCode 2 host (`opencode serve`) with fully isolated XDG
 // config/data/cache/state, the plugin deployed exactly as in production (the
 // installer's folder <XDG_CONFIG_HOME>/opencode/plugins/session-manager/, found by
 // auto-discovery with no `plugins` config entry), and a local OpenAI-compatible

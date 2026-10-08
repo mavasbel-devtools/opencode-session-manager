@@ -6,7 +6,7 @@ import { requireBun, root, run } from "@test/support/live/process"
 let host: IsolatedHost
 
 beforeAll(async () => {
-  host = await startIsolatedHost("opencode-session-id-e2e-")
+  host = await startIsolatedHost("opencode-session-manager-host-")
 }, 180_000)
 
 afterAll(async () => {

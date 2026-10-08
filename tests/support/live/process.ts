@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -10,8 +11,18 @@ export function requireBun() {
   return executable
 }
 
+/**
+ * The real OpenCode 2 executable: `OPENCODE_V2_EXECUTABLE`, else the installer's
+ * default location (`~/.opencode/bin/opencode` on Linux and macOS,
+ * `~/.local/bin/opencode.exe` on Windows), else `opencode` on PATH.
+ */
 export function requireOpenCode() {
-  const executable = process.env.OPENCODE_V2_EXECUTABLE ?? path.join(os.homedir(), ".local", "bin", "opencode.exe")
+  const installed =
+    process.platform === "win32"
+      ? path.join(os.homedir(), ".local", "bin", "opencode.exe")
+      : path.join(os.homedir(), ".opencode", "bin", "opencode")
+  const executable =
+    process.env.OPENCODE_V2_EXECUTABLE ?? (Bun.file(installed).size ? installed : Bun.which("opencode") ?? installed)
   if (!Bun.file(executable).size) throw new Error(`OpenCode v2 executable not found: ${executable}`)
   return executable
 }
@@ -39,8 +50,7 @@ export async function run(command: string[], options: { cwd?: string; env?: Reco
  * A `beforeAll` that throws before assigning its temp path is enough to trigger
  * it, so every teardown here goes through this guard instead of `rm` directly.
  */
-export async function removeTemporary(target: string | undefined) {
-  if (!target) return { removed: false, reason: "no path" }
+function guardTemporary(target: string): string {
   const resolved = path.resolve(target)
   const temporary = path.resolve(os.tmpdir())
   if (resolved === temporary || !resolved.toLowerCase().startsWith(`${temporary.toLowerCase()}${path.sep}`)) {
@@ -49,7 +59,21 @@ export async function removeTemporary(target: string | undefined) {
   if (resolved.split(path.sep).length < temporary.split(path.sep).length + 1) {
     throw new Error(`refusing to delete ${resolved}: too close to the temporary root`)
   }
+  return resolved
+}
+
+export async function removeTemporary(target: string | undefined) {
+  if (!target) return { removed: false, reason: "no path" }
+  const resolved = guardTemporary(target)
   await rm(resolved, { recursive: true, force: true })
+  return { removed: true, path: resolved }
+}
+
+/** The same guard, for synchronous teardowns. */
+export function removeTemporarySync(target: string | undefined) {
+  if (!target) return { removed: false, reason: "no path" }
+  const resolved = guardTemporary(target)
+  rmSync(resolved, { recursive: true, force: true })
   return { removed: true, path: resolved }
 }
 

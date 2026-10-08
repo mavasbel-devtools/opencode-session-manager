@@ -50,14 +50,14 @@ describe("install-plugin.mjs v2 contract", () => {
     expect(JSON.parse(installed.stdout).directory).toBe(path.join(configHome, "opencode", "plugins", "session-manager"))
     const unknown = await installer(["deploy-v2"], base())
     expect(unknown.exitCode).not.toBe(0)
-    expect(unknown.stderr).toContain("usage: bun scripts/install-plugin.mjs <v2|validate-v2>")
+    expect(unknown.stderr).toContain("usage: bun scripts/install-plugin.mjs <v1|v2|validate-v1|validate-v2>")
   }, 120_000)
 
   it("rejects a tampered installed artifact", async () => {
     await appendFile(path.join(plugins, "session-manager", "tui.js"), "\n// changed\n")
     const bad = await installer(["validate-v2"], base())
     expect(bad.exitCode).not.toBe(0)
-    expect(bad.stderr).toContain("artifact mismatch: tui.js")
+    expect(bad.stderr).toContain(`${path.join(plugins, "session-manager", "tui.js")} differs from dist/v2/tui.js`)
     expect((await installer(["v2"], base())).exitCode).toBe(0)
   })
 })

@@ -5,6 +5,7 @@ import path from "node:path"
 import { V1_TUI_PLUGIN_ID } from "@session-manager/main/plugin-id"
 import server from "@session-manager/main/v1/server"
 import tuiPlugin, { tui } from "@session-manager/main/v1/tui"
+import { removeTemporarySync } from "@test/support/live/process"
 
 describe("v1 entry modules", () => {
   it("exposes a server plugin function that returns an empty hook set", async () => {
@@ -30,7 +31,7 @@ describe("v1 entry modules", () => {
     } finally {
       if (previous === undefined) delete process.env["OPENCODE_DB_PATH"]
       else process.env["OPENCODE_DB_PATH"] = previous
-      fs.rmSync(directory, { recursive: true, force: true })
+      removeTemporarySync(directory)
     }
   })
 })

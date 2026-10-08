@@ -1,4 +1,4 @@
-// LIVE tier: the real OpenCode 2.0.14 TUI, in a real Windows ConPTY (200x50),
+// LIVE tier: the real OpenCode 2.0.14 TUI, in a real pseudo-terminal (200x50),
 // attached to an isolated host that never touches the user's opencode.db, with
 // the plugin installed as in production (auto-discovered plugins/session-manager/). This is where the real
 // claim normalisation of packages/tui/src/plugin/api.tsx and the real <Slot>
@@ -17,7 +17,7 @@ let host: IsolatedHost
 
 describe("real TUI sidebar", () => {
   beforeAll(async () => {
-    host = await startIsolatedHost("opencode-session-id-tui-")
+    host = await startIsolatedHost("opencode-session-manager-tui-")
   }, 180_000)
 
   afterAll(async () => {

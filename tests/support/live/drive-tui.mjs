@@ -1,7 +1,7 @@
-// Drives the real OpenCode TUI inside a Windows ConPTY and reads the screen back
+// Drives the real OpenCode TUI inside a pseudo-terminal (ConPTY on Windows) and reads the screen back
 // through a headless xterm. Runs under Node (node-pty's native addon), prints one
 // JSON line, and only ever kills the PTY child it spawned.
-//   node drive-tui.mjs <opencode.exe> <server url> <session id> <env.json> <cwd>
+//   node drive-tui.mjs <opencode> <server url> <session id> <env.json> <cwd>
 import { readFileSync } from "node:fs"
 import pty from "@lydell/node-pty"
 import xterm from "@xterm/headless"

@@ -5,6 +5,7 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { ProjectResolverAdapter } from "@session-manager/infrastructure/adapters/outbound/project/ProjectResolverAdapter"
+import { removeTemporarySync } from "@test/support/live/process"
 
 const adapter = new ProjectResolverAdapter()
 
@@ -79,7 +80,7 @@ describe("ProjectResolverAdapter (real repositories)", () => {
         relativePath: path.relative(path.parse(dir).root, path.join(dir, "child")).replaceAll("\\", "/"),
       })
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      removeTemporarySync(dir)
     }
   })
 
@@ -93,7 +94,7 @@ describe("ProjectResolverAdapter (real repositories)", () => {
       expect(resolved.projectId).toBe(sha1("git-remote:github.com/example/project"))
       expect(resolved.relativePath).toBe("")
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      removeTemporarySync(dir)
     }
   })
 
@@ -106,7 +107,7 @@ describe("ProjectResolverAdapter (real repositories)", () => {
       fs.writeFileSync(path.join(dir, ".git", "opencode"), "cached-project-id\n")
       expect((await adapter.resolve(dir)).projectId).toBe("cached-project-id")
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      removeTemporarySync(dir)
     }
   })
 
@@ -118,7 +119,7 @@ describe("ProjectResolverAdapter (real repositories)", () => {
       fs.writeFileSync(path.join(dir, ".git", "opencode"), "  \n")
       expect((await adapter.resolve(dir)).projectId).toBe(rootCommitOf(dir))
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      removeTemporarySync(dir)
     }
   })
 
@@ -129,7 +130,7 @@ describe("ProjectResolverAdapter (real repositories)", () => {
       commit(dir, "root commit")
       expect((await adapter.resolve(dir)).projectId).toBe(rootCommitOf(dir))
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      removeTemporarySync(dir)
     }
   })
 
@@ -141,7 +142,7 @@ describe("ProjectResolverAdapter (real repositories)", () => {
       expect(resolved.projectId).toBe("global")
       expect(resolved.worktree).toBe(fs.realpathSync.native(dir))
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      removeTemporarySync(dir)
     }
   })
 
@@ -151,7 +152,7 @@ describe("ProjectResolverAdapter (real repositories)", () => {
       fs.mkdirSync(path.join(dir, ".git"))
       expect((await adapter.resolve(dir)).projectId).toBe("global")
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      removeTemporarySync(dir)
     }
   })
 
@@ -166,7 +167,7 @@ describe("ProjectResolverAdapter (real repositories)", () => {
       expect(resolved.worktree).toBe(fs.realpathSync.native(dir))
       expect(resolved.relativePath).toBe("packages/core")
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      removeTemporarySync(dir)
     }
   })
 })

@@ -5,6 +5,7 @@ import path from "node:path"
 import { SessionTransferV1TuiAdapter } from "@session-manager/infrastructure/adapters/inbound/tui/SessionTransferV1TuiAdapter"
 import { SqliteSessionDbAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/SqliteSessionDbAdapter"
 import { createV1Container } from "@session-manager/main/v1-container"
+import { removeTemporarySync } from "@test/support/live/process"
 
 describe("createV1Container", () => {
   it("wires the v1 transfer command against the given SQLite store", () => {
@@ -15,7 +16,7 @@ describe("createV1Container", () => {
       expect(container.transfer).toBeInstanceOf(SessionTransferV1TuiAdapter)
       container.db.close()
     } finally {
-      fs.rmSync(directory, { recursive: true, force: true })
+      removeTemporarySync(directory)
     }
   })
 })

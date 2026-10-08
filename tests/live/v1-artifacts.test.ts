@@ -1,19 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { Database } from "bun:sqlite"
+import { removeTemporarySync, requireBun, run } from "@test/support/live/process"
 
 /**
- * Live tier: opt-in (`OPENCODE_SESSIONS_TRANSFER_LIVE=1`).
- *
- * Drives the **built** bundle (`dist/sessions-transfer.tui.js`) rather than the
- * source, so bundling and entry-export regressions surface here. Uses a temp
- * database and temp directories only — it never reads or writes the real
- * `opencode.db`.
+ * Live tier, OpenCode 1 lane: drives the **built** bundles
+ * (`dist/v1/session-manager{,.tui}.js`) rather than the source, so bundling and
+ * entry-export regressions surface here. Uses a temp database and temp
+ * directories only — it never reads or writes the real `opencode.db`.
  */
-const enabled = process.env["OPENCODE_SESSIONS_TRANSFER_LIVE"] === "1"
-const bundlePath = path.resolve(import.meta.dir, "../../dist/sessions-transfer.tui.js")
+const v1 = path.resolve(import.meta.dir, "../../dist/v1")
+const bundlePath = path.join(v1, "session-manager.tui.js")
+
+beforeAll(async () => {
+  const build = await run([requireBun(), "scripts/build.mjs"])
+  if (build.exitCode !== 0) throw new Error(`build failed: ${build.stdout}${build.stderr}`)
+}, 120_000)
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS project (
@@ -26,7 +30,7 @@ const SCHEMA = `
   );
 `
 
-describe.skipIf(!enabled)("live: built bundle", () => {
+describe("built v1 artifacts", () => {
   let root: string
   let dbPath: string
   let previousDbPath: string | undefined
@@ -54,14 +58,20 @@ describe.skipIf(!enabled)("live: built bundle", () => {
     for (const container of containers) container.db.close()
     if (previousDbPath === undefined) delete process.env["OPENCODE_DB_PATH"]
     else process.env["OPENCODE_DB_PATH"] = previousDbPath
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemporarySync(root)
   })
 
-  it("is present in dist and relocates a session against a temp database", async () => {
+  it("session-manager.js is the empty v1 server hook set", async () => {
+    const mod = await import(`file://${path.join(v1, "session-manager.js")}`)
+    expect(await mod.default({})).toEqual({})
+  })
+
+  it("session-manager.tui.js relocates a session against a temp database", async () => {
     expect(fs.existsSync(bundlePath)).toBe(true)
 
     const mod = await import(`file://${bundlePath.replaceAll("\\", "/")}`)
     const plugin = mod.default
+    expect(plugin.id).toBe("session-manager-tui")
     expect(typeof plugin?.tui).toBe("function")
 
     const target = path.join(root, "target")

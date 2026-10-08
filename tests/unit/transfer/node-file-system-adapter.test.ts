@@ -3,6 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { NodeFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeFileSystemAdapter"
+import { removeTemporarySync } from "@test/support/live/process"
 
 function tmp(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -19,7 +20,7 @@ describe("NodeFileSystemAdapter", () => {
       scanner.ensureDirectory(nested)
       expect(fs.statSync(nested).isDirectory()).toBe(true)
     } finally {
-      fs.rmSync(root, { recursive: true, force: true })
+      removeTemporarySync(root)
     }
   })
 
@@ -29,7 +30,7 @@ describe("NodeFileSystemAdapter", () => {
       const canonical = scanner.canonical(root.toLowerCase(), home)
       expect(canonical.toLowerCase()).toBe(fs.realpathSync.native(root).toLowerCase())
     } finally {
-      fs.rmSync(root, { recursive: true, force: true })
+      removeTemporarySync(root)
     }
   })
 
