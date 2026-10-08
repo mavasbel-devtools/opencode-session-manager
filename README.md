@@ -1,6 +1,9 @@
-# opencode-db-compact
+# opencode-db-manager
 
-Offline, verified compaction of an OpenCode 2 `opencode.db`.
+Offline, verified maintenance of an OpenCode 2 `opencode.db`, on Linux and
+Windows. Formerly `opencode-db-compact`.
+
+## Compaction
 
 OpenCode never compacts its own database, and SQLite's auto-compaction is off, so
 a database that has seen a lot of deletion keeps every freed page inside the
@@ -8,7 +11,7 @@ file. On the machine this was written for, `opencode.db` had grown to **16.44 GB
 of which 15.13 GB was free space**. This tool reclaims that space — but only
 offline, and only after proving the replacement is correct.
 
-## How it works
+### How it works
 
 ```
 preflight  read-only: sizes, page statistics, free disk, running OpenCode
@@ -27,7 +30,7 @@ there.
 If anything fails, the run **aborts before the swap** and prints where the failed
 copy was kept. Nothing is deleted and no process is ever killed.
 
-## Usage
+### Usage
 
 Requires Node.js 24.14.1 or newer. Run it with every OpenCode window closed.
 
@@ -42,8 +45,9 @@ The database defaults to `%XDG_DATA_HOME%/opencode/opencode.db`
 (`~/.local/share/opencode/opencode.db` when unset); override it with `--db <path>`.
 
 - `run` refuses to start while the process named by
-  `OPENCODE_DB_COMPACT_IMAGE` (default `opencode.exe`) is running, while the file
-  is held open by another connection, or when there is not room for two copies.
+  `OPENCODE_DB_COMPACT_IMAGE` (default `opencode` on Linux, `opencode.exe` on
+  Windows) is running, while any process holds the database or a sidecar open
+  (the refusal names the holders on Linux), or when there is not room for two copies.
 - `rehearse` uses `OPENCODE_DB_COMPACT_REHEARSAL_DIR` (default:
   `<temp>/opencode/compact-rehearsal`) and writes a `report-<timestamp>.json`
   there. Add `--keep` to keep the compacted copy.
@@ -52,7 +56,7 @@ The database defaults to `%XDG_DATA_HOME%/opencode/opencode.db`
 **Rollback:** close OpenCode, then
 
 ```
-node src/main/cli.ts rollback "C:\path\to\db-backup-<timestamp>" --db "C:\path\to\opencode.db"
+node src/main/cli.ts rollback <path>/db-backup-<timestamp> --db <path>/opencode.db
 ```
 
 ## Architecture
@@ -81,6 +85,7 @@ Key files:
 - `src/domain/services/FingerprintComparer.ts` — schema, header and per-row proofs
 - `src/application/BuildAndVerifyService.ts` — the six checks
 - `src/application/GuardService.ts` — nothing running, file present, not held, room to work
+- `src/main/platform.ts` — picks the Linux (`/proc`) or Windows (`tasklist`, rename probe) adapters
 - `src/application/SwapService.ts` — renames with restore-on-failure
 - `src/main/container.ts` — the single composition root
 - `src/main/cli.ts` — the entrypoint
@@ -112,9 +117,9 @@ The four tiers live under `tests/{unit,component,e2e,live}`:
 
 ## Notes
 
-- Windows-first: the running-process guard reads `tasklist`, and the
-  "is the database held open" probe relies on Windows refusing to rename a file
-  that has an open handle. The rest is platform-neutral.
+- Linux reads `/proc` for both guards. Windows reads `tasklist` and relies on
+  Windows refusing to rename a file that has an open handle. Other platforms are
+  refused. `npm run coverage` gates the e2e tier on the current platform's files only.
 - `node:sqlite` is still marked experimental and prints a warning; the scripts
   pass `--no-warnings`.
 

@@ -11,6 +11,7 @@ import { fileSha, makeDatabase } from "#test/support/database.ts"
 import { DemandingSpacePolicy, TamperingSqlite } from "#test/support/faults.ts"
 import { FakeRuntime } from "#test/support/fakes/runtime.ts"
 import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
+import { heldByThisProcess, ownImage } from "#test/support/platform.ts"
 
 const NO_IMAGE = "no-such-image-opencode-db-compact.exe"
 const STAMP = "2026-09-27-00-00-00"
@@ -39,7 +40,7 @@ function attempt(
   }
 }
 
-const runningProcesses = { list: () => [{ image: "node.exe", pid: process.pid }] }
+const runningProcesses = { list: () => [{ image: ownImage(), pid: process.pid }] }
 
 test("run refuses a missing database before opening it", () => {
   assert.throws(() => attempt(["run", "--db", join(directory, "absent.db")]), /database not found/)
@@ -52,7 +53,7 @@ test("run refuses while OpenCode is running and while the database is held open"
 
   const held = makeDatabase(join(directory, "held.db"), { keepOpen: true })
   try {
-    assert.throws(() => attempt(["run", "--db", join(directory, "held.db")]), /held open by another process \(EBUSY\)/)
+    assert.throws(() => attempt(["run", "--db", join(directory, "held.db")]), heldByThisProcess())
   } finally {
     held?.close()
   }
@@ -125,7 +126,7 @@ test("rollback refuses a missing backup, a running OpenCode, and a held database
 
   const held = new DatabaseSync(dbPath)
   try {
-    assert.throws(() => attempt(["rollback", backup, "--db", dbPath]), /held open by another process \(EBUSY\)/)
+    assert.throws(() => attempt(["rollback", backup, "--db", dbPath]), heldByThisProcess())
   } finally {
     held.close()
   }
@@ -141,4 +142,10 @@ test("rollback restores the original even when no database is currently in place
   assert.equal(code, 0)
   assert.ok(lines.some((line) => line.startsWith("ROLLED BACK restored=opencode.db")))
   assert.equal(readFileSync(dbPath, "utf8"), "original")
+})
+
+test("the composition root refuses an operating system it has no adapters for", () => {
+  const runtime = new FakeRuntime()
+  runtime.platformName = "darwin"
+  assert.throws(() => buildContainer(environment(), { runtime }), /^UnsupportedPlatformError: unsupported platform: darwin \(supported: linux, win32\)$/)
 })

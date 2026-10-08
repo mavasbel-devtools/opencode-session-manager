@@ -11,7 +11,7 @@ import { FingerprintComparer } from "#domain/services/FingerprintComparer.ts"
 import { ParityPolicy } from "#domain/services/ParityPolicy.ts"
 import { NodeFileSystemAdapter } from "#infrastructure/adapters/outbound/NodeFileSystemAdapter.ts"
 import { NodeSqliteAdapter } from "#infrastructure/adapters/outbound/NodeSqliteAdapter.ts"
-import { TasklistAdapter } from "#infrastructure/adapters/outbound/TasklistAdapter.ts"
+import { platformAdapters } from "#main/platform.ts"
 import { fileSha, makeDatabase } from "#test/support/database.ts"
 import { FakeRuntime } from "#test/support/fakes/runtime.ts"
 import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
@@ -59,8 +59,7 @@ test("component: preflight and the guard work against a real database", () => {
     makeDatabase(dbPath)
     const fileSystem = new NodeFileSystemAdapter()
     const sqlite = new NodeSqliteAdapter()
-    const processes = new TasklistAdapter()
-    const runtime = new FakeRuntime()
+    const { processes, holders } = platformAdapters(process.platform, fileSystem, process.pid)
 
     const report = new PreflightUseCase(sqlite, fileSystem, processes, new DatabaseSizesService(fileSystem)).execute({
       dbPath,
@@ -70,7 +69,7 @@ test("component: preflight and the guard work against a real database", () => {
     assert.ok(report.pages.freelist_count > 0)
     assert.deepEqual(report.running, [])
 
-    const guard = new GuardService(fileSystem, processes, runtime)
+    const guard = new GuardService(fileSystem, processes, holders)
     guard.checkEnvironment({ dbPath, image: NO_IMAGE })
     assert.ok(guard.checkSpace({ dbPath, requiredBytes: 0 }).free_bytes > 0)
     assert.equal(fileSystem.exists(dbPath), true)

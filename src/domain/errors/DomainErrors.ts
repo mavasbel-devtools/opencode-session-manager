@@ -1,8 +1,9 @@
 /** The errors this tool raises. Messages are part of the contract: the operator relies on them. */
 
 export class DatabaseHeldError extends Error {
-  constructor(dbPath: string, code: string | undefined) {
-    super(`${dbPath} is held open by another process (${code}); close every OpenCode process first`)
+  /** `holder` is what the platform could tell: the refusal code on Windows, the holding processes on Linux. */
+  constructor(dbPath: string, holder: string) {
+    super(`${dbPath} is held open by another process (${holder}); close every OpenCode process first`)
     this.name = "DatabaseHeldError"
   }
 }
@@ -46,5 +47,12 @@ export class SwapFailedError extends Error {
   constructor(message: string) {
     super(`swap failed and the original files were restored: ${message}`)
     this.name = "SwapFailedError"
+  }
+}
+
+export class UnsupportedPlatformError extends Error {
+  constructor(platform: string, supported: readonly string[]) {
+    super(`unsupported platform: ${platform} (supported: ${supported.join(", ")})`)
+    this.name = "UnsupportedPlatformError"
   }
 }

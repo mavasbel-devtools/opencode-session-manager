@@ -7,6 +7,10 @@ export class SystemClockAdapter implements RuntimePort {
     return process.pid
   }
 
+  platform(): string {
+    return process.platform
+  }
+
   now(): number {
     return Date.now()
   }

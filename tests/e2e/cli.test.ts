@@ -9,6 +9,7 @@ import type { CliEnvironment } from "#infrastructure/adapters/inbound/cli/Compac
 import { captureConsole, captureConsoleError } from "#test/support/console.ts"
 import { fileSha, makeDatabase } from "#test/support/database.ts"
 import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
+import { ownImage } from "#test/support/platform.ts"
 
 const NO_IMAGE = "no-such-image-opencode-db-compact.exe"
 let directory: string
@@ -116,11 +117,12 @@ test("the default database path comes from XDG_DATA_HOME and the ambient runtime
 test("preflight reports the real running processes for the guarded image", () => {
   const dbPath = join(directory, "opencode.db")
   makeDatabase(dbPath)
-  const { code, lines } = runCli(["preflight", "--db", dbPath], {}, { OPENCODE_DB_COMPACT_IMAGE: "node.exe" })
+  const image = ownImage()
+  const { code, lines } = runCli(["preflight", "--db", dbPath], {}, { OPENCODE_DB_COMPACT_IMAGE: image })
   assert.equal(code, 0)
   const report = JSON.parse(lines[1] ?? "") as { running: Array<{ image: string; pid: number }> }
-  assert.ok(report.running.length > 0, "node.exe is running while the tests run")
-  for (const entry of report.running) assert.equal(entry.image.toLowerCase(), "node.exe")
+  assert.ok(report.running.some((entry) => entry.pid === process.pid), `${image} (this test process) is running`)
+  for (const entry of report.running) assert.equal(entry.image.toLowerCase(), image.toLowerCase())
 })
 
 test("usage is printed for an unknown mode and a bare rollback", () => {

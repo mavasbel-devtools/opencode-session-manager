@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { fileSha, makeDatabase } from "#test/support/database.ts"
+import { legacyEnvironment } from "#test/support/platform.ts"
 import { removeTemporary, temporaryWorkspace } from "#test/support/temporary.ts"
 
 /**
@@ -43,7 +44,7 @@ interface Outcome {
 function run(script: string, args: readonly string[], rehearsal: string): Outcome {
   const result = spawnSync(process.execPath, ["--no-warnings", script, ...args], {
     encoding: "utf8",
-    env: { ...process.env, OPENCODE_DB_COMPACT_IMAGE: NO_IMAGE, OPENCODE_DB_COMPACT_REHEARSAL_DIR: rehearsal },
+    env: legacyEnvironment(directory, { ...process.env, OPENCODE_DB_COMPACT_IMAGE: NO_IMAGE, OPENCODE_DB_COMPACT_REHEARSAL_DIR: rehearsal }),
   })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }

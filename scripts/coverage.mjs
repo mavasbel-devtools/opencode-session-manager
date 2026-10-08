@@ -65,8 +65,28 @@ if (rows.length === 0) {
   process.exit(1)
 }
 
+/**
+ * Platform law (AGENTS.md): code for one operating system lives only under
+ * src/infrastructure/adapters/outbound/platform/<platform>/ and in src/main/platform/<platform>.ts.
+ * The unit tier runs every platform's code with stand-ins and is gated on every file. The e2e tier
+ * runs the real system, so it is gated on this platform's files and does not count another
+ * platform's — those are gated by the e2e run on their own platform.
+ */
+const PLATFORMS = ["linux", "win32"]
+const foreign = (file) => {
+  const path = `/${file.replaceAll("\\", "/")}`
+  return PLATFORMS.filter((name) => name !== process.platform).some(
+    (name) => path.includes(`/src/infrastructure/adapters/outbound/platform/${name}/`) || path.endsWith(`/src/main/platform/${name}.ts`),
+  )
+}
+const skipped = tier === "e2e" ? rows.filter((row) => foreign(row.file)) : []
+if (tier === "e2e" && !PLATFORMS.includes(process.platform)) {
+  console.error(`the e2e coverage gate runs on ${PLATFORMS.join(" or ")}, not ${process.platform}`)
+  process.exit(1)
+}
+
 const failures = []
-for (const row of rows) {
+for (const row of rows.filter((row) => !skipped.includes(row))) {
   if (row.linesTotal === 0) {
     failures.push(`${row.file}: no executable lines were loaded (an unloaded source file escapes the gate)`)
     continue
@@ -81,4 +101,5 @@ if (failures.length) {
   process.exit(1)
 }
 
-console.log(`per-file coverage OK (${rows.length} source files at 100% lines and functions)`)
+console.log(`per-file coverage OK (${rows.length - skipped.length} source files at 100% lines and functions)`)
+if (skipped.length) console.log(`  not gated on ${process.platform} (another platform's code): ${skipped.length} files`)

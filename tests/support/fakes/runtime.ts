@@ -8,8 +8,14 @@ export class FakeRuntime implements RuntimePort {
   public temporary = "C:/fake/tmp"
   public home = "C:/fake/home"
 
+  public platformName = "linux"
+
   pid(): number {
     return this.processId
+  }
+
+  platform(): string {
+    return this.platformName
   }
 
   now(): number {

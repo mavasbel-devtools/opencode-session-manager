@@ -13,6 +13,7 @@ import { FingerprintComparer } from "#domain/services/FingerprintComparer.ts"
 import { ParityPolicy } from "#domain/services/ParityPolicy.ts"
 import { RequiredSpacePolicy } from "#domain/services/RequiredSpacePolicy.ts"
 import { FakeFileSystem } from "#test/support/fakes/file-system.ts"
+import { FakeHolders } from "#test/support/fakes/holders.ts"
 import { FakeOutput } from "#test/support/fakes/output.ts"
 import { FakeProcessList } from "#test/support/fakes/processes.ts"
 import { FakeReportSink } from "#test/support/fakes/report-sink.ts"
@@ -27,6 +28,7 @@ interface World {
   readonly fileSystem: FakeFileSystem
   readonly sqlite: FakeSqlite
   readonly processes: FakeProcessList
+  readonly holders: FakeHolders
   readonly runtime: FakeRuntime
   readonly reports: FakeReportSink
   readonly sizes: DatabaseSizesService
@@ -48,11 +50,13 @@ function world(options: { readonly mismatched?: boolean } = {}): World {
   const runtime = new FakeRuntime()
   const reports = new FakeReportSink()
   const sizes = new DatabaseSizesService(fileSystem)
-  const guard = new GuardService(fileSystem, processes, runtime)
+  const holders = new FakeHolders()
+  const guard = new GuardService(fileSystem, processes, holders)
   return {
     fileSystem,
     sqlite,
     processes,
+    holders,
     runtime,
     reports,
     sizes,
@@ -180,10 +184,10 @@ test("RollbackUseCase works when no current database exists and refuses a held o
 
   w.fileSystem.add(`${backupDir}/opencode.db`, "original")
   w.fileSystem.add(DB, "held")
-  w.fileSystem.failRenameFrom = DB
+  w.holders.holder = "opencode 77"
   assert.throws(
     () => new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime).execute({ dbPath: DB, backupDir, image: "x" }),
-    /EBUSY/,
+    /held open by another process \(opencode 77\)/,
   )
 })
 

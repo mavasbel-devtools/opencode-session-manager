@@ -7,9 +7,6 @@ import { ConsoleOutputAdapter } from "#infrastructure/adapters/outbound/ConsoleO
 import { JsonReportAdapter } from "#infrastructure/adapters/outbound/JsonReportAdapter.ts"
 import { NodeFileSystemAdapter } from "#infrastructure/adapters/outbound/NodeFileSystemAdapter.ts"
 import { SystemClockAdapter } from "#infrastructure/adapters/outbound/SystemClockAdapter.ts"
-import { TasklistAdapter, parseTasklist } from "#infrastructure/adapters/outbound/TasklistAdapter.ts"
-
-const NO_IMAGE = "no-such-image-opencode-db-compact.exe"
 
 function temporaryDirectory(): string {
   return mkdtempSync(join(tmpdir(), "oc-compact-unit-"))
@@ -77,27 +74,10 @@ test("ConsoleOutputAdapter writes one line per call", () => {
 test("SystemClockAdapter exposes the ambient runtime", () => {
   const runtime = new SystemClockAdapter()
   assert.equal(runtime.pid(), process.pid)
+  assert.equal(runtime.platform(), process.platform)
   assert.ok(runtime.now() >= 0)
   assert.equal(runtime.temporaryDirectory(), tmpdir())
   assert.equal(runtime.homeDirectory(), homedir())
   assert.match(runtime.stamp(), /^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/)
   assert.equal(runtime.stamp(new Date(2026, 8, 6, 7, 5, 3)), "2026-09-06-07-05-03")
-})
-
-test("parseTasklist reads image/pid pairs and ignores INFO lines", () => {
-  assert.deepEqual(
-    parseTasklist('"opencode.exe","42","Console","2","1 K"\r\nINFO: none\n"x.exe","7","S","0","1 K"'),
-    [
-      { image: "opencode.exe", pid: 42 },
-      { image: "x.exe", pid: 7 },
-    ],
-  )
-})
-
-test("TasklistAdapter returns a running image and nothing for an unknown one", () => {
-  const adapter = new TasklistAdapter()
-  assert.deepEqual(adapter.list(NO_IMAGE), [])
-  const nodeProcesses = [...adapter.list("node.exe")]
-  assert.ok(nodeProcesses.length > 0, "node.exe is running while the test suite runs")
-  for (const entry of nodeProcesses) assert.equal(entry.image.toLowerCase(), "node.exe")
 })

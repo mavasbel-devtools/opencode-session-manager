@@ -1,4 +1,4 @@
-# AGENTS.md — engineering contract for opencode-db-compact
+# AGENTS.md — engineering contract for opencode-db-manager
 
 This file is the authority for how this repository is built and changed. It is
 enforced by tests, not by convention.
@@ -11,7 +11,8 @@ by renaming — keeping the originals.
 
 | Thing | Value |
 |---|---|
-| package | `opencode-db-compact` |
+| package | `opencode-db-manager` (renamed from `opencode-db-compact`) |
+| platforms | Linux and Windows (`process.platform` `linux`, `win32`) |
 | runtime | Node.js >= 24.14.1 (uses the built-in `node:sqlite`) |
 | runtime dependencies | **none** |
 | dev dependencies | pinned exactly, no `^`/`~`/`latest` |
@@ -32,7 +33,11 @@ Four modes:
 2. The swap is **renames only**. The originals are moved into
    `db-backup-<timestamp>/`, never deleted.
 3. The tool **never kills a process**. It refuses to run while the guarded image
-   is present, and refuses while the file is held open (a rename probe, EBUSY).
+   is present (`opencode` on Linux, `opencode.exe` on Windows), and refuses while
+   any process holds the file open: on Linux the `/proc/<pid>/fd` links of every
+   process are compared with the database and its `-wal`/`-shm`/`-journal`
+   sidecars (renaming an open file succeeds there, so a rename proves nothing); on
+   Windows a rename probe is refused with EBUSY.
 4. A verification failure **aborts before the swap** and leaves the originals
    untouched; the failed copy is kept beside the database for inspection.
 5. Rollback always restores the originals and parks the compacted files.
@@ -55,6 +60,7 @@ flowchart LR
     B --> FS
     G --> FS
     G --> PL[ProcessListPort]
+    G --> DH[DatabaseHoldersPort]
 ```
 
 - Layers: `src/domain` (model, errors, services, ports) ← `src/application` ←
@@ -65,12 +71,24 @@ flowchart LR
   the layers need lives in `src/domain/model/Paths.ts` as pure functions.
 - Ports are split: `src/domain/ports/inbound` (`Preflight`, `Rehearse`,
   `Compact`, `Rollback`) and `src/domain/ports/outbound` (`Sqlite`,
-  `FileSystem`, `ProcessList`, `Runtime`, `ReportSink`, `Output`). Every adapter
+  `FileSystem`, `ProcessList`, `DatabaseHolders`, `Runtime`, `ReportSink`, `Output`). Every adapter
   declares `implements` its port.
 - `src/main/container.ts` is the **only** place that constructs adapters and use
   cases. `ContainerOverrides` is the seam tests use.
 - Every class has an explicit constructor. No parameter properties and no enums,
   so every file runs under Node's plain type stripping with no flags.
+
+### Platform law
+
+- Code for one operating system lives only in
+  `src/infrastructure/adapters/outbound/platform/<platform>/` and is wired only by
+  `src/main/platform/<platform>.ts`; `src/main/platform.ts` maps
+  `RuntimePort.platform()` to that wiring and refuses any other platform
+  (`UnsupportedPlatformError`). Enforced by `tests/unit/architecture/imports.test.ts`.
+- Linux: `ProcProcessListAdapter` (`/proc/<pid>/comm`) and `ProcFdHoldersAdapter`
+  (`/proc/<pid>/fd`). Windows: `TasklistAdapter` (`tasklist`) and
+  `RenameProbeHoldersAdapter`. Both take their system root or executable as a
+  constructor argument, so the unit tier runs every platform's adapters on any machine.
 
 ## 4. The report JSON is a contract
 
@@ -94,13 +112,18 @@ environment guard → page statistics → space guard → build → environment 
 | unit | one class at a time with in-memory fakes; adapters against real temp files; the architecture gate | **measured, 100%** |
 | component | several real parts together: real SQLite + real filesystem, real compaction, real swap | not gated |
 | e2e | the whole wired container in-process over real databases, plus the legacy-parity test as real processes | **measured, 100%** |
-| live | a read-only snapshot of the real `opencode.db`, then the real CLI as a process: preflight, a full run and a rollback | not measurable |
+| live | a read-only snapshot of the real `opencode.db`, then the real CLI as a process: preflight, a full run and a rollback; on Linux, the platform adapters find the running OpenCode holding the real database (read-only) | not measurable |
 
 ## 6. Coverage law
 
 - `npm run coverage:unit` and `npm run coverage:e2e` each require **100.00 % lines
   and functions on every `src` file**, per file. `scripts/coverage.mjs` reads the
   lcov report Node writes and fails otherwise.
+- **Per platform on e2e.** The unit tier is gated on every file, every platform's
+  adapters included. The e2e tier runs the real system, so on each platform
+  `scripts/coverage.mjs` gates that platform's files and does not count another
+  platform's folder (it prints how many it left out); the other platform's e2e run
+  gates those. A release needs the e2e gate green on both Linux and Windows.
 - Node reports a file **only once something loads it**, so each measured tier has
   a completeness test (`tests/unit/architecture/imports.test.ts`,
   `tests/e2e/coverage-completeness.test.ts`) that imports every `src` file.
@@ -120,7 +143,11 @@ under test, so the e2e tier declares exactly three seams, all in
 | `TamperingSqlite` | after the vacuum, really deletes a row from the copy | the vacuum, the files, the parity check |
 | `FakeRuntime` | pins the timestamp so target names are predictable | every filesystem and database operation |
 
-Nothing else in the e2e tier is faked. The swap-restore path is exercised with a
+`FakeRuntime` also reports a platform with no adapters, to prove the composition
+root refuses it. Off Windows, the legacy-parity test runs the frozen original
+(which calls `tasklist`) with a stand-in `tasklist` first on `PATH` that prints
+what the real one prints when no process matches; the tests only ask it about an
+image that matches nothing. Nothing else in the e2e tier is faked. The swap-restore path is exercised with a
 real filesystem condition (a directory left in the backup's way), not a seam.
 
 ## 8. Test safety

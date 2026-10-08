@@ -11,10 +11,19 @@ export function parseTasklist(csv: string): readonly ProcessEntry[] {
     .map((match) => ({ image: match[1] as string, pid: Number(match[2]) }))
 }
 
-/** The only place a child process is spawned. */
+/**
+ * Windows: the running processes with a given image name, from `tasklist`. The executable is a
+ * constructor argument so the adapter can be exercised against a stand-in off Windows.
+ */
 export class TasklistAdapter implements ProcessListPort {
+  private readonly executable: string
+
+  constructor(executable: string) {
+    this.executable = executable
+  }
+
   list(image: string): readonly ProcessEntry[] {
-    const csv = execFileSync("tasklist", ["/fo", "csv", "/nh", "/fi", `imagename eq ${image}`], { encoding: "utf8" })
+    const csv = execFileSync(this.executable, ["/fo", "csv", "/nh", "/fi", `imagename eq ${image}`], { encoding: "utf8" })
     return parseTasklist(csv).filter((entry) => entry.image.toLowerCase() === image.toLowerCase())
   }
 }

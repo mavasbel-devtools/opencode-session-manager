@@ -8,6 +8,7 @@ import type { Fingerprint } from "#domain/model/Database.ts"
 import { FingerprintComparer } from "#domain/services/FingerprintComparer.ts"
 import { ParityPolicy } from "#domain/services/ParityPolicy.ts"
 import { FakeFileSystem } from "#test/support/fakes/file-system.ts"
+import { FakeHolders } from "#test/support/fakes/holders.ts"
 import { FakeProcessList } from "#test/support/fakes/processes.ts"
 import { FakeRuntime } from "#test/support/fakes/runtime.ts"
 import { FakeSqlite } from "#test/support/fakes/sqlite.ts"
@@ -24,30 +25,24 @@ test("DatabaseSizesService measures what exists and reports null for what does n
   })
 })
 
-test("GuardService.assertNotHeld renames away and back, and reports EBUSY as held", () => {
-  const fileSystem = new FakeFileSystem()
-  const guard = new GuardService(fileSystem, new FakeProcessList(), new FakeRuntime())
-  fileSystem.add("C:/x/opencode.db", "db")
+test("GuardService.assertNotHeld asks the platform and refuses with what it reports", () => {
+  const holders = new FakeHolders()
+  const guard = new GuardService(new FakeFileSystem(), new FakeProcessList(), holders)
   guard.assertNotHeld("C:/x/opencode.db")
-  assert.ok(fileSystem.exists("C:/x/opencode.db"))
-  assert.deepEqual(fileSystem.renames, [
-    { from: "C:/x/opencode.db", to: "C:/x/opencode.db.lockprobe-4242" },
-    { from: "C:/x/opencode.db.lockprobe-4242", to: "C:/x/opencode.db" },
-  ])
+  assert.deepEqual(holders.asked, ["C:/x/opencode.db"])
 
-  const held = new FakeFileSystem()
-  held.add("C:/x/opencode.db", "db")
-  held.failRenameFrom = "C:/x/opencode.db"
+  holders.holder = "opencode 12, opencode 13"
   assert.throws(
-    () => new GuardService(held, new FakeProcessList(), new FakeRuntime()).assertNotHeld("C:/x/opencode.db"),
-    /held open by another process \(EBUSY\)/,
+    () => guard.assertNotHeld("C:/x/opencode.db"),
+    /^DatabaseHeldError: C:\/x\/opencode\.db is held open by another process \(opencode 12, opencode 13\); close every OpenCode process first$/,
   )
 })
 
 test("GuardService.checkEnvironment refuses a running image, a missing file and a held file", () => {
   const processes = new FakeProcessList()
   const fileSystem = new FakeFileSystem()
-  const guard = new GuardService(fileSystem, processes, new FakeRuntime())
+  const holders = new FakeHolders()
+  const guard = new GuardService(fileSystem, processes, holders)
 
   processes.running = [{ image: "opencode.exe", pid: 5 }, { image: "opencode.exe", pid: 6 }]
   assert.throws(
@@ -59,17 +54,17 @@ test("GuardService.checkEnvironment refuses a running image, a missing file and 
   assert.throws(() => guard.checkEnvironment({ dbPath: "C:/x/opencode.db", image: "x" }), /database not found/)
 
   fileSystem.add("C:/x/opencode.db", "db")
-  fileSystem.failRenameFrom = "C:/x/opencode.db"
+  holders.holder = "EBUSY"
   assert.throws(() => guard.checkEnvironment({ dbPath: "C:/x/opencode.db", image: "x" }), /EBUSY/)
 
-  fileSystem.failRenameFrom = null
+  holders.holder = null
   guard.checkEnvironment({ dbPath: "C:/x/opencode.db", image: "x" })
 })
 
 test("GuardService.checkSpace refuses a full disk", () => {
   const fileSystem = new FakeFileSystem()
   fileSystem.add("C:/x/opencode.db", "db")
-  const guard = new GuardService(fileSystem, new FakeProcessList(), new FakeRuntime())
+  const guard = new GuardService(fileSystem, new FakeProcessList(), new FakeHolders())
   fileSystem.free = 1000
   assert.throws(() => guard.checkSpace({ dbPath: "C:/x/opencode.db", requiredBytes: 1001 }), /1000 B free, 1001 B required/)
   assert.deepEqual(guard.checkSpace({ dbPath: "C:/x/opencode.db", requiredBytes: 1000 }), { free_bytes: 1000 })

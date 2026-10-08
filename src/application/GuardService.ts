@@ -1,8 +1,8 @@
 import { DatabaseHeldError, DatabaseNotFoundError, InsufficientSpaceError, ProcessRunningError } from "#domain/errors/DomainErrors.ts"
 import { dirName } from "#domain/model/Paths.ts"
+import type { DatabaseHoldersPort } from "#domain/ports/outbound/DatabaseHoldersPort.ts"
 import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
 import type { ProcessListPort } from "#domain/ports/outbound/ProcessListPort.ts"
-import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
 
 export interface EnvironmentInput {
   readonly dbPath: string
@@ -25,24 +25,18 @@ export interface FreeSpaceReport {
 export class GuardService {
   private readonly fileSystem: FileSystemPort
   private readonly processes: ProcessListPort
-  private readonly runtime: RuntimePort
+  private readonly holders: DatabaseHoldersPort
 
-  constructor(fileSystem: FileSystemPort, processes: ProcessListPort, runtime: RuntimePort) {
+  constructor(fileSystem: FileSystemPort, processes: ProcessListPort, holders: DatabaseHoldersPort) {
     this.fileSystem = fileSystem
     this.processes = processes
-    this.runtime = runtime
+    this.holders = holders
   }
 
-  /** Renames the file away and back. Windows refuses (EBUSY) while any SQLite connection holds it open. */
+  /** Refuses while another process holds the database open; how that is detected is the platform's business. */
   assertNotHeld(dbPath: string): void {
-    const probe = `${dbPath}.lockprobe-${this.runtime.pid()}`
-    try {
-      this.fileSystem.rename(dbPath, probe)
-    } catch (error) {
-      const code = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : String(error)
-      throw new DatabaseHeldError(dbPath, code)
-    }
-    this.fileSystem.rename(probe, dbPath)
+    const holder = this.holders.heldBy(dbPath)
+    if (holder !== null) throw new DatabaseHeldError(dbPath, holder)
   }
 
   checkEnvironment(input: EnvironmentInput): void {

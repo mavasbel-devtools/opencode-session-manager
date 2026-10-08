@@ -9,6 +9,7 @@ import { SwapService } from "#application/SwapService.ts"
 import { joinPath } from "#domain/model/Paths.ts"
 import type { FileSystemPort } from "#domain/ports/outbound/FileSystemPort.ts"
 import type { OutputPort } from "#domain/ports/outbound/OutputPort.ts"
+import type { DatabaseHoldersPort } from "#domain/ports/outbound/DatabaseHoldersPort.ts"
 import type { ProcessListPort } from "#domain/ports/outbound/ProcessListPort.ts"
 import type { ReportSinkPort } from "#domain/ports/outbound/ReportSinkPort.ts"
 import type { RuntimePort } from "#domain/ports/outbound/RuntimePort.ts"
@@ -22,13 +23,14 @@ import { JsonReportAdapter } from "#infrastructure/adapters/outbound/JsonReportA
 import { NodeFileSystemAdapter } from "#infrastructure/adapters/outbound/NodeFileSystemAdapter.ts"
 import { NodeSqliteAdapter } from "#infrastructure/adapters/outbound/NodeSqliteAdapter.ts"
 import { SystemClockAdapter } from "#infrastructure/adapters/outbound/SystemClockAdapter.ts"
-import { TasklistAdapter } from "#infrastructure/adapters/outbound/TasklistAdapter.ts"
+import { platformAdapters } from "#main/platform.ts"
 
 /** Outbound adapters a test may replace. Everything else is wired here and nowhere else. */
 export interface ContainerOverrides {
   readonly sqlite?: SqlitePort
   readonly fileSystem?: FileSystemPort
   readonly processes?: ProcessListPort
+  readonly holders?: DatabaseHoldersPort
   readonly runtime?: RuntimePort
   readonly reports?: ReportSinkPort
   readonly output?: OutputPort
@@ -44,13 +46,15 @@ export interface Cli {
 export function buildContainer(environment: CliEnvironment, overrides: ContainerOverrides = {}): Cli {
   const runtime = overrides.runtime ?? new SystemClockAdapter()
   const fileSystem = overrides.fileSystem ?? new NodeFileSystemAdapter()
-  const processes = overrides.processes ?? new TasklistAdapter()
+  const platform = platformAdapters(runtime.platform(), fileSystem, runtime.pid())
+  const processes = overrides.processes ?? platform.processes
+  const holders = overrides.holders ?? platform.holders
   const output = overrides.output ?? new ConsoleOutputAdapter()
   const reports = overrides.reports ?? new JsonReportAdapter()
   const sqlite = overrides.sqlite ?? new NodeSqliteAdapter()
 
   const sizes = new DatabaseSizesService(fileSystem)
-  const guard = new GuardService(fileSystem, processes, runtime)
+  const guard = new GuardService(fileSystem, processes, holders)
   const swapper = new SwapService(fileSystem)
   const buildAndVerify = new BuildAndVerifyService(
     sqlite,
@@ -78,7 +82,7 @@ export function buildContainer(environment: CliEnvironment, overrides: Container
     output,
     runtime,
     environment,
-    image: environment.OPENCODE_DB_COMPACT_IMAGE ?? "opencode.exe",
+    image: environment.OPENCODE_DB_COMPACT_IMAGE ?? platform.image,
     rehearsalDirectory:
       environment.OPENCODE_DB_COMPACT_REHEARSAL_DIR ??
       joinPath(runtime.temporaryDirectory(), "opencode", "compact-rehearsal"),

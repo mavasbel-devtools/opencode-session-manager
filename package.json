@@ -1,8 +1,8 @@
 {
-  "name": "opencode-db-compact",
+  "name": "opencode-db-manager",
   "version": "0.2.0",
   "private": true,
-  "description": "Offline, verified compaction of an OpenCode 2 opencode.db, with a rename-swap backup and rollback (strict hexagonal, Node 24 + TypeScript)",
+  "description": "Offline, verified maintenance of an OpenCode 2 opencode.db on Linux and Windows: compaction with a rename-swap backup and rollback (strict hexagonal, Node 24 + TypeScript)",
   "type": "module",
   "engines": {
     "node": ">=24.14.1"
