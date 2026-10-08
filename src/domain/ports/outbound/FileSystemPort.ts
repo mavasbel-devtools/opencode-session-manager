@@ -7,4 +7,6 @@ export interface FileSystemPort {
   rename(from: string, to: string): void
   mkdirp(directory: string): void
   remove(path: string): void
+  /** Removes a folder only if it is empty. */
+  removeDirectory(directory: string): void
 }

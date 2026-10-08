@@ -5,9 +5,10 @@ enforced by tests, not by convention.
 
 ## 1. What this is
 
-An offline, verified compactor for an OpenCode 2 `opencode.db`. It makes a
-compacted copy, proves the copy is complete and sound, and only then swaps it in
-by renaming — keeping the originals.
+An offline, verified maintenance tool for an OpenCode 2 `opencode.db`. It
+compacts the database, and it migrates sessions from another machine (a Windows
+`opencode.db`) into it. Either way it builds a new copy, proves the copy is
+complete and sound, and only then swaps it in by renaming — keeping the originals.
 
 | Thing | Value |
 |---|---|
@@ -18,6 +19,7 @@ by renaming — keeping the originals.
 | dev dependencies | pinned exactly, no `^`/`~`/`latest` |
 | licence | MIT © mavasbel |
 | entrypoint | `node src/main/cli.ts <preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]` |
+| migrate entrypoint | `node src/main/cli.ts migrate <rehearse\|run> --from <db>... --windows-user <name> [--drive <letter>] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--db <path>] [--keep]` |
 
 Four modes:
 
@@ -25,6 +27,10 @@ Four modes:
 - **rehearse** — builds and checks a compacted copy; keeps it only with `--keep`.
 - **run** — the offline run: guard, build, verify, swap, write evidence.
 - **rollback** — puts the originals back and parks what was in place.
+- **migrate rehearse / migrate run** — copy every input, rewrite Windows profile
+  paths, merge the sources into the local database, re-key every session onto the
+  project OpenCode derives for its folder here, verify, and (run) swap in. A
+  migrate run is undone with **rollback** like a compaction.
 
 ## 2. Safety invariants — never trade these away
 
@@ -43,6 +49,15 @@ Four modes:
 5. Rollback always restores the originals and parks the compacted files.
 6. The live tier **never writes the live database**: it takes a consistent copy
    with SQLite's online backup API from a read-only connection.
+7. A migration **only ever writes copies it made itself**: every input is copied
+   with `VACUUM INTO` from a read-only connection, the rewrite, merge and re-key
+   run on those copies, and the result passes the seven migration gates
+   (`MigrationVerifier`) before the same renames-only swap. A failed gate aborts
+   before the swap and keeps the migrated copy for inspection.
+8. A migration **never rewrites credentials** (`account`, `control_account`,
+   `credential`) or OpenCode's own `migration` log, and never re-serializes JSON:
+   it edits matched paths inside the raw text, so everything else stays
+   byte-identical.
 
 ## 3. Architecture law — strict hexagonal
 
@@ -61,6 +76,17 @@ flowchart LR
     G --> FS
     G --> PL[ProcessListPort]
     G --> DH[DatabaseHoldersPort]
+    ROUTER[CliRouter] --> CLI
+    ROUTER --> MCLI[MigrateCliAdapter]
+    MCLI --> M[MigrateUseCase]
+    M --> RW[RewriteService]
+    M --> RK[RekeyService]
+    M --> MV[MigrationVerifier]
+    M --> G
+    M --> S
+    RW --> MS[MigrationStorePort]
+    RK --> PI[ProjectIdentityPort]
+    MV --> SQ
 ```
 
 - Layers: `src/domain` (model, errors, services, ports) ← `src/application` ←
@@ -70,9 +96,17 @@ flowchart LR
 - **No `node:` import in `src/domain` or `src/application`.** Path handling that
   the layers need lives in `src/domain/model/Paths.ts` as pure functions.
 - Ports are split: `src/domain/ports/inbound` (`Preflight`, `Rehearse`,
-  `Compact`, `Rollback`) and `src/domain/ports/outbound` (`Sqlite`,
-  `FileSystem`, `ProcessList`, `DatabaseHolders`, `Runtime`, `ReportSink`, `Output`). Every adapter
-  declares `implements` its port.
+  `Compact`, `Rollback`, `Migrate`) and `src/domain/ports/outbound` (`Sqlite`,
+  `FileSystem`, `ProcessList`, `DatabaseHolders`, `Runtime`, `ReportSink`, `Output`,
+  `MigrationStore`, `ProjectIdentity`). Every adapter declares `implements` its port.
+- Migration: the pure parts are domain services — `PathRewriter` (every Windows
+  path form at any JSON depth), `GitRemote` (the `host/path` OpenCode hashes),
+  `PosixPaths` (`session.path`). `NodeMigrationStoreAdapter` is the only writer of
+  a migration copy; `GitProjectIdentityAdapter` is the only place OpenCode's
+  project-id derivation is reproduced. A new path form is added to `PathRewriter`
+  together with a case in `tests/unit/domain/migration.test.ts`.
+- `src/infrastructure/adapters/inbound/cli/CliRouter.ts` sends `migrate …` to
+  `MigrateCliAdapter` and every other mode to `CompactCliAdapter`.
 - `src/main/container.ts` is the **only** place that constructs adapters and use
   cases. `ContainerOverrides` is the seam tests use.
 - Every class has an explicit constructor. No parameter properties and no enums,
@@ -100,6 +134,11 @@ implementation as real processes against identical databases, and compares the
 preflight report, the check lines, the run report (minus timings and free disk)
 and the rollback output.
 
+The migration report (`mode: "migrate-rehearse"` / `"migrate-run"`) has no
+legacy counterpart; its keys follow the same snake_case rule (`cells_rewritten`,
+`missing_directories`, `windows_sessions_gone`, …) and are defined in
+`src/domain/model/Migration.ts`.
+
 **One deliberate behaviour change.** `run` against a missing database reports
 `database not found: <path>` before opening it; the old tool opened the file
 first and let SQLite report `unable to open database file`. The order is now:
@@ -110,9 +149,9 @@ environment guard → page statistics → space guard → build → environment 
 | Tier | What runs | Coverage |
 |---|---|---|
 | unit | one class at a time with in-memory fakes; adapters against real temp files; the architecture gate | **measured, 100%** |
-| component | several real parts together: real SQLite + real filesystem, real compaction, real swap | not gated |
+| component | several real parts together: real SQLite + real filesystem, real compaction, real swap; a real migration over real folders and real git repositories | not gated |
 | e2e | the whole wired container in-process over real databases, plus the legacy-parity test as real processes | **measured, 100%** |
-| live | a read-only snapshot of the real `opencode.db`, then the real CLI as a process: preflight, a full run and a rollback; on Linux, the platform adapters find the running OpenCode holding the real database (read-only) | not measurable |
+| live | a read-only snapshot of the real `opencode.db`, then the real CLI as a process: preflight, a full run and a rollback; on Linux, the platform adapters find the running OpenCode holding the real database (read-only); a real migration rehearsal listed by a sandboxed OpenCode when `OPENCODE_DB_MIGRATE_LIVE_SOURCE` and `OPENCODE_DB_MIGRATE_LIVE_USER` are set | not measurable |
 
 ## 6. Coverage law
 
@@ -149,6 +188,10 @@ root refuses it. Off Windows, the legacy-parity test runs the frozen original
 what the real one prints when no process matches; the tests only ask it about an
 image that matches nothing. Nothing else in the e2e tier is faked. The swap-restore path is exercised with a
 real filesystem condition (a directory left in the backup's way), not a seam.
+The migration adds no seam: its failures are real database conditions — a session
+folder on another drive (a failed gate), a unique index the merged rows collide
+with (rows not kept), and a trigger that refuses a write (rolled back, reported as
+an error).
 
 ## 8. Test safety
 

@@ -8,6 +8,10 @@ export class DemandingSpacePolicy extends RequiredSpacePolicy {
   override requiredBytes(): number {
     return Number.MAX_SAFE_INTEGER
   }
+
+  override migrationBytes(): number {
+    return Number.MAX_SAFE_INTEGER
+  }
 }
 
 /**

@@ -11,10 +11,11 @@ export interface CliEnvironment {
   readonly XDG_DATA_HOME?: string | undefined
   readonly OPENCODE_DB_COMPACT_IMAGE?: string | undefined
   readonly OPENCODE_DB_COMPACT_REHEARSAL_DIR?: string | undefined
+  readonly OPENCODE_DB_MIGRATE_REHEARSAL_DIR?: string | undefined
 }
 
 export const USAGE =
-  "usage: node src/main/cli.ts <preflight|rehearse|run|rollback <backupDir>> [--db <path>] [--keep]"
+  "usage: node src/main/cli.ts <preflight|rehearse|run|rollback <backupDir>|migrate …> [--db <path>] [--keep]"
 
 export interface CliArguments {
   readonly mode: string | undefined

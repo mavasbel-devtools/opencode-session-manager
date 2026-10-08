@@ -52,4 +52,10 @@ export class FakeFileSystem implements FileSystemPort {
   remove(path: string): void {
     this.files.delete(path)
   }
+
+  removeDirectory(directory: string): void {
+    const prefix = `${directory}/`
+    if ([...this.files.keys()].some((file) => file.startsWith(prefix))) throw new Error(`ENOTEMPTY: ${directory}`)
+    this.directories.delete(directory)
+  }
 }
