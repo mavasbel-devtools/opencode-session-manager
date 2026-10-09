@@ -2,7 +2,7 @@ import type { CatalogProfileUseCase } from "@session-manager/application/Catalog
 import { ProfileUnreadableError } from "@session-manager/domain/errors/ProfileUnreadableError"
 import type { OpenedProfile } from "@session-manager/domain/model/Browser"
 import { joinPath } from "@session-manager/domain/model/DatabasePaths"
-import { profileAt } from "@session-manager/domain/model/Profile"
+import { profileAt, type Profile } from "@session-manager/domain/model/Profile"
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
 import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
@@ -25,8 +25,7 @@ export class OpenProfileUseCase implements OpenProfilePort {
     this.runtime = runtime
   }
 
-  open(name: string, dataHome: string): OpenedProfile {
-    const profile = profileAt(name, dataHome)
+  open(profile: Profile): OpenedProfile {
     let unreadable: ProfileUnreadableError
     try {
       return { catalog: this.catalog.catalog(profile), snapshot: null }
@@ -34,8 +33,8 @@ export class OpenProfileUseCase implements OpenProfilePort {
       if (!(error instanceof ProfileUnreadableError)) throw error
       unreadable = error
     }
-    const snapshot = joinPath(this.runtime.temporaryDirectory(), "opencode", `session-manager-${this.runtime.stamp()}-${name}`)
-    const copy = profileAt(name, snapshot)
+    const snapshot = joinPath(this.runtime.temporaryDirectory(), "opencode", `session-manager-${this.runtime.stamp()}-${profile.name}`)
+    const copy = profileAt(profile.name, snapshot)
     try {
       this.copyStore(profile.opencodeDb, copy.opencodeDb)
       this.copyStore(profile.contextDb, copy.contextDb)

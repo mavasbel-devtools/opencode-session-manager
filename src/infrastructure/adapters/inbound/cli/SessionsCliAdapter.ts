@@ -1,4 +1,4 @@
-import { defaultDataHome } from "@session-manager/domain/model/Profile"
+import { defaultDataHome, profileAt } from "@session-manager/domain/model/Profile"
 import type { CatalogedSession, ProfileCatalog } from "@session-manager/domain/model/SessionCatalog"
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
@@ -40,7 +40,7 @@ export class SessionsCliAdapter {
         return 2
       }
     }
-    const opened = this.options.profiles.open("profile", dataHome ?? defaultDataHome(environment, runtime.homeDirectory()))
+    const opened = this.options.profiles.open(profileAt("profile", dataHome ?? defaultDataHome(environment, runtime.homeDirectory())))
     try {
       if (json) output.line(JSON.stringify(opened.catalog, null, 2))
       else for (const line of render(opened.catalog, opened.snapshot)) output.line(line)

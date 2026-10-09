@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { profileAt, type Profile } from "@session-manager/domain/model/Profile"
+import type { Profile } from "@session-manager/domain/model/Profile"
 import type { ProfileCatalog } from "@session-manager/domain/model/SessionCatalog"
 import { SessionsCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/SessionsCliAdapter"
 import { FakeOutput } from "@test/support/maintenance/fakes/output"
@@ -16,8 +16,7 @@ function cli(available: boolean, snapshot: string | null = null) {
       close: () => {
         closed++
       },
-      open: (_name, dataHome) => {
-        const profile = profileAt("profile", dataHome)
+      open: (profile) => {
         seen.push(profile)
         const catalog: ProfileCatalog = {
           profile,

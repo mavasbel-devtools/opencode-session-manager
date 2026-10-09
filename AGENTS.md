@@ -17,7 +17,7 @@ code is wrong until one of them is deliberately changed.
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | deployed at (v1) | `<plugins>/session-manager.js`, `<plugins>/session-manager.tui.js` | v1.18.32 forbids `server` and `tui` in one module |
 | build outputs | `dist/v2/{server,tui}.js`, `dist/v1/session-manager{,.tui}.js` | the entrypoints the hosts load |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `migrate <rehearse\|run> --from <db>... --windows-user <name> [--drive C] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--db <path>] [--keep]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `tui [--left <dataHome>] [--right <dataHome>]` (read-only session browser) |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `migrate <rehearse\|run> --from <db>... --windows-user <name> [--drive C] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--db <path>] [--keep]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …]` (read-only session browser) |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
@@ -148,8 +148,11 @@ go inside a transaction; one fsync per insert made a 4 500-row test take 30 s.
 
 ### The session browser (`tui`)
 
-Its state is pure (`src/domain/model/Browser.ts`: rows, cursor, window, filter,
-reducer); `src/infrastructure/adapters/inbound/manager-tui/` turns keys into
+Its state is pure: `src/domain/model/BrowserState.ts` (the data),
+`BrowserRows.ts` (the left, right and paired lists: grouping, filter, matching
+by session id), `BrowserQueue.ts` (Magic Context copies and their conflicts) and
+`Browser.ts` (the reducer: cursors, linked panes, layout, marks, queue view);
+`src/infrastructure/adapters/inbound/manager-tui/` turns keys into
 actions (`keys.ts`), state into text (`format.ts`) and paints it
 (`OpenTuiBrowser.tsx`, the only file there that imports OpenTUI at run time).
 It bundles its own Solid and OpenTUI: `scripts/build.mjs` compiles it with

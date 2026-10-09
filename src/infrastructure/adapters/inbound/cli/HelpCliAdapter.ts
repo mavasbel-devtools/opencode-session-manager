@@ -3,7 +3,8 @@ import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPo
 export const HELP = [
   "opencode-session-manager: browse, sync and maintain OpenCode sessions and their Magic Context state",
   "",
-  "  tui [--left <dataHome>] [--right <dataHome>]   session browser, one profile per pane (read-only)",
+  "  tui [--left <dataHome>] [--right <dataHome>]   session browser: both sides matched by session id (read-only)",
+  "      (or --left-db/--right-db <opencode.db> with --left-context/--right-context <context.db>)",
   "  sessions [--data <dataHome>] [--json]          list a profile's sessions with their Magic Context state",
   "  context copy --from <context.db> --to <file>   copy a Magic Context store in the installed format",
   "  preflight|rehearse|run [--db <path>] [--keep]  verified compaction of opencode.db (OpenCode closed)",

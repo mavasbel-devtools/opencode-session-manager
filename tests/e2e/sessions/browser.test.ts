@@ -104,7 +104,7 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
       expect(await setup.waitForFrame((text) => text.includes("▸ /home/me/repo"))).toContain("1 sessions (collapsed)")
       input.pressEnter()
       input.pressTab()
-      expect(await setup.waitForFrame((text) => text.includes("Folder C:/Users/Me/repo"))).toBeTruthy()
+      expect(await setup.waitForFrame((text) => text.includes("updated 1970-01-01 00:00 · 3 messages"))).toContain("ses_shared · v2")
       input.pressKey("h")
       input.pressKey("/")
       await input.typeText("zz")
@@ -126,11 +126,84 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
       await setup.mockMouse.scroll(80, 4, "up")
       setup.resize(140, 20)
       await setup.waitForFrame((text) => text.split("\n").length >= 20)
+      // Pair by id, mark, queue a copy each way, and edit the queue.
+      input.pressKey("p")
+      await setup.waitForFrame((text) => text.includes("paired by session id"))
+      input.pressKey("g")
+      input.pressArrow("down")
+      input.pressKey(" ")
+      expect(await setup.waitForFrame((text) => text.includes("● > Shared session"))).toContain("ses_shared · newer on the left")
+      input.pressKey(">")
+      expect(await setup.waitForFrame((text) => text.includes("Queued 1 Magic Context copy →."))).toBeTruthy()
+      // Queued again: the entry is replaced, not added twice. Then the paired list is filtered.
+      input.pressKey(">")
+      await input.typeText("/Windows")
+      input.pressEnter()
+      expect(await setup.waitForFrame((text) => text.includes('filter "Windows"'))).not.toContain("Shared session")
+      input.pressKey("/")
+      input.pressEscape()
+      for (let tries = 0; tries < 50 && !setup.captureCharFrame().includes("Shared session"); tries++) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await setup.renderOnce()
+      }
+      input.pressKey("g")
+      input.pressKey(" ")
+      expect(await setup.waitForFrame((text) => text.includes("(1) ●1"))).toContain("1 marked")
+      input.pressKey(" ")
+      input.pressKey("*")
+      input.pressKey("<")
+      expect(
+        await setup.waitForFrame((text) => text.includes("Queued 0 Magic Context copies ←; skipped 1 not on the left (sync the session first), 1 with no Magic")),
+      ).toBeTruthy()
+      input.pressKey("Q")
+      expect(await setup.waitForFrame((text) => text.includes("Queue · 1 Magic Context copy · 0 conflicts"))).toContain("new on target")
+      input.pressArrow("down")
+      input.pressKey("r")
+      expect(await setup.waitForFrame((text) => text.includes("No conflict:"))).toBeTruthy()
+      input.pressKey("S")
+      input.pressKey("x")
+      expect(await setup.waitForFrame((text) => text.includes("The queue is empty"))).toBeTruthy()
+      input.pressKey("c")
+      input.pressKey("Q")
+      await setup.waitForFrame((text) => text.includes("paired by session id"))
       input.pressKey("q")
       expect(await running).toBe(0)
     } finally {
       out.restore()
     }
     expect(readdirSync(join(temporary, "opencode"))).toEqual([])
+  })
+
+  it("opens a profile named by its store files, alone", async () => {
+    const db = join(directory, "files", "sessions.db")
+    const context = join(directory, "files", "context.db")
+    makeOpenCodeStore(db, { v2: [{ id: "ses_file", title: "From a file", directory: "/x", updated: 1, entries: 1 }] })
+    makeContextStore(context, { version: 94, compartments: { ses_file: 3 } })
+    let setup: TestRendererSetup | undefined
+    const cli = await buildContainer(
+      {},
+      {
+        show: showBrowser(async () => {
+          setup = await createTestRenderer({ width: 120, height: 20 })
+          return setup.renderer
+        }),
+      },
+    )
+    const running = cli.run(["tui", "--left-db", db, "--left-context", context])
+    while (setup === undefined) await new Promise((resolve) => setTimeout(resolve, 10))
+    const shown = await setup.waitForFrame((text) => text.includes("From a file"))
+    expect(shown).toContain(`left · 1 sessions · Magic Context format 94 · ${join(directory, "files")}`)
+    expect(shown).toContain("S 3")
+    setup.mockInput.pressKey("p")
+    expect(await setup.waitForFrame((text) => text.includes("Open a second profile with --right to pair sessions."))).toBeTruthy()
+    setup.mockInput.pressKey("q")
+    expect(await running).toBe(0)
+    const out = captureConsole()
+    try {
+      expect(await cli.run(["tui", "--left-context", context])).toBe(2)
+    } finally {
+      out.restore()
+    }
+    expect(out.lines[0]).toStartWith("usage: opencode-session-manager tui [--left <dataHome> | --left-db <opencode.db>")
   })
 })

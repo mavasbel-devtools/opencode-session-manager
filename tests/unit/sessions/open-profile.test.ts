@@ -5,7 +5,8 @@ import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNo
 import { ProfileUnreadableError } from "@session-manager/domain/errors/ProfileUnreadableError"
 import type { StoredSession } from "@session-manager/domain/model/SessionCatalog"
 import { createBrowser } from "@session-manager/domain/model/Browser"
-import { BrowseCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/BrowseCliAdapter"
+import { profileAt, profileOfFiles } from "@session-manager/domain/model/Profile"
+import { BrowseCliAdapter, TUI_USAGE } from "@session-manager/infrastructure/adapters/inbound/cli/BrowseCliAdapter"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
 import { FakeOutput } from "@test/support/maintenance/fakes/output"
 import { FakeRuntime } from "@test/support/maintenance/fakes/runtime"
@@ -50,7 +51,7 @@ describe("OpenProfileUseCase", () => {
   it("reads a readable profile in place, and close has nothing to remove", () => {
     const { files, useCase } = setup([])
     files.add("/win/opencode/opencode.db")
-    const profile = useCase.open("win", "/win")
+    const profile = useCase.open(profileAt("win", "/win"))
     expect(profile.snapshot).toBeNull()
     expect(profile.catalog.sessions.map((session) => session.id)).toEqual(["ses_a"])
     useCase.close(profile)
@@ -61,7 +62,7 @@ describe("OpenProfileUseCase", () => {
     const { files, useCase } = setup(["/win/opencode/opencode.db"])
     for (const file of ["opencode/opencode.db", "opencode/opencode.db-wal", "cortexkit/magic-context/context.db", "cortexkit/magic-context/context.db-shm"])
       files.add(`/win/${file}`, file)
-    const profile = useCase.open("win", "/win")
+    const profile = useCase.open(profileAt("win", "/win"))
     expect(profile.snapshot).toBe(SNAPSHOT)
     expect(profile.catalog.profile.opencodeDb).toBe("/win/opencode/opencode.db")
     expect(profile.catalog.magicContext).toEqual({ available: true, schemaVersion: 91 })
@@ -75,24 +76,38 @@ describe("OpenProfileUseCase", () => {
   it("snapshots a profile whose Magic Context store is absent", () => {
     const { files, useCase } = setup(["/win/opencode/opencode.db"])
     files.add("/win/opencode/opencode.db")
-    expect(useCase.open("win", "/win").catalog.magicContext.available).toBe(false)
+    expect(useCase.open(profileAt("win", "/win")).catalog.magicContext.available).toBe(false)
   })
 
   it("names the original store when the copy is unreadable too, and removes the snapshot", () => {
     const { files, useCase } = setup(["/win/opencode/opencode.db", `${SNAPSHOT}/opencode/opencode.db`])
     files.add("/win/opencode/opencode.db")
-    expect(() => useCase.open("win", "/win")).toThrow(new ProfileUnreadableError("/win/opencode/opencode.db", "disk I/O error"))
+    expect(() => useCase.open(profileAt("win", "/win"))).toThrow(new ProfileUnreadableError("/win/opencode/opencode.db", "disk I/O error"))
     expect(files.has(`${SNAPSHOT}/opencode/opencode.db`)).toBe(false)
   })
 
   it("passes on a failed copy, a missing store and any other error", () => {
     const copy = setup(["/win/opencode/opencode.db"], { failCopy: true })
     copy.files.add("/win/opencode/opencode.db")
-    expect(() => copy.useCase.open("win", "/win")).toThrow("EACCES: copy refused")
-    expect(() => setup([]).useCase.open("win", "/nowhere")).toThrow(DatabaseNotFoundError)
+    expect(() => copy.useCase.open(profileAt("win", "/win"))).toThrow("EACCES: copy refused")
+    expect(() => setup([]).useCase.open(profileAt("win", "/nowhere"))).toThrow(DatabaseNotFoundError)
     const crash = setup([], { crash: true })
     crash.files.add("/win/opencode/opencode.db")
-    expect(() => crash.useCase.open("win", "/win")).toThrow(new ProfileUnreadableError("/win/opencode/opencode.db", "not a store problem"))
+    expect(() => crash.useCase.open(profileAt("win", "/win"))).toThrow(new ProfileUnreadableError("/win/opencode/opencode.db", "not a store problem"))
+  })
+})
+
+describe("profileOfFiles", () => {
+  it("names a profile by its store files, its folder standing for the data home", () => {
+    expect(profileOfFiles("left", "/data/x/opencode.db", "/data/c.db")).toEqual({
+      name: "left",
+      dataHome: "/data/x",
+      opencodeDb: "/data/x/opencode.db",
+      contextDb: "/data/c.db",
+    })
+    expect(profileOfFiles("left", "C:\\data\\opencode.db", undefined)).toMatchObject({ dataHome: "C:\\data", contextDb: "" })
+    expect(profileOfFiles("left", "/opencode.db", undefined).dataHome).toBe("/")
+    expect(profileOfFiles("left", "opencode.db", undefined).dataHome).toBe(".")
   })
 })
 
@@ -105,10 +120,10 @@ describe("BrowseCliAdapter", () => {
     const shown: unknown[] = []
     const adapter = new BrowseCliAdapter({
       profiles: {
-        open: (name, dataHome) => {
-          events.push(`open ${name} ${dataHome}`)
-          if (failRight && name === "right") throw new Error("right is broken")
-          return opened(name, [])
+        open: (profile) => {
+          events.push(`open ${profile.name} ${profile.opencodeDb} ${profile.contextDb}`)
+          if (failRight && profile.name === "right") throw new Error("right is broken")
+          return opened(profile.name, [])
         },
         close: (profile) => {
           events.push(`close ${profile.catalog.profile.name}`)
@@ -128,21 +143,40 @@ describe("BrowseCliAdapter", () => {
   it("shows this machine's profile, or two named profiles, and closes them after the browser quits", async () => {
     const one = cli()
     expect(await one.adapter.run([])).toBe(0)
-    expect(one.events).toEqual(["open left /home/me/.local/share", "shown", "close left"])
+    expect(one.events).toEqual([
+      "open left /home/me/.local/share/opencode/opencode.db /home/me/.local/share/cortexkit/magic-context/context.db",
+      "shown",
+      "close left",
+    ])
     expect(one.shown[0]).toEqual(createBrowser(opened("left", []), null, 1))
     const two = cli()
     expect(await two.adapter.run(["--right", "/r", "--left", "/l"])).toBe(0)
-    expect(two.events).toEqual(["open left /l", "open right /r", "shown", "close left", "close right"])
+    expect(two.events).toEqual([
+      "open left /l/opencode/opencode.db /l/cortexkit/magic-context/context.db",
+      "open right /r/opencode/opencode.db /r/cortexkit/magic-context/context.db",
+      "shown",
+      "close left",
+      "close right",
+    ])
+    const files = cli()
+    expect(await files.adapter.run(["--left-db", "/a/x.db", "--right-db", "/b/y.db", "--right-context", "/b/c.db"])).toBe(0)
+    expect(files.events.slice(0, 2)).toEqual(["open left /a/x.db ", "open right /b/y.db /b/c.db"])
   })
 
   it("closes what it opened when a profile fails, and prints the usage for unknown arguments", async () => {
     const broken = cli(true)
     await expect(broken.adapter.run(["--right", "/r"])).rejects.toThrow("right is broken")
-    expect(broken.events).toEqual(["open left /home/me/.local/share", "open right /r", "close left"])
-    for (const argv of [["--left"], ["--left", "--right"], ["--top", "/x"]]) {
+    expect(broken.events.map((event) => event.split(" ").slice(0, 2).join(" "))).toEqual(["open left", "open right", "close left"])
+    for (const argv of [
+      ["--left"],
+      ["--left", "--right"],
+      ["--top", "/x"],
+      ["--left", "/a", "--left-db", "/b.db"],
+      ["--right-context", "/c.db"],
+    ]) {
       const { adapter, output, events } = cli()
       expect(await adapter.run(argv)).toBe(2)
-      expect(output.lines).toEqual(["usage: opencode-session-manager tui [--left <dataHome>] [--right <dataHome>]"])
+      expect(output.lines).toEqual([TUI_USAGE])
       expect(events).toEqual([])
     }
   })

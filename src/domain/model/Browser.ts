@@ -1,144 +1,95 @@
-import type { CatalogedSession, ProfileCatalog } from "@session-manager/domain/model/SessionCatalog"
+import { enqueue, moveInQueue, resolve, unqueue } from "@session-manager/domain/model/BrowserQueue"
+import {
+  activeList,
+  idsOf,
+  indexOfId,
+  positionOf,
+  rowsOf,
+  selectedId,
+  selectedRow,
+  visibleIds,
+  withPosition,
+} from "@session-manager/domain/model/BrowserRows"
+import type { BrowserAction, BrowserState, ListId, ListPosition, OpenedProfile, Side } from "@session-manager/domain/model/BrowserState"
+
+export * from "@session-manager/domain/model/BrowserState"
+export { activeList, paneOf, rowsOf, selectedRow } from "@session-manager/domain/model/BrowserRows"
+export { queueSummary, queueWindowStart } from "@session-manager/domain/model/BrowserQueue"
 
 /**
- * The two-pane session browser as pure state: what each pane lists, where its cursor is, and what
- * the keys and the mouse do to it. The view only paints this state and turns input into actions.
+ * The two-pane session browser as pure state: what each list shows, where its cursor is, what is
+ * marked and queued, and what the keys and the mouse do to it. The view only paints this state
+ * and turns input into actions.
  */
-export type Side = "left" | "right"
-
-/** How a session relates to the session with the same id in the other pane. */
-export type Match = "only-here" | "same" | "newer-here" | "older-here"
-
-export interface GroupRow {
-  readonly kind: "group"
-  readonly directory: string
-  readonly sessions: number
-  readonly collapsed: boolean
-}
-
-export interface SessionRow {
-  readonly kind: "session"
-  readonly session: CatalogedSession
-  /** Null when only one pane is open. */
-  readonly match: Match | null
-}
-
-export type BrowserRow = GroupRow | SessionRow
-
-export interface PaneState {
-  readonly catalog: ProfileCatalog
-  /** Where the catalog was read from when the profile could not be read in place. */
-  readonly snapshot: string | null
-  readonly collapsed: readonly string[]
-  readonly cursor: number
-  readonly offset: number
-}
-
-export interface BrowserState {
-  readonly left: PaneState
-  readonly right: PaneState | null
-  readonly focus: Side
-  readonly filter: string
-  readonly editingFilter: boolean
-  /** How many rows a pane's list shows at once. */
-  readonly listHeight: number
-}
-
-export type BrowserAction =
-  | { readonly type: "move"; readonly delta: number }
-  | { readonly type: "page"; readonly direction: 1 | -1 }
-  | { readonly type: "home" }
-  | { readonly type: "end" }
-  | { readonly type: "toggle" }
-  | { readonly type: "focus"; readonly side?: Side }
-  | { readonly type: "select"; readonly side: Side; readonly index: number }
-  | { readonly type: "scroll"; readonly side: Side; readonly delta: number }
-  | { readonly type: "filter-start" }
-  | { readonly type: "filter-input"; readonly text: string }
-  | { readonly type: "filter-backspace" }
-  | { readonly type: "filter-commit" }
-  | { readonly type: "filter-clear" }
-  | { readonly type: "resize"; readonly listHeight: number }
-
-export interface OpenedProfile {
-  readonly catalog: ProfileCatalog
-  readonly snapshot: string | null
-}
+const START: ListPosition = { collapsed: [], cursor: 0, offset: 0 }
 
 export function createBrowser(left: OpenedProfile, right: OpenedProfile | null, listHeight: number): BrowserState {
-  const pane = (opened: OpenedProfile): PaneState => ({ ...opened, collapsed: [], cursor: 0, offset: 0 })
   return {
-    left: pane(left),
-    right: right === null ? null : pane(right),
+    left: { ...left, ...START },
+    right: right === null ? null : { ...right, ...START },
+    paired: START,
+    layout: "panes",
     focus: "left",
     filter: "",
     editingFilter: false,
     listHeight: Math.max(1, listHeight),
+    marked: [],
+    queue: [],
+    view: "list",
+    queueCursor: 0,
+    notice: null,
   }
 }
 
-export function paneOf(state: BrowserState, side: Side): PaneState | null {
-  return side === "left" ? state.left : state.right
-}
-
-/** A pane's rows: sessions grouped by folder, folders ordered by their newest session, the filter applied. */
-export function rowsOf(state: BrowserState, side: Side): BrowserRow[] {
-  const pane = paneOf(state, side)
-  if (pane === null) return []
-  const other = paneOf(state, side === "left" ? "right" : "left")
-  const otherTimes = other === null ? null : new Map(other.catalog.sessions.map((session) => [session.id, session.timeUpdated]))
-  const needle = state.filter.toLowerCase()
-  const groups = new Map<string, CatalogedSession[]>()
-  for (const session of pane.catalog.sessions) {
-    if (needle !== "" && ![session.id, session.title ?? "", session.directory].some((field) => field.toLowerCase().includes(needle))) continue
-    const group = groups.get(session.directory)
-    if (group === undefined) groups.set(session.directory, [session])
-    else group.push(session)
-  }
-  const rows: BrowserRow[] = []
-  for (const [directory, sessions] of groups) {
-    const collapsed = pane.collapsed.includes(directory)
-    rows.push({ kind: "group", directory, sessions: sessions.length, collapsed })
-    if (collapsed) continue
-    for (const session of sessions) rows.push({ kind: "session", session, match: matchOf(session, otherTimes) })
-  }
-  return rows
-}
-
-function matchOf(session: CatalogedSession, otherTimes: ReadonlyMap<string, number> | null): Match | null {
-  if (otherTimes === null) return null
-  const other = otherTimes.get(session.id)
-  if (other === undefined) return "only-here"
-  if (other === session.timeUpdated) return "same"
-  return session.timeUpdated > other ? "newer-here" : "older-here"
-}
-
-export function selectedRow(state: BrowserState, side: Side): BrowserRow | undefined {
-  const pane = paneOf(state, side)
-  return pane === null ? undefined : rowsOf(state, side)[pane.cursor]
-}
-
+/** Applies one action; the notice of the previous action is cleared first. */
 export function reduce(state: BrowserState, action: BrowserAction): BrowserState {
+  return step({ ...state, notice: null }, action)
+}
+
+function step(state: BrowserState, action: BrowserAction): BrowserState {
+  const list = activeList(state)
   switch (action.type) {
     case "move":
-      return withPane(state, state.focus, (pane) => ({ ...pane, cursor: pane.cursor + action.delta }))
+      return linked(moveTo(state, list, (position) => position.cursor + action.delta), list)
     case "page":
-      return withPane(state, state.focus, (pane) => ({ ...pane, cursor: pane.cursor + action.direction * state.listHeight }))
+      return linked(moveTo(state, list, (position) => position.cursor + action.direction * state.listHeight), list)
     case "home":
-      return withPane(state, state.focus, (pane) => ({ ...pane, cursor: 0 }))
+      return linked(moveTo(state, list, () => 0), list)
     case "end":
-      return withPane(state, state.focus, (pane) => ({ ...pane, cursor: Number.MAX_SAFE_INTEGER }))
+      return linked(moveTo(state, list, () => Number.MAX_SAFE_INTEGER), list)
     case "toggle":
-      return toggle(state)
+      return linked(fold(state, list), list)
     case "focus": {
       const side = action.side ?? (state.focus === "left" ? "right" : "left")
-      return paneOf(state, side) === null ? state : { ...state, focus: side }
+      return side === "right" && state.right === null ? state : { ...state, focus: side }
     }
-    case "select":
-      if (paneOf(state, action.side) === null) return state
-      return withPane({ ...state, focus: action.side }, action.side, (pane) => ({ ...pane, cursor: pane.offset + action.index }))
+    case "select": {
+      if (positionOf(state, action.list) === null) return state
+      const focused = action.list === "paired" ? state : { ...state, focus: action.list }
+      return linked(moveTo(focused, action.list, (position) => position.offset + action.index), action.list)
+    }
     case "scroll":
-      return withPane(state, action.side, (pane) => ({ ...pane, offset: pane.offset + action.delta }), true)
+      return positionOf(state, action.list) === null
+        ? state
+        : linked(update(state, action.list, (position) => ({ ...position, offset: position.offset + action.delta }), true), action.list)
+    case "layout":
+      return switchLayout(state)
+    case "mark":
+      return toggleMarks(state, idsOf(state, list, selectedRow(state, list)))
+    case "mark-all":
+      return toggleMarks(state, visibleIds(state, list))
+    case "enqueue":
+      return enqueue(state, action.direction)
+    case "view":
+      return { ...state, view: action.view ?? (state.view === "list" ? "queue" : "list") }
+    case "queue-move":
+      return moveInQueue(state, action.delta)
+    case "resolve":
+      return resolve(state, action.resolution, action.all === true)
+    case "unqueue":
+      return unqueue(state)
+    case "queue-clear":
+      return { ...state, queue: [], queueCursor: 0 }
     case "filter-start":
       return { ...state, editingFilter: true }
     case "filter-input":
@@ -155,56 +106,83 @@ export function reduce(state: BrowserState, action: BrowserAction): BrowserState
 }
 
 /** Collapses or expands the folder under the cursor; on a session, collapses its folder and selects it. */
-function toggle(state: BrowserState): BrowserState {
-  const row = selectedRow(state, state.focus)
+function fold(state: BrowserState, list: ListId): BrowserState {
+  const row = selectedRow(state, list)
   if (row === undefined) return state
-  const directory = row.kind === "group" ? row.directory : row.session.directory
-  return withPane(state, state.focus, (pane) => {
-    const collapsed = pane.collapsed.includes(directory)
-      ? pane.collapsed.filter((entry) => entry !== directory)
-      : [...pane.collapsed, directory]
-    const next = { ...pane, collapsed }
-    const groupIndex = rowsOf(replacePane(state, state.focus, next), state.focus).findIndex(
-      (entry) => entry.kind === "group" && entry.directory === directory,
-    )
-    return { ...next, cursor: groupIndex }
-  })
+  const directory = row.kind === "group" ? row.directory : row.kind === "pair" ? (row.left ?? row.right)!.directory : row.session.directory
+  const position = positionOf(state, list)!
+  const collapsed = position.collapsed.includes(directory)
+    ? position.collapsed.filter((entry) => entry !== directory)
+    : [...position.collapsed, directory]
+  const folded = withPosition(state, list, { ...position, collapsed })
+  const cursor = rowsOf(folded, list).findIndex((entry) => entry.kind === "group" && entry.directory === directory)
+  return update(folded, list, (current) => ({ ...current, cursor }))
+}
+
+/** Panes ↔ paired list, keeping the session under the cursor selected. */
+function switchLayout(state: BrowserState): BrowserState {
+  if (state.right === null) return { ...state, notice: "Open a second profile with --right to pair sessions." }
+  const from = activeList(state)
+  const id = selectedId(state, from)
+  const switched: BrowserState = { ...state, layout: state.layout === "panes" ? "paired" : "panes" }
+  const to = activeList(switched)
+  const index = id === null ? -1 : indexOfId(switched, to, id)
+  return index === -1 ? switched : linked(update(switched, to, (position) => ({ ...position, cursor: index })), to)
+}
+
+/** Marks every id, or unmarks them all when every one is already marked. */
+function toggleMarks(state: BrowserState, ids: readonly string[]): BrowserState {
+  if (ids.length === 0) return state
+  const marked = new Set(state.marked)
+  const every = ids.every((id) => marked.has(id))
+  for (const id of ids) if (every) marked.delete(id)
+  else marked.add(id)
+  return { ...state, marked: [...marked] }
+}
+
+/** With two panes side by side, the other pane follows to the same session when it lists it. */
+function linked(state: BrowserState, from: ListId): BrowserState {
+  if (from === "paired" || state.right === null) return state
+  const id = selectedId(state, from)
+  const other: Side = from === "left" ? "right" : "left"
+  const index = id === null ? -1 : indexOfId(state, other, id)
+  return index === -1 ? state : update(state, other, (position) => ({ ...position, cursor: index }))
 }
 
 function refilter(state: BrowserState, filter: string): BrowserState {
-  const reset = (pane: PaneState | null) => (pane === null ? null : { ...pane, cursor: 0, offset: 0 })
-  return clampAll({ ...state, filter, left: reset(state.left)!, right: reset(state.right) })
+  const top = { cursor: 0, offset: 0 }
+  const reset: BrowserState = {
+    ...state,
+    filter,
+    left: { ...state.left, ...top },
+    right: state.right === null ? null : { ...state.right, ...top },
+    paired: { ...state.paired, ...top },
+  }
+  return clampAll(reset)
 }
 
 function clampAll(state: BrowserState): BrowserState {
-  const left = clamp(state, "left", state.left, false)
-  const withLeft = { ...state, left }
-  return state.right === null ? withLeft : { ...withLeft, right: clamp(withLeft, "right", state.right, false) }
+  const lists: ListId[] = state.right === null ? ["left"] : ["left", "right", "paired"]
+  return lists.reduce((current, list) => update(current, list, (position) => position), state)
 }
 
-function withPane(state: BrowserState, side: Side, change: (pane: PaneState) => PaneState, scrolling = false): BrowserState {
-  const pane = paneOf(state, side)
-  if (pane === null) return state
-  const changed = change(pane)
-  return replacePane(state, side, clamp(replacePane(state, side, changed), side, changed, scrolling))
-}
-
-function replacePane(state: BrowserState, side: Side, pane: PaneState): BrowserState {
-  return side === "left" ? { ...state, left: pane } : { ...state, right: pane }
+function moveTo(state: BrowserState, list: ListId, cursor: (position: ListPosition) => number): BrowserState {
+  return update(state, list, (position) => ({ ...position, cursor: cursor(position) }))
 }
 
 /**
- * Keeps the cursor on a row and the list window over the rows. Moving the cursor scrolls the window
- * to it; scrolling the window (the mouse wheel) drags the cursor into it.
+ * Changes a list's position, then keeps the cursor on a row and the window over the rows. Moving
+ * the cursor scrolls the window to it; scrolling the window (the mouse wheel) drags the cursor into it.
  */
-function clamp(state: BrowserState, side: Side, pane: PaneState, scrolling: boolean): PaneState {
-  const count = rowsOf(replacePane(state, side, pane), side).length
+function update(state: BrowserState, list: ListId, change: (position: ListPosition) => ListPosition, scrolling = false): BrowserState {
+  const changed = change(positionOf(state, list)!)
+  const count = rowsOf(withPosition(state, list, changed), list).length
   const height = state.listHeight
   const last = Math.max(0, count - 1)
-  let offset = Math.min(Math.max(0, pane.offset), Math.max(0, count - height))
-  let cursor = Math.min(Math.max(0, pane.cursor), last)
+  let offset = Math.min(Math.max(0, changed.offset), Math.max(0, count - height))
+  let cursor = Math.min(Math.max(0, changed.cursor), last)
   if (scrolling) cursor = Math.min(Math.max(cursor, offset), offset + height - 1, last)
   else if (cursor < offset) offset = cursor
   else if (cursor >= offset + height) offset = cursor - height + 1
-  return { ...pane, cursor, offset }
+  return withPosition(state, list, { ...changed, cursor, offset })
 }

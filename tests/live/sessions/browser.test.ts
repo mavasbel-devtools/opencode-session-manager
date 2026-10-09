@@ -28,6 +28,9 @@ beforeAll(() => {
       { keys: "j", waitFor: "· v" },
       { keys: "/ses_", waitFor: "filter: ses_" },
       { keys: "\u001b", waitFor: "↑↓ move" },
+      { keys: " ", waitFor: "● " },
+      { keys: "Q", waitFor: "Queue ·" },
+      { keys: "\u001b", waitFor: "Space mark" },
       { keys: "q", settleMs: 500 },
     ]),
   )
@@ -46,6 +49,7 @@ function expectBrowsed(run: ReturnType<typeof drive>) {
   expect(run.exitCode).toBe(0)
   expect(run.screens[0]!.join("\n")).toMatch(/left · \d+ sessions/)
   expect(run.screens[1]!.join("\n")).toMatch(/ses_\w+ · v[12] · project /)
+  expect(run.screens[5]!.join("\n")).toContain("Queue · 0 Magic Context copies")
 }
 
 describe("the session browser in a real terminal", () => {

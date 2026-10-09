@@ -2,14 +2,26 @@ import { createCliRenderer, type CliRenderer, type CliRendererConfig, type Mouse
 import { render, useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, Index, Show } from "solid-js"
 import {
+  queueWindowStart,
   reduce,
   rowsOf,
   selectedRow,
   type BrowserAction,
   type BrowserState,
-  type Side,
+  type ListId,
+  type ListPosition,
 } from "@session-manager/domain/model/Browser"
-import { detailLines, fit, footerText, paneTitle, rowText } from "@session-manager/infrastructure/adapters/inbound/manager-tui/format"
+import {
+  detailLines,
+  detailTitle,
+  fit,
+  footerText,
+  pairedTitle,
+  paneTitle,
+  queueText,
+  queueTitle,
+  rowText,
+} from "@session-manager/infrastructure/adapters/inbound/manager-tui/format"
 import { commandFor } from "@session-manager/infrastructure/adapters/inbound/manager-tui/keys"
 
 /** Rows the layout spends outside the lists: the detail panel (with its border) and the footer. */
@@ -25,6 +37,7 @@ const COLORS = {
   folder: "#e0af68",
   cursor: "#283457",
   cursorBlurred: "#1f2335",
+  marked: "#9ece6a",
 } as const
 
 export function listHeightFor(terminalHeight: number): number {
@@ -50,46 +63,55 @@ export function BrowserView(props: BrowserViewProps) {
     else dispatch(command)
   })
 
-  const paneWidth = () => Math.floor(dimensions().width / (state().right === null ? 1 : 2)) - PANE_BORDER
+  const panes = () => (state().right === null || state().layout === "paired" || state().view === "queue" ? 1 : 2)
+  const listWidth = () => Math.floor(dimensions().width / panes()) - PANE_BORDER
 
   return (
     <box flexDirection="column" width="100%" height="100%">
       <box flexDirection="row" flexGrow={1}>
-        <Pane side="left" state={state()} width={paneWidth()} dispatch={dispatch} />
-        <Show when={state().right !== null}>
-          <Pane side="right" state={state()} width={paneWidth()} dispatch={dispatch} />
+        <Show when={state().view === "list"} fallback={<Queue state={state()} width={listWidth()} />}>
+          <Show
+            when={state().layout === "panes"}
+            fallback={<List list="paired" title={pairedTitle(state())} state={state()} width={listWidth()} dispatch={dispatch} />}
+          >
+            <List list="left" title={paneTitle(state().left)} state={state()} width={listWidth()} dispatch={dispatch} />
+            <Show when={state().right !== null}>
+              <List list="right" title={paneTitle(state().right!)} state={state()} width={listWidth()} dispatch={dispatch} />
+            </Show>
+          </Show>
         </Show>
       </box>
-      <box border borderColor={COLORS.muted} title=" Details " height={DETAIL_HEIGHT} flexDirection="column" paddingLeft={1}>
-        <Index each={detailLines(selectedRow(state(), state().focus))}>
+      <box border borderColor={COLORS.muted} title={detailTitle(state())} height={DETAIL_HEIGHT} flexDirection="column" paddingLeft={1}>
+        <Index each={detailLines(state(), selectedRow(state()))}>
           {(line) => <text fg={COLORS.text}>{fit(line(), dimensions().width - 4)}</text>}
         </Index>
       </box>
-      <text fg={COLORS.muted}>{fit(footerText(state()), dimensions().width)}</text>
+      <text fg={state().notice === null ? COLORS.muted : COLORS.accent}>{fit(footerText(state()), dimensions().width)}</text>
     </box>
   )
 }
 
-interface PaneProps {
-  readonly side: Side
+interface ListProps {
+  readonly list: ListId
+  readonly title: string
   readonly state: BrowserState
   readonly width: number
   readonly dispatch: (action: BrowserAction) => void
 }
 
-function Pane(props: PaneProps) {
-  const pane = () => (props.side === "left" ? props.state.left : props.state.right!)
-  const focused = () => props.state.focus === props.side
-  const rows = createMemo(() => rowsOf(props.state, props.side))
-  const visible = () => rows().slice(pane().offset, pane().offset + props.state.listHeight)
+function List(props: ListProps) {
+  const position = (): ListPosition => (props.list === "paired" ? props.state.paired : props.list === "left" ? props.state.left : props.state.right!)
+  const focused = () => props.list === "paired" || props.state.focus === props.list
+  const rows = createMemo(() => rowsOf(props.state, props.list))
+  const visible = () => rows().slice(position().offset, position().offset + props.state.listHeight)
   const onScroll = (event: MouseEvent) =>
-    props.dispatch({ type: "scroll", side: props.side, delta: event.scroll?.direction === "up" ? -SCROLL_STEP : SCROLL_STEP })
+    props.dispatch({ type: "scroll", list: props.list, delta: event.scroll?.direction === "up" ? -SCROLL_STEP : SCROLL_STEP })
 
   return (
     <box
       border
       borderColor={focused() ? COLORS.accent : COLORS.muted}
-      title={fit(paneTitle(pane()), props.width - 2).trimEnd()}
+      title={fit(props.title, props.width - 2).trimEnd()}
       flexGrow={1}
       flexBasis={0}
       flexDirection="column"
@@ -97,17 +119,33 @@ function Pane(props: PaneProps) {
     >
       <Index each={visible()}>
         {(row, index) => {
-          const selected = () => pane().offset + index === pane().cursor
+          const selected = () => position().offset + index === position().cursor
           return (
             <box
               height={1}
               backgroundColor={selected() ? (focused() ? COLORS.cursor : COLORS.cursorBlurred) : "transparent"}
-              onMouseDown={() => props.dispatch({ type: "select", side: props.side, index })}
+              onMouseDown={() => props.dispatch({ type: "select", list: props.list, index })}
             >
-              <text fg={row().kind === "group" ? COLORS.folder : COLORS.text}>{rowText(row(), props.width)}</text>
+              <text fg={row().kind === "group" ? COLORS.folder : row().marked === true ? COLORS.marked : COLORS.text}>{rowText(row(), props.width)}</text>
             </box>
           )
         }}
+      </Index>
+    </box>
+  )
+}
+
+function Queue(props: { readonly state: BrowserState; readonly width: number }) {
+  const start = () => queueWindowStart(props.state)
+  const visible = () => props.state.queue.slice(start(), start() + props.state.listHeight)
+  return (
+    <box border borderColor={COLORS.accent} title={fit(queueTitle(props.state), props.width - 2).trimEnd()} flexGrow={1} flexDirection="column">
+      <Index each={visible()}>
+        {(entry, index) => (
+          <box height={1} backgroundColor={start() + index === props.state.queueCursor ? COLORS.cursor : "transparent"}>
+            <text fg={entry().resolution === null ? COLORS.folder : COLORS.text}>{queueText(entry(), props.width)}</text>
+          </box>
+        )}
       </Index>
     </box>
   )

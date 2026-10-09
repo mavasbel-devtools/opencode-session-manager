@@ -115,20 +115,37 @@ opencode-session-manager migrate <rehearse|run> --from <db>... --windows-user <n
 closed:
 
 ```
-opencode-session-manager tui [--left <dataHome>] [--right <dataHome>]
+opencode-session-manager tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …]
 opencode-session-manager sessions [--data <dataHome>] [--json]
 opencode-session-manager context copy --from <context.db> --to <file>
 ```
 
-`tui` opens the **session browser**: one profile per pane (`--left` defaults to
-this machine's), sessions grouped by folder with the newest first, each with its
-message count and Magic Context summaries (`S`) and tags (`T`), and a detail
-panel for the selected row. With two panes, each session is marked against the
-session with the same id on the other side: `+` only here, `=` same, `>` newer
-here, `<` older here. Keys: `↑↓`/`jk` move, `PgUp`/`PgDn`, `g`/`G` top and
-bottom, `Enter` folds a folder, `/` filters by id, title or folder (`Esc`
-clears), `Tab` or `←→`/`hl` switch panes, `q` quits; the mouse selects rows and
-scrolls a pane. It only reads, for now; syncing and forking are being added.
+`tui` opens the **session browser**. Each side is a data home (`--left`,
+`--right`) or explicit store files (`--left-db <opencode.db>` with an optional
+`--left-context <context.db>`, likewise `--right-db`/`--right-context`); the left
+defaults to this machine's profile. Sessions are grouped by folder, newest first,
+each with its message count and Magic Context summaries (`S`) and tags (`T`),
+and a detail panel describes the selected row.
+
+With two sides, sessions are **matched by session id**:
+
+- side by side (`Tab` switches panes), each session is marked against its
+  partner: `+` only here, `=` same, `>` newer here, `<` older here; moving in one
+  pane selects the same session in the other;
+- `p` switches to the **paired list**: one row per session id with both copies
+  on the same line (`L` left only, `R` right only, `=` same, `>` left newer,
+  `<` right newer).
+
+`Space` marks the session under the cursor (on a folder: all of its sessions),
+`*` everything the filter shows. `>` and `<` queue copying the marked sessions'
+(or the selected row's) **Magic Context state** to the right or to the left: a
+copy needs the session on both sides and state to copy, and when the target has
+state of its own the entry is a conflict until you decide. `Q` opens the queue:
+`r`/`s` replace or skip a conflict (`R`/`S` all of them), `x` removes an entry,
+`c` clears it, `Esc` returns. Applying the queue is the next step; for now the
+browser only reads, so it is safe while OpenCode runs. Other keys: `↑↓`/`jk`,
+`PgUp`/`PgDn`, `g`/`G`, `Enter` folds a folder, `/` filters by id, title or
+folder (`Esc` clears), `q` quits; the mouse selects rows and scrolls a list.
 
 It lists one **profile** — an OpenCode installation's `opencode/opencode.db` and,
 when Magic Context is installed, its `cortexkit/magic-context/context.db`, both
