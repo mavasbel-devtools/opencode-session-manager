@@ -14,7 +14,16 @@ const print: Fingerprint = { schema: [], header: { userVersion: 0, applicationId
 test("buildContainer wires the real adapters when nothing is overridden", async () => {
   const cli = await buildContainer({ XDG_DATA_HOME: "C:/x" })
   assert.equal(typeof cli.run, "function")
-  assert.equal((await buildContainer({}, {})).run(["--help"]), 2)
+  assert.equal((await buildContainer({}, {})).run(["--bogus"]), 2)
+})
+
+test("--help and --version are wired to the help adapter", async () => {
+  const output = new FakeOutput()
+  const cli = await buildContainer({}, { output })
+  assert.equal(cli.run(["--version"]), 0)
+  assert.equal(cli.run(["--help"]), 0)
+  assert.match(output.lines[0] ?? "", /^opencode-session-manager \d+\.\d+\.\d+$/)
+  assert.match(output.lines[1] ?? "", /^opencode-session-manager: browse/)
 })
 
 test("overrides replace adapters and drive a full preflight end to end", async () => {

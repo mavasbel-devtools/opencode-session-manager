@@ -154,7 +154,7 @@ test("the composition root wires every supported operating system", async () => 
     runtime.platformName = platform
     const capture = captureConsole()
     try {
-      assert.equal((await buildContainer(environment(), { runtime })).run(["--help"]), 2, platform)
+      assert.equal((await buildContainer(environment(), { runtime })).run(["--bogus"]), 2, platform)
     } finally {
       capture.restore()
     }

@@ -89,13 +89,20 @@ lands; restart the TUI to see the sidebar line.
 
 ## Offline maintenance CLI
 
+`bun run install:cli` builds the single-file program and copies it into
+`~/.local/bin` (or `OPENCODE_SESSION_MANAGER_BIN_DIR`), replacing the old copy
+by rename, then checks the installed file is identical to the build and answers
+`--version`; it warns when that folder is not on `PATH`. Without installing,
+`bun run cli -- <command>` runs it from the checkout.
+
 `opencode-session-manager` works on the database itself, so it runs only while
 every OpenCode process is closed (`opencode service stop` too, if the service
 runs). It never kills a process: it refuses while OpenCode runs or while any
 process holds the database open, and names the holders on Linux.
 
 ```
-bun run build                                   # dist/cli/opencode-session-manager (.exe on Windows)
+bun run install:cli                             # build, then install as ~/.local/bin/opencode-session-manager
+opencode-session-manager --help                 # every command; --version prints the version
 opencode-session-manager preflight              # read-only: sizes, page statistics, free disk, running OpenCode
 opencode-session-manager rehearse [--keep]      # build a compacted copy and verify it
 opencode-session-manager run                    # guard, build, verify, swap, write evidence

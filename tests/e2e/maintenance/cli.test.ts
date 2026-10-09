@@ -150,3 +150,14 @@ test("bootstrap returns the exit code, and prints ERROR with exit 1 when a comma
   assert.ok(logged.lines.some((line) => line.startsWith("usage: opencode-session-manager")))
   assert.ok(errored.lines.some((line) => line.startsWith("ERROR: no original database")))
 })
+
+test("--version prints the package version, and --help, -h, help and version with extra words print the help", async () => {
+  const pkg = (await Bun.file(new URL("../../../package.json", import.meta.url)).json()) as { version: string }
+  for (const flag of ["--version", "version"]) assert.deepEqual(await runCli([flag]), { code: 0, lines: [`opencode-session-manager ${pkg.version}`] })
+  for (const flag of ["--help", "-h", "help"]) {
+    const { code, lines } = await runCli([flag])
+    assert.equal(code, 0)
+    assert.match(lines[0] ?? "", /^opencode-session-manager: browse, sync and maintain/)
+  }
+  assert.equal((await runCli(["--version", "extra"])).code, 2)
+})

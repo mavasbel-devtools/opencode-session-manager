@@ -20,6 +20,8 @@
     "install:plugin:v2": "bun run build && bun scripts/install-plugin.mjs v2",
     "validate:installed:v1": "bun scripts/install-plugin.mjs validate-v1",
     "validate:installed:v2": "bun scripts/install-plugin.mjs validate-v2",
+    "install:cli": "bun run build && bun scripts/install-cli.mjs install",
+    "validate:installed:cli": "bun scripts/install-cli.mjs validate",
     "cli": "bun src/main/cli/cli.ts"
   },
   "devDependencies": {

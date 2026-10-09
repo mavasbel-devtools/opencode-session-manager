@@ -241,6 +241,11 @@ files into `<plugins>` (temp + rename). `<plugins>` is `OPENCODE_V2_PLUGIN_DIR`
 a lane removes the other lane's files and the predecessors' (`session-id/`,
 `sessions-transfer/`, `sessions-transfer{,.tui}.js`), exact names only; a
 non-empty folder is never removed and no configuration is edited.
+`bun run install:cli` builds, then copies `dist/cli/opencode-session-manager`
+to `OPENCODE_SESSION_MANAGER_BIN_DIR` (default `~/.local/bin`) under a temporary
+name and renames it into place (a copy, never a link, so a rebuild cannot break
+the command in use); `validate:installed:cli` byte-compares it and runs
+`--version` (`scripts/install-cli.mjs`, live-tested in a throwaway folder).
 `validate:installed:v2` / `validate:installed:v1` byte-compare the installed
 files with `dist/`, check the module shapes, and fail if another form is present.
 

@@ -1,3 +1,5 @@
+import packageJson from "@package-json" with { type: "json" }
+import { HelpCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/HelpCliAdapter"
 import { OpenProfileUseCase } from "@session-manager/application/OpenProfileUseCase"
 import type { BrowserState } from "@session-manager/domain/model/Browser"
 import { BrowseCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/BrowseCliAdapter"
@@ -180,5 +182,9 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
 
   const browseCli = new BrowseCliAdapter({ profiles, output, runtime, environment, show: overrides.show ?? showBrowser(terminalRenderer) })
 
-  return new CliRouter(compactCli, { migrate: migrateCli, sessions: sessionsCli, context: contextCli, tui: browseCli })
+  const helpCli = new HelpCliAdapter(output, packageJson.version)
+  const help = { run: (argv: readonly string[]) => helpCli.run(argv, "help") }
+  const version = { run: (argv: readonly string[]) => helpCli.run(argv, "version") }
+
+  return new CliRouter(compactCli, { migrate: migrateCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
 }

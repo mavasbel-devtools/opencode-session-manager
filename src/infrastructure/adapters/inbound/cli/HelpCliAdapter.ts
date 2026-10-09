@@ -1,0 +1,35 @@
+import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
+
+export const HELP = [
+  "opencode-session-manager: browse, sync and maintain OpenCode sessions and their Magic Context state",
+  "",
+  "  tui [--left <dataHome>] [--right <dataHome>]   session browser, one profile per pane (read-only)",
+  "  sessions [--data <dataHome>] [--json]          list a profile's sessions with their Magic Context state",
+  "  context copy --from <context.db> --to <file>   copy a Magic Context store in the installed format",
+  "  preflight|rehearse|run [--db <path>] [--keep]  verified compaction of opencode.db (OpenCode closed)",
+  "  rollback <backupDir> [--db <path>]             restore the originals a run or migrate moved aside",
+  "  migrate <rehearse|run> --from <db> …           merge another machine's sessions (OpenCode closed)",
+  "  --version, --help",
+  "",
+  "A <dataHome> holds opencode/opencode.db and cortexkit/magic-context/context.db (default: $XDG_DATA_HOME or ~/.local/share).",
+] as const
+
+/** `--version` and `--help` (also `version` and `help`). */
+export class HelpCliAdapter {
+  private readonly output: OutputPort
+  private readonly version: string
+
+  constructor(output: OutputPort, version: string) {
+    this.output = output
+    this.version = version
+  }
+
+  run(argv: readonly string[], mode: "help" | "version"): number {
+    if (mode === "version" && argv.length === 0) {
+      this.output.line(`opencode-session-manager ${this.version}`)
+      return 0
+    }
+    for (const line of HELP) this.output.line(line)
+    return argv.length === 0 ? 0 : 2
+  }
+}

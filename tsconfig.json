@@ -6,7 +6,8 @@
     "baseUrl": ".",
     "paths": {
       "@session-manager/*": ["src/*"],
-      "@test/*": ["tests/*"]
+      "@test/*": ["tests/*"],
+      "@package-json": ["package.json"]
     },
     "strict": true,
     "noUncheckedIndexedAccess": true,
