@@ -32,7 +32,7 @@ export class ApplyQueueUseCase implements ApplyQueuePort {
       if (sessions.length === 0) continue
       const [from, to] = direction === "to-right" ? (["left", "right"] as const) : (["right", "left"] as const)
       try {
-        const report = this.sync.sync({ source: syncSideOf(sides[from]), target: syncSideOf(sides[to]), sessions, dryRun: input.dryRun })
+        const report = this.sync.sync({ source: syncSideOf(sides[from]), target: syncSideOf(sides[to]), sessions, scope: "all", dryRun: input.dryRun })
         result.push(...syncSummary(report))
         if (report.backup_dir !== null) {
           const fresh = this.profiles.open(sides[to].catalog.profile)

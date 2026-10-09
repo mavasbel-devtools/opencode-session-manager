@@ -18,7 +18,10 @@ function cli() {
           source_context_db: null,
           target_context_db: null,
           dry_run: input.dryRun,
+          context: input.context,
           sessions: [],
+          projects: [],
+          user_memories_copied: 0,
           checks: { integrity_ok: true, foreign_keys_ok: true, sessions_ok: true, context: null },
           backup_dir: null,
           rollback: null,
@@ -58,6 +61,7 @@ describe("SyncCliAdapter", () => {
         { from: "/x", to: "/y" },
       ],
       prefer: "further",
+      context: "all",
       dryRun: true,
     })
     expect(events).toEqual(["open from /a", "open to /b", "close from", "close to"])
@@ -66,8 +70,8 @@ describe("SyncCliAdapter", () => {
 
   it("syncs named sessions with the chosen preference", () => {
     const { adapter, syncs } = cli()
-    expect(adapter.run(["--session", "ses_a", "--session", "ses_b", "--prefer", "keep", "--from", "/a", "--to", "/b"])).toBe(0)
-    expect(syncs[0]).toMatchObject({ sessions: ["ses_a", "ses_b"], prefer: "keep", maps: [], dryRun: false })
+    expect(adapter.run(["--session", "ses_a", "--session", "ses_b", "--prefer", "keep", "--context", "sessions", "--from", "/a", "--to", "/b"])).toBe(0)
+    expect(syncs[0]).toMatchObject({ sessions: ["ses_a", "ses_b"], prefer: "keep", context: "sessions", maps: [], dryRun: false })
   })
 
   it("closes what it opened when a profile fails, and refuses a bad rule", () => {
@@ -85,6 +89,7 @@ describe("SyncCliAdapter", () => {
       ["--to", "/b", "--all"],
       ["--from", "/a", "--all"],
       ["--from", "/a", "--to", "/b", "--all", "--prefer", "both"],
+      ["--from", "/a", "--to", "/b", "--all", "--context", "none"],
       ["--from", "/a", "--to", "/b", "--all", "--bogus"],
     ]) {
       const { adapter, output } = cli()

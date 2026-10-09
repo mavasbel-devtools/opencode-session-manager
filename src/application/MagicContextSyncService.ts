@@ -4,6 +4,8 @@ import { joinPath } from "@session-manager/domain/model/DatabasePaths"
 import {
   harnessFor,
   relationOf,
+  type ContextScope,
+  type ProjectMergeResult,
   type SessionOutcome,
   type SkipReason,
   type SyncChecks,
@@ -13,7 +15,7 @@ import type { PathMapping } from "@session-manager/domain/model/PathMapping"
 import { hasContextState, type StoredSession } from "@session-manager/domain/model/SessionCatalog"
 import type { MagicContextIdentityPort } from "@session-manager/domain/ports/outbound/MagicContextIdentityPort"
 import type { MagicContextStorePort } from "@session-manager/domain/ports/outbound/MagicContextStorePort"
-import type { MagicContextSyncStorePort, PlannedCopy } from "@session-manager/domain/ports/outbound/MagicContextSyncStorePort"
+import type { MagicContextSyncStorePort, PlannedCopy, ProjectMerge } from "@session-manager/domain/ports/outbound/MagicContextSyncStorePort"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 import type { SessionStorePort } from "@session-manager/domain/ports/outbound/SessionStorePort"
 import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
@@ -41,6 +43,7 @@ export interface ContextBuildInput {
   readonly sourceOpencodeDb: string
   readonly targetOpencodeDb: string
   readonly sessions: readonly SyncRequest[]
+  readonly scope: ContextScope
   /** An empty folder for the working copies; the caller removes it. */
   readonly workDir: string
   /** The mapping for one session's text, when the caller knows it (default: the one its folders imply). */
@@ -52,9 +55,13 @@ export interface ContextBuild {
   readonly workTarget: string
   readonly format: number
   readonly sessions: readonly SessionOutcome[]
+  readonly projects: readonly ProjectMergeResult[]
+  readonly user_memories_copied: number
   readonly checks: SyncChecks
   /** How many sessions the working copy received. */
   readonly copied: number
+  /** Whether the working copy differs from the target at all (sessions, or project state merged). */
+  readonly changed: boolean
 }
 
 /**
@@ -88,8 +95,15 @@ export class MagicContextSyncService {
     } else sqlite.vacuumInto(input.readableSourceContextDb, workSource)
     sqlite.vacuumInto(input.readableTargetContextDb, workTarget)
 
-    const { planned, outcomes, targetIds } = this.plan(input, workSource, workTarget)
-    const results = new Map(syncStore.copySessions(workSource, workTarget, planned).map((result) => [result.id, result]))
+    const { planned, outcomes, targetIds, merges } = this.plan(input, workSource, workTarget)
+    const projects = input.scope === "all" ? [...merges.values()] : []
+    const outcome = syncStore.copySessions(workSource, workTarget, planned, {
+      originatedMemories: input.scope === "sessions",
+      projects,
+      userMemories: projects.length > 0,
+      now: this.deps.runtime.now(),
+    })
+    const results = new Map(outcome.sessions.map((result) => [result.id, result]))
     const checks = this.verify(workTarget, planned, results, targetIds)
     const sessions = outcomes.map((outcome): SessionOutcome => {
       const result = results.get(outcome.id)
@@ -97,7 +111,17 @@ export class MagicContextSyncService {
       const { id: _id, residual_windows_paths, ...counts } = result
       return { ...outcome, status: "copied", counts, residual_windows_paths }
     })
-    return { workTarget, format: targetFormat, sessions, checks, copied: planned.length }
+    const merged = outcome.projects.some((project) => project.memories_copied + project.verifications + project.notes + project.primers + project.dream_runs + project.retrospective_windows > 0)
+    return {
+      workTarget,
+      format: targetFormat,
+      sessions,
+      projects: outcome.projects,
+      user_memories_copied: outcome.user_memories_copied,
+      checks,
+      copied: planned.length,
+      changed: planned.length > 0 || merged || outcome.user_memories_copied > 0,
+    }
   }
 
   private plan(input: ContextBuildInput, workSource: string, workTarget: string) {
@@ -110,6 +134,8 @@ export class MagicContextSyncService {
     const planned: PlannedCopy[] = []
     const outcomes: SessionOutcome[] = []
     const targetIds = new Map<string, ReadonlySet<string>>()
+    /** Every source project → target project the requested sessions link, for scope `all`. */
+    const merges = new Map<string, ProjectMerge>()
     const skip = (id: string, reason: SkipReason, relation: SessionOutcome["relation"] = null) =>
       outcomes.push({ id, status: "skipped", reason, relation, counts: null, residual_windows_paths: 0 })
 
@@ -120,7 +146,6 @@ export class MagicContextSyncService {
       const targetHas = hasContextState(targetState[request.id])
       if (from === undefined) skip(request.id, "not-on-source")
       else if (to === undefined) skip(request.id, "not-on-target")
-      else if (request.resolution === "skip" && targetHas) skip(request.id, "resolution-skip")
       else {
         const state = syncStore.sourceState(workSource, request.id)
         const fromIds = sessions.messageIds(input.sourceOpencodeDb, request.id, from.generation)
@@ -128,25 +153,30 @@ export class MagicContextSyncService {
         const relation = relationOf(fromIds, toIds)
         const toSet = new Set(toIds)
         const project = syncStore.recordedProject(workTarget, request.id) ?? identity.identityOf(to.directory) ?? gitOnly(state.project)
-        if (state.harness === null) skip(request.id, "no-state", relation)
+        const mapping = input.mappingFor === undefined ? inferWindowsMapping(from.directory, to.directory, runtime.homeDirectory()) : input.mappingFor(from, to)
+        const rewriter = mapping === null ? null : this.deps.rewriterFor(mapping)
+        if (state.project !== null && project !== null && !merges.has(`${state.project}\u0000${project}`))
+          merges.set(`${state.project}\u0000${project}`, { from: state.project, to: project, rewriter })
+        if (request.resolution === "skip" && targetHas) skip(request.id, "resolution-skip", relation)
+        else if (state.harness === null) skip(request.id, "no-state", relation)
         else if (relation === "source-ahead" || relation === "diverged") skip(request.id, relation, relation)
         else if (!state.anchors.every((anchor) => toSet.has(anchor))) skip(request.id, "stale-anchors", relation)
         else if (project === null) skip(request.id, "no-project", relation)
         else if (request.resolution === "further" && targetHas && syncStore.sourceState(workTarget, request.id).reach >= state.reach)
           skip(request.id, "target-further", relation)
         else if (syncStore.busy(input.readableTargetContextDb, request.id, now)) skip(request.id, "busy", relation)
+        else if (syncStore.authorityManaged(workTarget, project)) skip(request.id, "authority-managed", relation)
         else {
-          const mapping = input.mappingFor === undefined ? inferWindowsMapping(from.directory, to.directory, runtime.homeDirectory()) : input.mappingFor(from, to)
           planned.push({
             copy: { id: request.id, sourceHarness: state.harness, targetHarness: harnessFor(to.generation), targetProject: project, sourceProject: state.project },
-            rewriter: mapping === null ? null : this.deps.rewriterFor(mapping),
+            rewriter,
           })
           targetIds.set(request.id, toSet)
           outcomes.push({ id: request.id, status: "skipped", reason: null, relation, counts: null, residual_windows_paths: 0 })
         }
       }
     }
-    return { planned, outcomes, targetIds }
+    return { planned, outcomes, targetIds, merges }
   }
 
   private verify(

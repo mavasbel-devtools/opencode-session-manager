@@ -1,5 +1,3 @@
--- OpenCode 2.0.24 store schema (opencode.db), read from a live store with `select sql from sqlite_master`. Test fixture only.
-
 CREATE TABLE `account` (
           `id` text PRIMARY KEY,
           `email` text NOT NULL,
@@ -298,12 +296,6 @@ CREATE INDEX `part_session_idx` ON `part` (`session_id`);
 
 CREATE UNIQUE INDEX `permission_project_action_resource_idx` ON `permission` (`project_id`,`action`,`resource`);
 
-CREATE INDEX `session_parent_idx` ON `session` (`parent_id`);
-
-CREATE INDEX `session_project_idx` ON `session` (`project_id`);
-
-CREATE INDEX `session_workspace_idx` ON `session` (`workspace_id`);
-
 CREATE INDEX `session_inbox_session_delivery_seq_idx` ON `session_inbox` (`session_id`,`delivery`,`enqueued_seq`);
 
 CREATE UNIQUE INDEX `session_inbox_session_enqueued_seq_idx` ON `session_inbox` (`session_id`,`enqueued_seq`);
@@ -316,11 +308,15 @@ CREATE INDEX `session_message_session_type_seq_idx` ON `session_message` (`sessi
 
 CREATE INDEX `session_message_time_created_idx` ON `session_message` (`time_created`);
 
+CREATE INDEX `session_parent_idx` ON `session` (`parent_id`);
+
 CREATE UNIQUE INDEX `session_pending_session_admitted_seq_idx` ON `session_pending` (`session_id`,`admitted_seq`);
 
 CREATE UNIQUE INDEX `session_pending_session_compaction_idx` ON `session_pending` (`session_id`) WHERE "session_pending"."type" = 'compaction';
 
 CREATE INDEX `session_pending_session_delivery_seq_idx` ON `session_pending` (`session_id`,`delivery`,`admitted_seq`);
+
+CREATE INDEX `session_project_idx` ON `session` (`project_id`);
 
 CREATE INDEX `session_v2_parent_idx` ON `session_v2` (`parent_id`);
 
@@ -329,5 +325,7 @@ CREATE INDEX `session_v2_project_idx` ON `session_v2` (`project_id`);
 CREATE INDEX `session_v2_time_suspended_idx` ON `session_v2` (`time_suspended`) WHERE "session_v2"."time_suspended" is not null;
 
 CREATE INDEX `session_v2_workspace_idx` ON `session_v2` (`workspace_id`);
+
+CREATE INDEX `session_workspace_idx` ON `session` (`workspace_id`);
 
 CREATE INDEX `todo_session_idx` ON `todo` (`session_id`);

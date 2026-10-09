@@ -18,6 +18,29 @@ const ALLOW: Record<string, readonly string[]> = {
   main: ["@session-manager/"],
 }
 
+const ENGINE = "infrastructure/adapters/outbound/sqlite/engine/Store.ts"
+
+describe("storage through the ORM", () => {
+  it("lets only the store engine open SQLite or write SQL text", () => {
+    for (const file of files) {
+      const code = fs.readFileSync(file, "utf8")
+      const raw = [
+        ...(importsOf(file).includes("bun:sqlite") ? ["imports bun:sqlite"] : []),
+        ...(/\bimport\s*\{[^}]*\bsql\b[^}]*\}\s*from\s*["']drizzle-orm["']/.test(code) ? ["imports drizzle's sql template"] : []),
+        ...(/\.(?:query|prepare|exec)\(\s*[`"']/.test(code) ? ["runs SQL text"] : []),
+      ]
+      const allowed = relative(file) === ENGINE || raw.length === 0
+      expect({ file: relative(file), raw, allowed }).toEqual({ file: relative(file), raw, allowed: true })
+    }
+  })
+
+  it("has the engine do all three, so the rule above is about something", () => {
+    const engine = files.find((file) => relative(file) === ENGINE)!
+    const code = fs.readFileSync(engine, "utf8")
+    expect([importsOf(engine).includes("bun:sqlite"), /\bsql\b/.test(code), /\.query\(/.test(code)]).toEqual([true, true, true])
+  })
+})
+
 describe("hexagonal architecture", () => {
   it("covers all four layers", () => {
     expect([...new Set(files.map(layer))].sort()).toEqual(["application", "domain", "infrastructure", "main"])

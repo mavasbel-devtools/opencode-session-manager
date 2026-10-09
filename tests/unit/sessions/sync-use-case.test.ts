@@ -11,7 +11,7 @@ import { SyncVerificationError } from "@session-manager/domain/errors/SyncVerifi
 import type { SyncInput, SyncRequest } from "@session-manager/domain/model/MagicContextSync"
 import type { PathMapping } from "@session-manager/domain/model/PathMapping"
 import type { MagicContextSessionStats, StoredSession } from "@session-manager/domain/model/SessionCatalog"
-import type { CopyResult, SourceSessionState, StoredSessionState, StoreHealth } from "@session-manager/domain/ports/outbound/MagicContextSyncStorePort"
+import type { CopyOptions, CopyResult, SourceSessionState, StoredSessionState, StoreHealth } from "@session-manager/domain/ports/outbound/MagicContextSyncStorePort"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
 import { FakeHolders } from "@test/support/maintenance/fakes/holders"
 import { FakeProcessList } from "@test/support/maintenance/fakes/processes"
@@ -56,6 +56,8 @@ interface World {
   readonly targetReach?: Record<string, number>
   /** Sessions Magic Context is working on in the target store. */
   readonly busy?: readonly string[]
+  /** Projects Magic Context's own module manages in the target store. */
+  readonly managed?: readonly string[]
 }
 
 function setup(world: World = {}) {
@@ -77,7 +79,8 @@ function setup(world: World = {}) {
   const mappings: PathMapping[] = []
   const copied: CopyResult[] = []
   const results = (ids: string[]): CopyResult[] =>
-    ids.map((id) => ({ id, compartments: 1, tags: 2, notes: 0, memories_copied: 1, memories_already_there: 0, residual_windows_paths: id === "ses_win" ? 1 : 0 }))
+    ids.map((id) => ({ id, compartments: 1, tags: 2, notes: 0, memories_copied: 1, memories_already_there: 0, history_rows: 3, residual_windows_paths: id === "ses_win" ? 1 : 0 }))
+  const optionsSeen: CopyOptions[] = []
   const builder = new MagicContextSyncService({
     sqlite,
     sessions: {
@@ -94,11 +97,17 @@ function setup(world: World = {}) {
           ? { harness: "opencode2", anchors: [], project: null, reach: world.targetReach?.[id] ?? 0 }
           : (world.states?.[id] ?? { harness: "opencode2", anchors: ["m1"], project: "dir:src", reach: 5 }),
       recordedProject: (_path, id) => world.recorded?.[id] ?? null,
-      copySessions: (_source, _target, planned) => {
+      copySessions: (_source, _target, planned, options) => {
+        optionsSeen.push(options)
         const out = results(planned.map((entry) => entry.copy.id))
         copied.push(...out)
-        return out
+        return {
+          sessions: out,
+          projects: options.projects.map((merge) => ({ from: merge.from, to: merge.to, memories_copied: 1, memories_already_there: 0, verifications: 0, notes: 0, primers: 0, dream_runs: 0, retrospective_windows: 0, skipped: null })),
+          user_memories_copied: options.userMemories ? 1 : 0,
+        }
       },
+      authorityManaged: (_path, project) => world.managed?.includes(project) ?? false,
       stateOf: (_path, id) => world.after?.[id] ?? { compartments: 1, tags: 2, notes: 0, anchors: ["m1"] },
       health: () => world.health ?? { integrity_ok: true, foreign_keys_ok: true },
       busy: (_path, id) => world.busy?.includes(id) ?? false,
@@ -117,13 +126,14 @@ function setup(world: World = {}) {
     },
   })
   const useCase = new SyncMagicContextUseCase({ builder, guard: new GuardService(files, new FakeProcessList(), holders), swap: new SwapService(files), fileSystem: files, runtime })
-  return { useCase, files, sqlite, holders, copies, mappings, copied }
+  return { useCase, files, sqlite, holders, copies, mappings, copied, optionsSeen }
 }
 
 const input = (sessions: SyncRequest[], extra: Partial<SyncInput> = {}): SyncInput => ({
   source: { opencodeDb: "/s/opencode.db", contextDb: "/s/context.db", readableOpencodeDb: null, readableContextDb: null },
   target: { opencodeDb: "/t/opencode.db", contextDb: "/t/context.db", readableOpencodeDb: null, readableContextDb: null },
   sessions,
+  scope: "sessions",
   dryRun: false,
   ...extra,
 })
@@ -138,16 +148,19 @@ describe("SyncMagicContextUseCase", () => {
       target_context_db: "/t/context.db",
       format: 94,
       dry_run: false,
+      scope: "sessions",
       sessions: [
         {
           id: "ses_a",
           status: "copied",
           reason: null,
           relation: "same",
-          counts: { compartments: 1, tags: 2, notes: 0, memories_copied: 1, memories_already_there: 0 },
+          counts: { compartments: 1, tags: 2, notes: 0, memories_copied: 1, memories_already_there: 0, history_rows: 3 },
           residual_windows_paths: 0,
         },
       ],
+      projects: [],
+      user_memories_copied: 0,
       checks: { integrity_ok: true, foreign_keys_ok: true, anchors_ok: true, counts_ok: true },
       backup_dir: "/t/context-sync-backup-2026-09-27-00-00-00",
     })
@@ -180,7 +193,7 @@ describe("SyncMagicContextUseCase", () => {
       ]),
     )
     expect(report.sessions.map((session) => [session.id, session.reason, session.relation])).toEqual([
-      ["ses_choice", "resolution-skip", null],
+      ["ses_choice", "resolution-skip", "same"],
       ["ses_nosource", "not-on-source", null],
       ["ses_notarget", "not-on-target", null],
       ["ses_nostate", "no-state", "same"],
@@ -241,6 +254,32 @@ describe("SyncMagicContextUseCase", () => {
     expect(copies).toEqual([{ source: "/snap/context.db", target: `${WORK}/context-source.db` }])
     expect(sqlite.calls).toEqual([`vacuumInto:/t/context.db->${WORK}/context-target.db`])
     expect(report).toMatchObject({ sessions: [], backup_dir: null, source_context_db: "/s/context.db" })
+  })
+
+  it("with scope all, merges each source project into its target project once, and the user memories; a managed project's sessions are left alone", () => {
+    const { useCase, optionsSeen } = setup({
+      source: { ses_a: "/w", ses_b: "/w", ses_c: "/v", ses_m: "/m" },
+      target: { ses_a: "/w", ses_b: "/w", ses_c: "/v", ses_m: "/m" },
+      identities: { "/w": "dir:w", "/v": "dir:v", "/m": "dir:m" },
+      managed: ["dir:m"],
+    })
+    const report = useCase.sync(input(replace("ses_a", "ses_b", "ses_c", "ses_m"), { scope: "all" }))
+    expect(optionsSeen[0]).toMatchObject({ originatedMemories: false, userMemories: true, now: expect.any(Number) })
+    expect(optionsSeen[0]!.projects.map((merge) => [merge.from, merge.to])).toEqual([
+      ["dir:src", "dir:w"],
+      ["dir:src", "dir:v"],
+      ["dir:src", "dir:m"],
+    ])
+    expect(report.projects.map((project) => project.to)).toEqual(["dir:w", "dir:v", "dir:m"])
+    expect(report.user_memories_copied).toBe(1)
+    expect(report.sessions.find((session) => session.id === "ses_m")).toMatchObject({ status: "skipped", reason: "authority-managed" })
+
+    const none = setup({ source: { ses_a: "/w" }, target: { ses_a: "/w" }, identities: { "/w": "dir:w" }, states: { ses_a: { harness: "opencode2", anchors: [], project: null, reach: 1 } } })
+    none.useCase.sync(input(replace("ses_a"), { scope: "all", dryRun: true }))
+    expect(none.optionsSeen[0]).toMatchObject({ projects: [], userMemories: false })
+    const empty = setup({})
+    empty.useCase.sync(input([], { scope: "all", dryRun: true }))
+    expect(empty.optionsSeen[0]).toMatchObject({ projects: [], userMemories: false })
   })
 
   it("with \"further\", replaces the target's state only when the source's summaries reach further, and leaves a busy session alone", () => {

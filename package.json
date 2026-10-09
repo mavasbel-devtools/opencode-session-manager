@@ -22,7 +22,8 @@
     "validate:installed:v2": "bun scripts/install-plugin.mjs validate-v2",
     "install:cli": "bun run build && bun scripts/install-cli.mjs install",
     "validate:installed:cli": "bun scripts/install-cli.mjs validate",
-    "cli": "bun src/main/cli/cli.ts"
+    "cli": "bun src/main/cli/cli.ts",
+    "schema": "bun scripts/schema.ts"
   },
   "devDependencies": {
     "@lydell/node-pty": "1.2.0-beta.12",
@@ -33,6 +34,7 @@
     "@types/bun": "1.4.2",
     "@xterm/headless": "6.0.0",
     "bun-types": "1.4.2",
+    "drizzle-orm": "0.45.4",
     "solid-js": "1.9.15",
     "typescript": "5.9.3"
   }

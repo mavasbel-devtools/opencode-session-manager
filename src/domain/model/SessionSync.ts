@@ -1,4 +1,4 @@
-import type { HistoryRelation, SessionOutcome, SyncChecks, SyncSide } from "@session-manager/domain/model/MagicContextSync"
+import type { ContextScope, HistoryRelation, ProjectMergeResult, SessionOutcome, SyncChecks, SyncSide } from "@session-manager/domain/model/MagicContextSync"
 
 /**
  * Syncing whole sessions from one profile to another: the OpenCode session (its rows in
@@ -26,6 +26,8 @@ export interface SessionSyncInput {
   readonly sessions: readonly string[] | "all"
   readonly maps: readonly MapRule[]
   readonly prefer: Prefer
+  /** How much Magic Context state goes with each session. */
+  readonly context: ContextScope
   readonly dryRun: boolean
 }
 
@@ -88,7 +90,11 @@ export interface SessionSyncReport {
   readonly source_context_db: string | null
   readonly target_context_db: string | null
   readonly dry_run: boolean
+  readonly context: ContextScope
   readonly sessions: readonly SessionSyncOutcome[]
+  /** Magic Context project state merged (context `all`). */
+  readonly projects: readonly ProjectMergeResult[]
+  readonly user_memories_copied: number
   readonly checks: SessionSyncChecks
   /** Where the target's original stores were moved, or null when nothing was swapped. */
   readonly backup_dir: string | null

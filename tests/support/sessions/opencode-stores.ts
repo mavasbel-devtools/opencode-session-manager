@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync } from "node:fs"
 import { dirname } from "node:path"
 
 /** OpenCode 2.0.24's store schema, every table and index as OpenCode creates them. */
-export const OPENCODE_SCHEMA = readFileSync(new URL("./opencode-2.0.24.sql", import.meta.url), "utf8")
+export const SCHEMA_2_0_24 = readFileSync(new URL("./opencode-2.0.24.sql", import.meta.url), "utf8")
 export const MIGRATIONS = ["20260910120000_clear_v1_session_permission", "20260923013825_project_time_active"] as const
 
 /** A content-addressed instruction blob every session with instruction state names. */
@@ -45,7 +45,7 @@ export function makeOpenCode2Store(file: string, spec: OpenCodeStoreSpec): void 
   mkdirSync(dirname(file), { recursive: true })
   const db = new Database(file)
   try {
-    db.exec(OPENCODE_SCHEMA)
+    db.exec(SCHEMA_2_0_24)
     db.transaction(() => {
       for (const id of spec.migrations ?? MIGRATIONS) db.query("insert into migration values (?, 1)").run(id)
       db.query("insert into project (id, worktree, time_created, time_updated, sandboxes) values ('global', '/', 1, 1, '[]')").run()

@@ -1,8 +1,8 @@
-import { Database } from "bun:sqlite"
+import { count, inArray, isNotNull, max } from "drizzle-orm"
 import type { MagicContextSessionStats, MagicContextSummary } from "@session-manager/domain/model/SessionCatalog"
 import type { MagicContextStorePort } from "@session-manager/domain/ports/outbound/MagicContextStorePort"
-
-type Counts = Map<string, { readonly n: number; readonly last?: number | null; readonly project?: string }>
+import { type Store, withStore } from "@session-manager/infrastructure/adapters/outbound/sqlite/engine/Store"
+import { compartments, memories, notes, schemaMigrations, sessionProjects, tags } from "@session-manager/infrastructure/adapters/outbound/sqlite/schema/magic-context"
 
 /**
  * Reads a Magic Context `context.db`, read-only. Each count comes from its own table, and a table an
@@ -12,60 +12,70 @@ export class BunMagicContextStoreAdapter implements MagicContextStorePort {
   constructor() {}
 
   summary(dbPath: string): MagicContextSummary {
-    const db = new Database(dbPath, { readonly: true })
-    try {
-      const tables = new Set(
-        (db.query("select name from sqlite_master where type = 'table'").all() as { name: string }[]).map((row) => row.name),
-      )
-      const counts = (table: string, sql: string): Counts => {
-        if (!tables.has(table)) return new Map()
-        const rows = db.query(sql).all() as { id: string; n: number; last?: number | null; project?: string }[]
-        return new Map(rows.map((row) => [row.id, row]))
-      }
-      const compartments = counts("compartments", "select session_id as id, count(*) as n from compartments group by session_id")
-      const tags = counts("tags", "select session_id as id, count(*) as n, max(tag_number) as last from tags where session_id is not null group by session_id")
-      const notes = counts("notes", "select session_id as id, count(*) as n from notes where session_id is not null group by session_id")
-      const memories = counts(
-        "memories",
-        "select source_session_id as id, count(*) as n from memories where source_session_id is not null group by source_session_id",
-      )
-      const projects = counts(
-        "session_projects",
-        // OpenCode 1 sessions are labelled `opencode`, OpenCode 2 sessions `opencode2`; the later label wins.
-        "select session_id as id, 1 as n, project_path as project from session_projects where harness in ('opencode', 'opencode2') order by harness",
-      )
-      const ids = new Set([...compartments.keys(), ...tags.keys(), ...notes.keys(), ...memories.keys(), ...projects.keys()])
+    return withStore(dbPath, "read", (store) => {
+      const { orm } = store
+      const perSession = (rows: { id: string | null; n: number; last?: bigint | null }[]) =>
+        new Map(rows.filter((row) => row.id !== null).map((row) => [row.id!, { n: row.n, last: row.last === undefined || row.last === null ? null : Number(row.last) }]))
+      const compartmentCounts = store.has(compartments, ["session_id"])
+        ? perSession(orm.select({ id: compartments.session_id, n: count() }).from(compartments).groupBy(compartments.session_id).all())
+        : new Map()
+      const tagCounts = store.has(tags, ["session_id", "tag_number"])
+        ? perSession(
+            orm
+              .select({ id: tags.session_id, n: count(), last: max(tags.tag_number) })
+              .from(tags)
+              .where(isNotNull(tags.session_id))
+              .groupBy(tags.session_id)
+              .all(),
+          )
+        : new Map()
+      const noteCounts = store.has(notes, ["session_id"])
+        ? perSession(orm.select({ id: notes.session_id, n: count() }).from(notes).where(isNotNull(notes.session_id)).groupBy(notes.session_id).all())
+        : new Map()
+      const memoryCounts = store.has(memories, ["source_session_id"])
+        ? perSession(
+            orm
+              .select({ id: memories.source_session_id, n: count() })
+              .from(memories)
+              .where(isNotNull(memories.source_session_id))
+              .groupBy(memories.source_session_id)
+              .all(),
+          )
+        : new Map()
+      // OpenCode 1 sessions are labelled `opencode`, OpenCode 2 sessions `opencode2`; the later label wins.
+      const projects = new Map<string, string | null>()
+      if (store.has(sessionProjects, ["session_id", "harness", "project_path"]))
+        for (const row of orm
+          .select({ id: sessionProjects.session_id, project: sessionProjects.project_path })
+          .from(sessionProjects)
+          .where(inArray(sessionProjects.harness, ["opencode", "opencode2"]))
+          .orderBy(sessionProjects.harness)
+          .all())
+          if (row.id !== null) projects.set(row.id, row.project)
+
+      const ids = new Set<string>([...compartmentCounts.keys(), ...tagCounts.keys(), ...noteCounts.keys(), ...memoryCounts.keys(), ...projects.keys()])
       const sessions: Record<string, MagicContextSessionStats> = {}
-      for (const id of ids) {
+      for (const id of ids)
         sessions[id] = {
-          compartments: compartments.get(id)?.n ?? 0,
-          tags: tags.get(id)?.n ?? 0,
-          lastTag: tags.get(id)?.last ?? null,
-          notes: notes.get(id)?.n ?? 0,
-          memoriesOriginated: memories.get(id)?.n ?? 0,
-          project: projects.get(id)?.project ?? null,
+          compartments: compartmentCounts.get(id)?.n ?? 0,
+          tags: tagCounts.get(id)?.n ?? 0,
+          lastTag: tagCounts.get(id)?.last ?? null,
+          notes: noteCounts.get(id)?.n ?? 0,
+          memoriesOriginated: memoryCounts.get(id)?.n ?? 0,
+          project: projects.get(id) ?? null,
         }
-      }
-      return { available: true, schemaVersion: formatOf(db, tables), sessions }
-    } finally {
-      db.close()
-    }
+      return { available: true, schemaVersion: formatOf(store), sessions }
+    })
   }
 
   formatVersion(dbPath: string): number | null {
-    const db = new Database(dbPath, { readonly: true })
-    try {
-      const tables = new Set(
-        (db.query("select name from sqlite_master where type = 'table'").all() as { name: string }[]).map((row) => row.name),
-      )
-      return formatOf(db, tables)
-    } finally {
-      db.close()
-    }
+    return withStore(dbPath, "read", formatOf)
   }
 }
 
-function formatOf(db: Database, tables: ReadonlySet<string>): number | null {
-  if (!tables.has("schema_migrations")) return null
-  return (db.query("select max(version) as v from schema_migrations").get() as { v: number | null }).v
+/** The highest applied Magic Context migration, or null for a store without the migration table. */
+export function formatOf(store: Store): number | null {
+  if (!store.has(schemaMigrations, ["version"])) return null
+  const row = store.orm.select({ version: max(schemaMigrations.version) }).from(schemaMigrations).get()
+  return row?.version === null || row?.version === undefined ? null : Number(row.version)
 }

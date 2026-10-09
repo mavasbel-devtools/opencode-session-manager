@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { createHash } from "node:crypto"
 import { Database } from "bun:sqlite"
 import { mkdirSync, readdirSync, realpathSync } from "node:fs"
 import { join } from "node:path"
@@ -59,6 +60,8 @@ async function cli(argv: string[]) {
   }
 }
 
+const dirIdentity = (path: string) => `dir:${createHash("md5").update(path).digest("hex").slice(0, 12)}`
+
 const compartments = (id: string, count: number) =>
   Array.from({ length: count }, (_, index) => ({ start: `${id}-m${index}`, end: `${id}-m${index}`, content: `summary ${index} of C:\\Users\\Me\\repo` }))
 
@@ -83,7 +86,7 @@ function makeProfiles(options: { sourceMigrations?: readonly string[]; targetCon
       { id: "ses_new", directory: "C:/Users/Me/repo", projectId: "p_win_repo", v1: true, extras: true },
       { id: "ses_new_child", directory: "C:/Users/Me/repo/sub", projectId: "p_win_repo", parentId: "ses_new" },
       { id: "ses_plain", directory: "C:/Users/Me/plain" },
-      { id: "ses_rep", directory: "C:/Users/Me/rep", entries: ["a", "b", "c"] },
+      { id: "ses_rep", directory: "C:/Users/Me/rep", entries: ["a", "b", "c"], extras: true },
       { id: "ses_same", directory: "C:/Users/Me/plain" },
       { id: "ses_same2", directory: "C:/Users/Me/plain" },
       { id: "ses_busy", directory: "C:/Users/Me/plain" },
@@ -105,7 +108,7 @@ function makeProfiles(options: { sourceMigrations?: readonly string[]; targetCon
       { id: "p_moved_deep", worktree: join(home, "moved", "deep") },
     ],
     sessions: [
-      { id: "ses_rep", directory: join(home, "moved", "rep"), projectId: "p_moved", entries: ["a"] },
+      { id: "ses_rep", directory: join(home, "moved", "rep"), projectId: "p_moved", entries: ["a"], extras: true },
       { id: "ses_same", directory: join(home, "plain") },
       { id: "ses_same2", directory: join(home, "plain") },
       { id: "ses_busy", directory: join(home, "plain") },
@@ -249,8 +252,78 @@ describe("sync (real stores, the wired container)", () => {
     const usage = await cli(["sync", "--from", at("win")])
     expect([usage.code, usage.text]).toEqual([
       2,
-      "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--dry-run]",
+      "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--dry-run]",
     ])
+  })
+
+  it("carries everything Magic Context holds: history runs, the whole project, user memories; leaves a managed project alone; refuses unknown data", async () => {
+    const { home } = makeProfiles()
+    mkdirSync(join(home, "managed"), { recursive: true })
+    const plain = dirIdentity(join(home, "plain"))
+    const managed = dirIdentity(join(home, "managed"))
+    const win = new Database(opencodeOf("win"))
+    win.exec("insert into session_v2 (id, project_id, slug, directory, title, version, time_created, time_updated) values ('ses_managed', 'global', 's', 'C:/Users/Me/managed', 't', '2', 1, 2)")
+    win.exec("insert into session_message values ('ses_managed-m0', 'ses_managed', 'user', 0, 1, 1, '{}')")
+    win.close()
+    const source = new Database(contextOf("win"))
+    source.exec(`insert into compartments (session_id, sequence, start_message, end_message, start_message_id, end_message_id, title, content, created_at, harness)
+                   values ('ses_plain', 0, 0, 0, 'ses_plain-m0', 'ses_plain-m0', 't', 'plain summary', 1, 'opencode2'),
+                          ('ses_managed', 0, 0, 0, 'ses_managed-m0', 'ses_managed-m0', 't', 'managed summary', 1, 'opencode2');
+                 insert into session_projects values ('ses_plain', 'opencode2', 'dir:winplain', 1), ('ses_managed', 'opencode2', 'dir:winmanaged', 1);
+                 insert into subagent_invocations (id, session_id, harness, subagent, started_at, status, parent_invocation_id) values (5, 'ses_plain', 'opencode2', 'historian', 1, 'done', null), (6, 'ses_plain', 'opencode2', 'historian', 2, 'done', 5);
+                 insert into historian_runs (session_id, harness, subagent_invocation_id, run_kind, status, compartment_id_min, compartment_id_max, created_at)
+                   values ('ses_plain', 'opencode2', 6, 'incremental', 'success', (select id from compartments where session_id = 'ses_plain'), (select id from compartments where session_id = 'ses_plain'), 1);
+                 insert into primer_candidates (project_path, harness, session_id, question, normalized_question, source_message_time, created_at) values ('dir:winplain', 'opencode2', 'ses_plain', 'Q?', 'q', 1, 1);
+                 insert into user_memory_candidates (content, session_id, created_at) values ('likes C:\\Users\\Me', 'ses_plain', 1);
+                 insert into memories (project_path, category, content, normalized_hash, source_session_id, first_seen_at, created_at, updated_at, last_seen_at, status)
+                   values ('dir:winplain', 'fact', 'from elsewhere', '${createHash("md5").update("from elsewhere").digest("hex")}', 'ses_other', 1, 1, 1, 1, 'active'),
+                          ('dir:winmanaged', 'fact', 'guarded', '${createHash("md5").update("guarded").digest("hex")}', 'ses_managed', 1, 1, 1, 1, 'active');
+                 insert into memory_verifications (memory_id, file_path, verified_at, mapped_at) values ((select id from memories where content = 'from elsewhere'), 'C:\\Users\\Me\\plain\\x.ts', 1, 1);
+                 insert into notes (type, content, session_id, project_path, created_at, updated_at, harness) values ('smart', 'watch it', null, 'dir:winplain', 1, 1, 'opencode2'), ('smart', 'known', null, 'dir:winplain', 1, 1, 'opencode2');
+                 insert into primers (project_path, question, answer, status, created_at, updated_at) values ('dir:winplain', 'How?', 'so', 'active', 1, 1), ('dir:winplain', 'Known?', 'yes', 'active', 1, 1);
+                 insert into dream_runs (project_path, started_at, finished_at, holder_id, tasks_json) values ('dir:winplain', 1, 2, 'h', '[]'), ('dir:winplain', 3, 4, 'h', '[]');
+                 insert into retrospective_processed_windows values ('dir:winplain', 'w1', 1), ('dir:winplain', 'w2', 1);
+                 insert into user_memories (content, status, promoted_at, created_at, updated_at) values ('prefers bun', 'active', 1, 1, 1), ('known fact', 'active', 1, 1, 1)`)
+    source.close()
+    const target = new Database(contextOf("linux"))
+    target.exec(`insert into notes (type, content, session_id, project_path, created_at, updated_at, harness) values ('smart', 'known', null, '${plain}', 1, 1, 'opencode2');
+                 insert into primers (project_path, question, answer, status, created_at, updated_at) values ('${plain}', 'Known?', 'yes', 'active', 1, 1);
+                 insert into dream_runs (project_path, started_at, finished_at, holder_id, tasks_json) values ('${plain}', 3, 4, 'h', '[]');
+                 insert into retrospective_processed_windows values ('${plain}', 'w2', 1);
+                 insert into user_memories (content, status, promoted_at, created_at, updated_at) values ('known fact', 'active', 1, 1, 1);
+                 insert into authority_managed (project_path, context_store_uuid, marked_at) values ('${managed}', 'u', 1)`)
+    target.close()
+
+    const run = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_plain", "--session", "ses_managed"])
+    expect(run.code).toBe(0)
+    expect(run.json.sessions.map((session: { id: string; context: { status: string; reason: string | null; counts: { history_rows: number } | null } }) => [session.id, session.context.status, session.context.reason, session.context.counts?.history_rows ?? null])).toEqual([
+      ["ses_plain", "copied", null, 5],
+      ["ses_managed", "skipped", "authority-managed", null],
+    ])
+    expect(run.json.projects).toEqual([
+      { from: "dir:winplain", to: plain, memories_copied: 1, memories_already_there: 0, verifications: 1, notes: 1, primers: 1, dream_runs: 1, retrospective_windows: 1, skipped: null },
+      { from: "dir:winmanaged", to: managed, memories_copied: 0, memories_already_there: 0, verifications: 0, notes: 0, primers: 0, dream_runs: 0, retrospective_windows: 0, skipped: "authority-managed" },
+    ])
+    expect(run.json.user_memories_copied).toBe(1)
+    const context = contextOf("linux")
+    expect(rowsOf(context, "select file_path from memory_verifications")).toEqual([{ file_path: `${home}/plain/x.ts` }])
+    expect(rowsOf(context, "select content from user_memory_candidates")).toEqual([{ content: `likes ${home}` }])
+    expect(rowsOf(context, "select count(*) as n from memories where project_path = ?", managed)).toEqual([{ n: 0 }])
+
+    const again = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_plain", "--dry-run"])
+    expect(again.json.projects[0]).toMatchObject({ memories_copied: 0, memories_already_there: 1, notes: 0, primers: 0, dream_runs: 0, retrospective_windows: 0 })
+    expect(again.json.user_memories_copied).toBe(0)
+
+    const unknownContext = new Database(contextOf("linux"))
+    unknownContext.exec("alter table tags add column invented text")
+    unknownContext.close()
+    const refusedContext = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_plain", "--dry-run"])
+    expect(refusedContext.errors[0]).toContain("tags.invented")
+    const unknownOpenCode = new Database(opencodeOf("linux"))
+    unknownOpenCode.exec("create table session_extra (session_id text, value text)")
+    unknownOpenCode.close()
+    const refusedOpenCode = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_new", "--dry-run"])
+    expect(refusedOpenCode.errors[0]).toContain("session_extra")
   })
 
   it("undoes the OpenCode swap when the Magic Context swap fails, leaving both stores as they were", async () => {

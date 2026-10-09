@@ -85,9 +85,15 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
     in by renames (`context-sync-backup-<timestamp>/`, undone by `rollback`),
     refuses while the target store is held open, and copies a session only when
     the target's message history holds every message the source's summaries
-    point at (`SyncMagicContextUseCase`). Rows are written into the tables
+    point at (`MagicContextSyncService`). Session rows go into the tables
     Magic Context itself lists as session-scoped (`SESSION_SCOPED_TABLES`);
-    caches, leases and in-progress work are cleared, never copied.
+    caches, leases and in-progress work are cleared, never copied. A session
+    Magic Context is working on (a wrapup, an unexpired history lease) is
+    skipped, and a project Magic Context's own module manages
+    (`authority_managed`, `authority_repair_pending`, its guard triggers on) is
+    never written. Project state merges are idempotent: Magic Context's memory
+    key, and the text of notes, primers and user memories, decide what is
+    already there.
 11. A sync **never re-serializes JSON** and never rewrites keys: it edits matched
    paths inside the raw text of non-key columns (`PathRewriter`), and copies
    only rows keyed by the synced sessions (plus the projects and instruction
@@ -161,14 +167,46 @@ Both take their system root or executable as a constructor argument, so the unit
 tier runs every platform's adapters on any machine. Enforced by
 `tests/unit/maintenance/architecture.test.ts`.
 
-### SQLite under Bun
+### Storage: drizzle-orm through one engine, no SQL text elsewhere
 
-Use `Database.query()`, never `prepare()`: Bun closes a connection with
-`sqlite3_close_v2`, which keeps the file open until every prepared statement is
-finalized, and `query()` statements are finalized by `close()` (measured: a
-closed connection with one `prepare()`d statement still held the file, and the
-guard then refused the test's own database as "held open"). Bulk writes in tests
-go inside a transaction; one fsync per insert made a 4 500-row test take 30 s.
+Every store is read and written through **drizzle-orm** (`drizzle-orm/bun-sqlite`,
+synchronous) and typed schemas; `src` holds **no SQL text** outside the store
+engine, `src/infrastructure/adapters/outbound/sqlite/engine/Store.ts`.
+`tests/unit/architecture/imports.test.ts` fails on a `bun:sqlite` import, an
+import of drizzle's `sql` template, or `.query(`/`.prepare(`/`.exec(` with SQL
+text anywhere else. The engine owns what no query builder expresses: PRAGMAs,
+`VACUUM INTO`, `sqlite_master`, and reading a table only known at run time
+(compaction's fingerprint).
+
+- **Schemas are generated, never hand-written**: `bun run schema -- fixture
+  <store.db> <out.sql>` (`scripts/schema.ts`) dumps a real store's `CREATE` statements;
+  `bun run schema -- generate <fixture.sql> <out.ts> <title>` writes the
+  Drizzle tables (`schema/opencode.ts` from `opencode-2.0.24.sql`,
+  `schema/magic-context.ts` from `magic-context-94.sql`, in
+  `tests/support/sessions/`). Every column keeps its store name; INTEGER
+  columns are BigInt (`bigInteger`), untyped ones pass through (`value`).
+  `tests/unit/sessions/schema.test.ts` regenerates both and fails on drift.
+- **Integers are read exactly** (`safeIntegers`): a copied row is what was stored.
+- **The file is released on `close()`**: drizzle prepares every statement
+  through the client's `prepare()`, which the engine points at `query()`. Bun
+  closes with `sqlite3_close_v2`, which keeps the file open while a `prepare()`d
+  statement is unfinalized (measured, `/proc/self/fd`); the "held open" guard
+  would then see the process's own connection.
+- **Inserts write exactly the columns a row carries** (`Store.insert`, through
+  a table narrowed to those columns): drizzle would write NULL into every column
+  a row leaves out, overriding SQLite's defaults, and name columns an older
+  store lacks.
+- **A select names only columns the store has** (`Store.selection`, or
+  `Store.pick`, which refuses a missing one): SQLite reads an unknown
+  double-quoted column name as a string literal, so naming a column a store
+  lacks would return the column's name as its value.
+- **Unknown data is refused**: a sync refuses a store whose copied tables hold a
+  column the schema lacks, or another table keyed by the session
+  (`UnknownStoreSchemaError`): copying through the schema would leave it behind.
+  Regenerate the schemas from the newer store and review what the new data is.
+
+Bulk writes in tests go inside a transaction; one fsync per insert made a
+4 500-row test take 30 s.
 
 ### The session browser (`tui`)
 
@@ -254,7 +292,8 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `MagicContextFormatMismatchError.ts`, `MagicContextTooNewError.ts`,
 `MagicContextUnavailableError.ts`, `MagicContextUpgradeError.ts`,
 `ProfileUnreadableError.ts`, `SyncVerificationError.ts`,
-`InvalidMapRuleError.ts`, `OpenCodeFormatMismatchError.ts` (sessions);
+`InvalidMapRuleError.ts`, `OpenCodeFormatMismatchError.ts`,
+`UnknownStoreSchemaError.ts` (sessions);
 `InvalidDirectoryError.ts`, `MissingSessionIdError.ts`,
 `SessionNotFoundError.ts` (plugin).
 
@@ -294,7 +333,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `OpenProfileUseCase.ts` | sessions | open a profile read-only, from a snapshot when needed, and close it |
 | `CatalogProfileUseCase.ts` | sessions | join a profile's sessions with their Magic Context counts |
 | `CopyMagicContextUseCase.ts` | sessions | copy a store and upgrade the copy with the installed Magic Context |
-| `MagicContextSyncService.ts` | sessions | build and check a working copy of a target Magic Context store holding sessions' state |
+| `MagicContextSyncService.ts` | sessions | build and check a working copy of a target Magic Context store holding sessions' state and, for scope `all`, their projects' state |
 | `SyncMagicContextUseCase.ts` | sessions | `context sync`: the service's copy swapped in, with a backup |
 | `SyncSessionsUseCase.ts` | sessions | `sync`: whole sessions (OpenCode rows + Magic Context state) into working copies of both target stores, checked, swapped in together |
 | `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one sync per direction |
@@ -330,6 +369,9 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 |---|---|
 | `sqlite/BunSqliteAdapter.ts` | read-only reads, `VACUUM INTO`, fingerprints, checks |
 | `sqlite/BunSessionSyncStoreAdapter.ts` | reads OpenCode stores for a sync, writes session families into a working copy |
+| `sqlite/engine/Store.ts` | the store engine: opens a store (`openStore`, `withStore`), drizzle-orm over it, and the only SQL text in `src` |
+| `sqlite/schema/opencode.ts`, `sqlite/schema/magic-context.ts` | generated Drizzle tables of OpenCode 2.0.24 and Magic Context format 94 |
+| `sqlite/schema/value.ts` | the `bigInteger` and pass-through `value` column types the generated schemas use |
 | `sqlite/BunSessionStoreAdapter.ts` | reads `opencode.db` sessions and their message ids |
 | `sqlite/BunMagicContextStoreAdapter.ts` | reads a `context.db`'s counts and format |
 | `sqlite/BunMagicContextSyncStoreAdapter.ts` | reads and writes session state in `context.db` working copies |
@@ -416,9 +458,9 @@ in-process real-host tier and "live" is the real external process.
 | `maintenance/console.ts`, `maintenance/temporary.ts`, `maintenance/platform.ts` | captured output, guarded temporary folders, facts about the machine |
 | `maintenance/fixtures/legacy/` | the original compactor, kept verbatim for the parity test |
 | `sessions/stores.ts` | small `opencode.db` and `context.db` stores with given sessions and counts |
-| `sessions/sync-stores.ts` | Magic Context stores with the real format-94 tables and per-session state (`makeSyncContextStore`, `rowsOf`) |
+| `sessions/sync-stores.ts` | Magic Context stores with the real format-94 schema, triggers included, and per-session state (`makeSyncContextStore`, `rowsOf`); `without` drops tables and the triggers that write into them |
 | `sessions/opencode-stores.ts`, `sessions/opencode-2.0.24.sql` | stores with OpenCode 2.0.24's real schema (every `CREATE`, read from a live store with `select sql from sqlite_master`; refresh it the same way when OpenCode changes its schema) and given projects and sessions, optionally with OpenCode 1 rows and every per-session table filled (`makeOpenCode2Store`) |
-| `sessions/magic-context-94.sql` | the exact `CREATE` statements of the tables a sync touches, read from a live 0.45.0 store with `select sql from sqlite_master where name in (…)`; refresh it the same way when Magic Context changes format |
+| `sessions/magic-context-94.sql` | every `CREATE` statement (tables, virtual tables, indexes, triggers) of a real Magic Context 0.45.0 store, written by `bun run schema -- fixture`; refresh it the same way when Magic Context changes format, then regenerate `schema/magic-context.ts` |
 | `sessions/magic-context-package.ts` | a stand-in Magic Context package (declared seam) |
 | `sessions/catalogs.ts` | catalogued sessions and opened profiles for browser tests |
 | `sessions/frames.ts` | `waitForText`: waits in real time for text in OpenTUI's test renderer |

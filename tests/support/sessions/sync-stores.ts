@@ -4,7 +4,7 @@ import { dirname } from "node:path"
 import type { Harness } from "@session-manager/domain/model/MagicContextSync"
 import { normalizedHash } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextSyncStoreAdapter"
 
-/** The tables a session sync touches, as Magic Context 0.45.0 (format 94) creates them. */
+/** Every table, index and trigger of a Magic Context 0.45.0 store (format 94), read from a real one. */
 export const SCHEMA_94 = readFileSync(new URL("./magic-context-94.sql", import.meta.url), "utf8")
 
 export interface CompartmentSpec {
@@ -56,7 +56,12 @@ export function makeSyncContextStore(file: string, spec: SyncStoreSpec): void {
     db.transaction(() => {
       for (const [id, state] of Object.entries(spec.sessions ?? {})) addState(db, id, state)
     })()
-    for (const table of spec.without ?? []) db.exec(`drop table ${table}`)
+    for (const table of spec.without ?? []) {
+      // A trigger on another table that writes into this one would fail once it is gone.
+      for (const trigger of db.query("select name from sqlite_master where type = 'trigger' and (tbl_name = ? or sql like ?)").all(table, `%${table}%`) as { name: string }[])
+        db.exec(`drop trigger if exists "${trigger.name}"`)
+      db.exec(`drop table ${table}`)
+    }
     if (spec.extraSql !== undefined) db.exec(spec.extraSql)
   } finally {
     db.close()
@@ -110,7 +115,11 @@ function addState(db: Database, id: string, state: StateSpec): void {
     if (memory.embedded) db.query("insert into memory_embeddings (memory_id, embedding, model_id) values (?, ?, 'model')").run(Number(inserted.lastInsertRowid), new Uint8Array([3]))
   }
   if (project !== null) db.query("insert into session_projects (session_id, harness, project_path, updated_at) values (?, ?, ?, 1)").run(id, harness, project)
-  if (state.meta) db.query("insert into session_meta (session_id, harness, counter, cached_m0_bytes) values (?, ?, 1, 'cached')").run(id, harness)
+  // Inserting tags already made a session_meta row (Magic Context's `tags_version_ai` trigger).
+  if (state.meta)
+    db.query(
+      "insert into session_meta (session_id, harness, counter, cached_m0_bytes) values (?, ?, 1, 'cached') on conflict(session_id) do update set counter = 1, cached_m0_bytes = 'cached'",
+    ).run(id, harness)
 }
 
 export interface ContextRow {

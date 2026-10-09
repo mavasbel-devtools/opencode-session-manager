@@ -174,7 +174,8 @@ describe("context sync (real stores, the wired container)", () => {
       { content: "plain" },
     ])
     expect(rowsOf(target, "select content from compartments where session_id = 'ses_keep'")).toEqual([{ content: "linux's own" }])
-    expect(run.json.sessions[0]).toMatchObject({ counts: { compartments: 1, tags: 3, notes: 1, memories_copied: 2 }, residual_windows_paths: 0 })
+    expect(run.json.sessions[0]).toMatchObject({ counts: { compartments: 1, tags: 3, notes: 1, memories_copied: 0 }, residual_windows_paths: 0 })
+    expect(run.json.projects).toContainEqual(expect.objectContaining({ from: "dir:winapp", to: dirIdentity(app), memories_copied: 2, skipped: null }))
 
     const rollback = await cli(["rollback", backup, "--db", target])
     expect(rollback.code).toBe(0)
@@ -183,8 +184,10 @@ describe("context sync (real stores, the wired container)", () => {
 
   it("copies --all the source has state for, replacing the target's with --replace", async () => {
     makeProfiles()
-    const run = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--all", "--replace"])
+    const run = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--all", "--replace", "--context", "sessions"])
     expect(run.code).toBe(0)
+    expect(run.json).toMatchObject({ scope: "sessions", projects: [], user_memories_copied: 0 })
+    expect(run.json.sessions.find((session: { id: string }) => session.id === "ses_win").counts.memories_copied).toBe(2)
     expect(run.json.sessions.filter((session: { status: string }) => session.status === "copied").map((session: { id: string }) => session.id).sort()).toEqual([
       "ses_keep",
       "ses_repo",
@@ -215,7 +218,7 @@ describe("context sync (real stores, the wired container)", () => {
     const missing = await cli(["context", "sync", "--from", at("nowhere"), "--to", at("linux"), "--all"])
     expect(missing.code).toBe(1)
     const usage = await cli(["context", "sync", "--from", at("win")])
-    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager context copy --from <context.db> --to <file>\n       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--dry-run]"])
+    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager context copy --from <context.db> --to <file>\n       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--context all|sessions] [--dry-run]"])
     removeTemporary(directory)
     directory = temporaryWorkspace("oc-context-sync-e2e-")
 

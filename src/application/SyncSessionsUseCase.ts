@@ -116,6 +116,7 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
             sourceOpencodeDb: workSource,
             targetOpencodeDb: workTarget,
             sessions: contextRequests(families, input.prefer),
+            scope: input.context,
             workDir: work,
             mappingFor: (from) => families.find((family) => family.ids.includes(from.id))?.mapping ?? null,
           })
@@ -134,7 +135,7 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
           context: contextById.get(family.outcome.id) ?? null,
         }
       })
-      const changed = { opencode: copies.length > 0, context: (context?.copied ?? 0) > 0 }
+      const changed = { opencode: copies.length > 0, context: context?.changed ?? false }
       const backupDir = input.dryRun || (!changed.opencode && !changed.context) ? null : this.replace(input, { opencode: changed.opencode ? workTarget : null, context: changed.context ? context!.workTarget : null })
       const databases = [...(changed.opencode ? [input.target.opencodeDb] : []), ...(changed.context ? [input.target.contextDb] : [])]
       return {
@@ -143,7 +144,10 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
         source_context_db: withContext ? input.source.contextDb : null,
         target_context_db: withContext ? input.target.contextDb : null,
         dry_run: input.dryRun,
+        context: input.context,
         sessions,
+        projects: context?.projects ?? [],
+        user_memories_copied: context?.user_memories_copied ?? 0,
         checks,
         backup_dir: backupDir,
         rollback: backupDir === null ? null : `opencode-session-manager rollback ${backupDir} ${databases.map((db) => `--db ${db}`).join(" ")}`,

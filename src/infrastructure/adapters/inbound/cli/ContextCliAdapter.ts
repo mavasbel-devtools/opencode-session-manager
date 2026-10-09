@@ -1,5 +1,5 @@
 import type { OpenedProfile } from "@session-manager/domain/model/Browser"
-import { syncSideOf, type Resolution, type SyncRequest } from "@session-manager/domain/model/MagicContextSync"
+import { isContextScope, syncSideOf, type Resolution, type SyncRequest } from "@session-manager/domain/model/MagicContextSync"
 import { isPrefer, type Prefer } from "@session-manager/domain/model/SessionSync"
 import { profileAt } from "@session-manager/domain/model/Profile"
 import { hasContextState } from "@session-manager/domain/model/SessionCatalog"
@@ -11,7 +11,7 @@ import { parseOptions as parse } from "@session-manager/infrastructure/adapters/
 
 export const CONTEXT_USAGE = [
   "usage: opencode-session-manager context copy --from <context.db> --to <file>",
-  "       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--dry-run]",
+  "       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--context all|sessions] [--dry-run]",
 ].join("\n")
 
 const RESOLUTION: Readonly<Record<Prefer, Resolution>> = { keep: "skip", further: "further", replace: "replace" }
@@ -55,13 +55,14 @@ export class ContextCliAdapter {
   }
 
   private sync(argv: readonly string[]): number {
-    const values = parse(argv, ["--from", "--to", "--session", "--prefer"], ["--all", "--replace", "--dry-run"])
+    const values = parse(argv, ["--from", "--to", "--session", "--prefer", "--context"], ["--all", "--replace", "--dry-run"])
     const from = values?.single.get("--from")
     const to = values?.single.get("--to")
     const ids = values?.many.get("--session") ?? []
     const all = values?.flags.has("--all") === true
     const prefer = values?.flags.has("--replace") === true ? "replace" : (values?.single.get("--prefer") ?? "keep")
-    if (values === null || from === undefined || to === undefined || (ids.length === 0) === !all || !isPrefer(prefer)) return this.usage()
+    const scope = values?.single.get("--context") ?? "all"
+    if (values === null || from === undefined || to === undefined || (ids.length === 0) === !all || !isPrefer(prefer) || !isContextScope(scope)) return this.usage()
     const { profiles } = this.options
     const opened: OpenedProfile[] = []
     try {
@@ -79,6 +80,7 @@ export class ContextCliAdapter {
         source: syncSideOf(source),
         target: syncSideOf(target),
         sessions,
+        scope,
         dryRun: values.flags.has("--dry-run"),
       })
       this.options.output.line(JSON.stringify(report, null, 2))

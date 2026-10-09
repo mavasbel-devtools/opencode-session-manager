@@ -85,8 +85,13 @@ The program:
 - Two sessions whose histories differ after a shared beginning (`diverged`) are
   skipped; forking one of them into a new session is a later step
   (`docs/plans/2026-10-08-23-15-complete-sync-and-robustness.md`).
-- Magic Context state outside a session (project memories other sessions
-  created, primers, the dreamer's state) is not synced yet; same plan.
+- A project Magic Context's own module manages (its Rust authority) is never
+  written from outside: its sessions are skipped (`authority-managed`).
+- A store holding tables or columns this program's schemas do not describe
+  (written by a newer OpenCode or Magic Context) is refused rather than copied
+  incompletely; regenerate the schemas (`bun run schema`, see AGENTS.md).
+- Magic Context's scheduler state, caches and search indexes are machine-local
+  and rebuilt by Magic Context; they are never copied.
 - Anything that writes needs OpenCode closed (`opencode service stop`): it
   refuses while a process holds the target store open, and never kills one.
   Stopping OpenCode also stops a running Magic Context `/ctx-wrapup`.
@@ -263,11 +268,21 @@ sandbox. A store newer than the installed Magic Context is refused.
 
 ### Magic Context sync
 
-`context sync` (and the browser's `a`) copies sessions' Magic Context state —
-history summaries with their embeddings, tags (same `§N§` numbers) with their
-archived contents and pending drops, session notes and facts, and the memories
-the session created — from one profile to another, for sessions both profiles
-hold under the same id. `--all` takes every such session the source has state
+`context sync` (and the browser's `a`) copies sessions' Magic Context state from
+one profile to another, for sessions both profiles hold under the same id
+(`sync` does the same for the sessions it writes or keeps). `--context` decides
+how much goes with a session:
+
+| `--context` | Copied |
+|---|---|
+| `all` (default) | the session's own state: history summaries with their embeddings and events, tags (same `§N§` numbers) with their archived contents and pending drops, session notes and facts, its historian runs and subagent invocations, the primer and user-memory candidates it produced — **and its project's**: every memory (with embeddings and file verifications), project and smart notes, primers, the dreamer's run history and processed retrospective windows — and the user memories |
+| `sessions` | the session's own state and the memories it created |
+
+Project state is merged, not replaced: a memory Magic Context already holds
+(same category and normalized text), a note or primer with the same text, a
+dreamer run with the same start and holder, or a user memory with the same text
+is kept, so syncing twice adds nothing the second time. Magic Context's
+scheduler state, caches, leases and search indexes are never copied. `--all` takes every such session the source has state
 for. A session the target already has state for is kept unless `--prefer
 replace` (or `--replace`), or `--prefer further` and the source's summaries reach
 further (in the browser: a conflict you decide). A session Magic Context is
@@ -327,7 +342,10 @@ keeps the failed copy for inspection.
 ## Architecture
 
 Strict hexagonal, dependencies point inward only; the full contract is in
-`AGENTS.md`. There is one composition root per host runtime, because the
+`AGENTS.md`. Every store is read and written through drizzle-orm and schemas
+generated from real stores (`bun run schema`); the only SQL text in `src` is in
+the store engine (`src/infrastructure/adapters/outbound/sqlite/engine/Store.ts`):
+PRAGMAs, `VACUUM INTO` and `sqlite_master`, which no query builder expresses. There is one composition root per host runtime, because the
 entrypoints load into different processes.
 
 ```mermaid
@@ -435,6 +453,8 @@ bun run test:e2e
 bun run test:live
 bun run coverage                  # bun run coverage:unit && bun run coverage:e2e
 bun run lint:diagrams             # docs lint (fences, mermaid, paths, scripts, source map, variables)
+bun run schema -- fixture <store.db> <out.sql>          # a real store's CREATE statements
+bun run schema -- generate <fixture.sql> <out.ts> <title>  # its Drizzle tables
 bun run cli -- <command>          # the program from the checkout
 bun run install:plugin:v2         # or bun run install:plugin:v1
 bun run validate:installed:v2     # or bun run validate:installed:v1

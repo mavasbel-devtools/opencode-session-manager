@@ -49,17 +49,21 @@ export class SyncMagicContextUseCase implements SyncMagicContextPort {
         sourceOpencodeDb: source.opencode,
         targetOpencodeDb: target.opencode,
         sessions: input.sessions,
+        scope: input.scope,
         workDir: work,
       })
       const failed = failedChecks(built.checks)
       if (failed.length > 0) throw new SyncVerificationError(failed)
-      const backupDir = input.dryRun || built.copied === 0 ? null : this.replace(input.target.contextDb, built.workTarget)
+      const backupDir = input.dryRun || !built.changed ? null : this.replace(input.target.contextDb, built.workTarget)
       return {
         source_context_db: input.source.contextDb,
         target_context_db: input.target.contextDb,
         format: built.format,
         dry_run: input.dryRun,
+        scope: input.scope,
         sessions: built.sessions,
+        projects: built.projects,
+        user_memories_copied: built.user_memories_copied,
         checks: built.checks,
         backup_dir: backupDir,
       }

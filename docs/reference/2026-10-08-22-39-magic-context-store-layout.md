@@ -27,7 +27,7 @@ point at OpenCode 1 message ids the OpenCode 2 session no longer has.
 
 Magic Context's own list is `SESSION_SCOPED_TABLES` in
 `features/magic-context/storage-session-tables.ts`, in dependency-safe deletion
-order. What a sync (`context sync`) does with each:
+order. What a sync (`context sync`, `sync`) does with each:
 
 | Table | Holds | Sync |
 |---|---|---|
@@ -39,24 +39,37 @@ order. What a sync (`context sync`) does with each:
 | `pending_ops` | queued drops; `tag_id` is a tag **number** | replaced |
 | `session_facts`, `compression_depth` | per-session facts and depth counters | replaced |
 | `notes` (`type = 'session'`) | session notes | replaced, text rewritten, project re-pointed |
-| `session_meta` | per-session settings, counters and two cached context snapshots (`cached_m0_bytes`, `cached_m1_bytes`) | counter set to the copied tag count; caches cleared, as Magic Context's own session move does |
+| `historian_runs` | each historian run (`compartment_id_min`/`_max` → `compartments.id`, `subagent_invocation_id`) | replaced, re-linked |
+| `subagent_invocations` | historian/dreamer subagent calls (`parent_invocation_id` → itself) | replaced, re-linked |
+| `primer_candidates` | questions the historian proposed for a project primer | replaced, project re-pointed |
+| `user_memory_candidates` | user facts the historian proposed | replaced |
+| `session_meta` | per-session settings, counters and two cached context snapshots (`cached_m0_bytes`, `cached_m1_bytes`) | counter raised to the copied tag count; caches cleared, as Magic Context's own session move does |
 | `session_projects` | the session's project identity per harness | set to the target project |
+| `compartment_history_versions` | the summaries' version and generation | bumped (also by Magic Context's own triggers on `compartments`) |
 | `compartment_state_lease`, `recomp_*`, `lkg_slots`, `lkg_slot_chunks` | locks, an in-progress rebuild, last-known-good caches | cleared, never copied |
-| `historian_runs`, `subagent_invocations`, `transform_decisions`, `message_history_*`, `plugin_messages`, other caches | statistics and indexes of the target's own history | kept |
+| `transform_decisions`, `m0_mutation_log`, `session_replay_decisions`, `message_history_*`, `message_fts_rowid_map`, `plugin_messages`, `synapse_batch_ledger`, `pending_session_cleanup`, `tool_owner_backfill_state`, `embedding_measurement_corpus` | caches, indexes, queues and measurements of the target's own runs | kept, never copied |
 
-Outside the list, a sync also bumps `compartment_history_versions.version` for
-the session and `project_state.project_memory_epoch` for a project that gained
-memories, so Magic Context re-reads what changed.
+## Project-scoped tables (scope `all`)
 
-## Memories
+| Table | Sync |
+|---|---|
+| `memories` | every `active`/`permanent` memory of the source project, inserted under the target project unless Magic Context's key (`project_path`, `category`, `normalized_hash`) is already there; text rewritten and re-hashed |
+| `memory_embeddings` | copied with a new memory when its text was not rewritten (a rewritten one is embedded again by Magic Context) |
+| `memory_verifications` | copied with a new memory, file path rewritten |
+| `notes` (other types) | project and smart notes, unless one of the same type and text is there |
+| `primers` | unless one with the same question is there |
+| `dream_runs` | the dreamer's run history, unless a run with the same start and holder is there |
+| `retrospective_processed_windows` | unless the window is already marked |
+| `project_state` | `project_memory_epoch` bumped when memories, notes or primers were added |
+| `user_memories` (global) | unless one with the same text is there |
+| `dream_state`, `dream_queue`, `task_schedule_state`, `project_key_files*`, `memory_mutation_log`, `embedding_*`, `git_commits*`, `mirror_*`, workspaces | machine-local scheduling, caches and indexes: never copied |
 
-`memories` belong to a project (`project_path`), not a session;
-`source_session_id` names the session that created one. They are unique on
-`(project_path, category, normalized_hash)`, where `normalized_hash` is the md5
-of the content lower-cased with runs of whitespace collapsed to one space and
-trimmed. `memory_embeddings.memory_id` → `memories.id`. A sync copies the
-memories the session created into the target project, re-hashing the rewritten
-text; one with the same hash already there is kept.
+Magic Context's triggers keep its search indexes (`memories_fts`,
+`primers_fts`) and version counters (`tags_version_*`,
+`compartment_history_*`) in step with these writes. Its `*_authority_guard_*`
+triggers refuse memory and note writes for a project listed in
+`authority_managed` or `authority_repair_pending` unless
+`context_privilege_state.enabled = 1`; a sync leaves such a project alone.
 
 ## Project identity
 

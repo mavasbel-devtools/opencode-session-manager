@@ -61,10 +61,23 @@ export function syncSideOf(opened: OpenedProfile): SyncSide {
   }
 }
 
+/**
+ * How much Magic Context state goes with a session:
+ * - sessions: its own state (summaries, tags, notes, facts, history runs) and the memories it created;
+ * - all: that, plus everything of its project — every memory with its embeddings and verifications,
+ *   project notes, primers, the dreamer's run history — and the user memories.
+ */
+export type ContextScope = "sessions" | "all"
+
+export function isContextScope(value: string): value is ContextScope {
+  return value === "sessions" || value === "all"
+}
+
 export interface SyncInput {
   readonly source: SyncSide
   readonly target: SyncSide
   readonly sessions: readonly SyncRequest[]
+  readonly scope: ContextScope
   /** Build the copy and check it, but leave the target untouched. */
   readonly dryRun: boolean
 }
@@ -86,6 +99,23 @@ export interface SessionCopyCounts {
   readonly notes: number
   readonly memories_copied: number
   readonly memories_already_there: number
+  /** Historian runs, subagent invocations, primer and user-memory candidates. */
+  readonly history_rows: number
+}
+
+/** One source project's state merged into its project on the target. */
+export interface ProjectMergeResult {
+  readonly from: string
+  readonly to: string
+  readonly memories_copied: number
+  readonly memories_already_there: number
+  readonly verifications: number
+  readonly notes: number
+  readonly primers: number
+  readonly dream_runs: number
+  readonly retrospective_windows: number
+  /** Why nothing was merged (Magic Context's own module manages the target project's memory). */
+  readonly skipped: "authority-managed" | null
 }
 
 export type SkipReason =
@@ -99,6 +129,7 @@ export type SkipReason =
   | "stale-anchors"
   | "no-project"
   | "busy"
+  | "authority-managed"
 
 export interface SessionOutcome {
   readonly id: string
@@ -130,7 +161,11 @@ export interface SyncReport {
   readonly target_context_db: string
   readonly format: number
   readonly dry_run: boolean
+  readonly scope: ContextScope
   readonly sessions: readonly SessionOutcome[]
+  /** Project state merged (scope `all`). */
+  readonly projects: readonly ProjectMergeResult[]
+  readonly user_memories_copied: number
   readonly checks: SyncChecks | null
   /** Where the target's original store was moved, or null when nothing was swapped. */
   readonly backup_dir: string | null
@@ -147,6 +182,7 @@ export const SKIP_TEXT: Readonly<Record<SkipReason, string>> = {
   "stale-anchors": "its summaries point at messages the target's history does not hold (state written for an older copy of the session)",
   "no-project": "Magic Context's project for the session on the target cannot be resolved here",
   busy: "Magic Context is working on the session on the target (a wrapup or a history run); try again when it finishes",
+  "authority-managed": "Magic Context's own module manages the memory of the session's project on the target; its notes and memories cannot be written from outside",
 }
 
 const SKIP_SHORT: Readonly<Record<SkipReason, string>> = {
@@ -160,9 +196,21 @@ const SKIP_SHORT: Readonly<Record<SkipReason, string>> = {
   "stale-anchors": "stale summaries",
   "no-project": "no project",
   busy: "busy",
+  "authority-managed": "managed by Magic Context",
 }
 
-/** A sync report in four lines, for a person. */
+/** What a sync merged into the target's projects, for a person (nothing for a sync of sessions only). */
+export function projectLines(report: { readonly projects: readonly ProjectMergeResult[]; readonly user_memories_copied: number }): string[] {
+  if (report.projects.length === 0) return []
+  const merged = report.projects.filter((project) => project.skipped === null)
+  const sum = (key: "memories_copied" | "notes" | "primers" | "dream_runs") => merged.reduce((total, project) => total + project[key], 0)
+  const managed = report.projects.length - merged.length
+  return [
+    `Projects: ${merged.length} merged — ${sum("memories_copied")} memories · ${sum("notes")} notes · ${sum("primers")} primers · ${sum("dream_runs")} dreamer runs · ${report.user_memories_copied} user memories${managed > 0 ? ` (${managed} managed by Magic Context, left alone)` : ""}`,
+  ]
+}
+
+/** A sync report in four or five lines, for a person. */
 export function syncSummary(report: SyncReport): string[] {
   const copied = report.sessions.filter((session) => session.counts !== null)
   const sum = (key: keyof SessionCopyCounts) => copied.reduce((total, session) => total + session.counts![key], 0)
@@ -170,7 +218,8 @@ export function syncSummary(report: SyncReport): string[] {
   for (const session of report.sessions) if (session.reason !== null) skipped.set(session.reason, (skipped.get(session.reason) ?? 0) + 1)
   return [
     `${report.dry_run ? "Dry run" : "Applied"}: ${copied.length} of ${report.sessions.length} sessions copied into ${report.target_context_db}`,
-    `${sum("compartments")} summaries · ${sum("tags")} tags · ${sum("notes")} notes · ${sum("memories_copied")} memories copied (${sum("memories_already_there")} already there)`,
+    `${sum("compartments")} summaries · ${sum("tags")} tags · ${sum("notes")} notes · ${sum("history_rows")} history rows · ${sum("memories_copied")} memories copied (${sum("memories_already_there")} already there)`,
+    ...projectLines(report),
     skipped.size === 0 ? "Nothing skipped." : `Skipped: ${[...skipped].map(([reason, count]) => `${count} ${SKIP_SHORT[reason]}`).join(", ")}`,
     report.backup_dir === null
       ? "The target store was not changed."

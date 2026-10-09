@@ -3,7 +3,7 @@ import { ApplyQueueUseCase } from "@session-manager/application/ApplyQueueUseCas
 import { MagicContextFormatMismatchError } from "@session-manager/domain/errors/MagicContextFormatMismatchError"
 import { SyncVerificationError } from "@session-manager/domain/errors/SyncVerificationError"
 import { createBrowser, reduce, requestsFor, type QueueEntry } from "@session-manager/domain/model/Browser"
-import { harnessFor, relationOf, syncSideOf, syncSummary, type SyncInput, type SyncReport } from "@session-manager/domain/model/MagicContextSync"
+import { harnessFor, isContextScope, relationOf, syncSideOf, syncSummary, type SyncInput, type SyncReport } from "@session-manager/domain/model/MagicContextSync"
 import { hasContextState } from "@session-manager/domain/model/SessionCatalog"
 import { inferWindowsMapping } from "@session-manager/domain/services/WindowsMapping"
 import { opened, session } from "@test/support/sessions/catalogs"
@@ -23,7 +23,10 @@ const report = (extra: Partial<SyncReport> = {}): SyncReport => ({
   target_context_db: "/t/context.db",
   format: 94,
   dry_run: false,
+  scope: "all",
   sessions: [],
+  projects: [],
+  user_memories_copied: 0,
   checks: null,
   backup_dir: null,
   ...extra,
@@ -87,22 +90,39 @@ describe("Magic Context sync rules", () => {
       status: "copied" as const,
       reason: null,
       relation: "same" as const,
-      counts: { compartments: 2, tags: 5, notes: 1, memories_copied: 3, memories_already_there: 1 },
+      counts: { compartments: 2, tags: 5, notes: 1, memories_copied: 3, memories_already_there: 1, history_rows: 4 },
       residual_windows_paths: 0,
     }
     const skipped = (id: string, reason: "no-project" | "stale-anchors") => ({ id, status: "skipped" as const, reason, relation: null, counts: null, residual_windows_paths: 0 })
     expect(syncSummary(report({ sessions: [copied, skipped("b", "no-project"), skipped("c", "no-project"), skipped("d", "stale-anchors")], backup_dir: "/t/b" }))).toEqual([
       "Applied: 1 of 4 sessions copied into /t/context.db",
-      "2 summaries · 5 tags · 1 notes · 3 memories copied (1 already there)",
+      "2 summaries · 5 tags · 1 notes · 4 history rows · 3 memories copied (1 already there)",
       "Skipped: 2 no project, 1 stale summaries",
       "Original kept in /t/b (undo: opencode-session-manager rollback /t/b --db /t/context.db)",
     ])
     expect(syncSummary(report({ dry_run: true }))).toEqual([
       "Dry run: 0 of 0 sessions copied into /t/context.db",
-      "0 summaries · 0 tags · 0 notes · 0 memories copied (0 already there)",
+      "0 summaries · 0 tags · 0 notes · 0 history rows · 0 memories copied (0 already there)",
       "Nothing skipped.",
       "The target store was not changed.",
     ])
+    const project = (skipped: "authority-managed" | null) => ({
+      from: "dir:s",
+      to: "dir:t",
+      memories_copied: 5,
+      memories_already_there: 1,
+      verifications: 2,
+      notes: 3,
+      primers: 1,
+      dream_runs: 4,
+      retrospective_windows: 0,
+      skipped,
+    })
+    expect(syncSummary(report({ projects: [project(null), project(null), project("authority-managed")], user_memories_copied: 2 }))[2]).toBe(
+      "Projects: 2 merged — 10 memories · 6 notes · 2 primers · 8 dreamer runs · 2 user memories (1 managed by Magic Context, left alone)",
+    )
+    expect(syncSummary(report({ projects: [project(null)] }))[2]).toBe("Projects: 1 merged — 5 memories · 3 notes · 1 primers · 4 dreamer runs · 0 user memories")
+    expect([isContextScope("all"), isContextScope("sessions"), isContextScope("none")]).toEqual([true, true, false])
   })
 
   it("explains format and verification failures", () => {

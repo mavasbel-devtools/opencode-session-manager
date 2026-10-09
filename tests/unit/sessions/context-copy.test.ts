@@ -94,7 +94,7 @@ describe("ContextCliAdapter", () => {
       sync: {
         sync: (input) => {
           syncs.push(input)
-          return { source_context_db: "s", target_context_db: "t", format: 94, dry_run: input.dryRun, sessions: [], checks: null, backup_dir: null }
+          return { source_context_db: "s", target_context_db: "t", format: 94, dry_run: input.dryRun, scope: input.scope, sessions: [], projects: [], user_memories_copied: 0, checks: null, backup_dir: null }
         },
       },
       profiles: {
@@ -141,6 +141,7 @@ describe("ContextCliAdapter", () => {
         { id: "ses_x", resolution: "skip" },
         { id: "ses_y", resolution: "skip" },
       ],
+      scope: "all",
       dryRun: true,
     })
     expect(named.events).toEqual(["open from /a", "open to /b", "close from", "close to"])
@@ -154,6 +155,9 @@ describe("ContextCliAdapter", () => {
     const replace = cli()
     expect(replace.adapter.run(["sync", "--session", "ses_a", "--prefer", "replace", "--from", "/a", "--to", "/b"])).toBe(0)
     expect(replace.syncs[0]).toMatchObject({ sessions: [{ id: "ses_a", resolution: "replace" }] })
+    const scoped = cli()
+    expect(scoped.adapter.run(["sync", "--all", "--context", "sessions", "--from", "/a", "--to", "/b"])).toBe(0)
+    expect(scoped.syncs[0]).toMatchObject({ scope: "sessions" })
   })
 
   it("closes what it opened when a profile fails", () => {
@@ -176,6 +180,7 @@ describe("ContextCliAdapter", () => {
       ["sync", "--from", "/a", "--all"],
       ["sync", "--from", "/a", "--to", "/b", "--all", "--bogus"],
       ["sync", "--from", "/a", "--to", "/b", "--all", "--prefer", "both"],
+      ["sync", "--from", "/a", "--to", "/b", "--all", "--context", "none"],
     ]) {
       const { adapter, output } = cli()
       expect(adapter.run(argv)).toBe(2)

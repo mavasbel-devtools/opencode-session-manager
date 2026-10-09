@@ -116,8 +116,11 @@ function setup(world: World = {}) {
           workTarget: `${input.workDir}/context-target.db`,
           format: 94,
           sessions: input.sessions.map((request) => ({ id: request.id, status: "copied", reason: null, relation: "same", counts: null, residual_windows_paths: 0 })),
+          projects: [],
+          user_memories_copied: 0,
           checks: { integrity_ok: true, foreign_keys_ok: true, anchors_ok: ok, counts_ok: true },
           copied: world.contextCopied ?? input.sessions.length,
+          changed: (world.contextCopied ?? input.sessions.length) > 0,
         }
       },
     },
@@ -146,6 +149,7 @@ const input = (extra: Partial<SessionSyncInput> = {}): SessionSyncInput => ({
   sessions: "all",
   maps: [],
   prefer: "further",
+  context: "all",
   dryRun: false,
   ...extra,
 })

@@ -1,5 +1,5 @@
 import type { OpenedProfile } from "@session-manager/domain/model/Browser"
-import { syncSideOf } from "@session-manager/domain/model/MagicContextSync"
+import { isContextScope, syncSideOf } from "@session-manager/domain/model/MagicContextSync"
 import { profileAt } from "@session-manager/domain/model/Profile"
 import { isPrefer } from "@session-manager/domain/model/SessionSync"
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
@@ -9,7 +9,7 @@ import { parseMapRule } from "@session-manager/domain/services/MapRules"
 import { parseOptions } from "@session-manager/infrastructure/adapters/inbound/cli/arguments"
 
 export const SYNC_USAGE =
-  "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--dry-run]"
+  "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--dry-run]"
 
 export interface SyncCliOptions {
   readonly sync: SyncSessionsPort
@@ -32,13 +32,14 @@ export class SyncCliAdapter {
   }
 
   run(argv: readonly string[]): number {
-    const values = parseOptions(argv, ["--from", "--to", "--session", "--map", "--prefer"], ["--all", "--dry-run"])
+    const values = parseOptions(argv, ["--from", "--to", "--session", "--map", "--prefer", "--context"], ["--all", "--dry-run"])
     const from = values?.single.get("--from")
     const to = values?.single.get("--to")
     const ids = values?.many.get("--session") ?? []
     const all = values?.flags.has("--all") === true
     const prefer = values?.single.get("--prefer") ?? "further"
-    if (values === null || from === undefined || to === undefined || (ids.length === 0) === !all || !isPrefer(prefer)) {
+    const context = values?.single.get("--context") ?? "all"
+    if (values === null || from === undefined || to === undefined || (ids.length === 0) === !all || !isPrefer(prefer) || !isContextScope(context)) {
       this.options.output.line(SYNC_USAGE)
       return 2
     }
@@ -56,6 +57,7 @@ export class SyncCliAdapter {
         sessions: all ? "all" : ids,
         maps,
         prefer,
+        context,
         dryRun: values.flags.has("--dry-run"),
       })
       this.options.output.line(JSON.stringify(report, null, 2))
