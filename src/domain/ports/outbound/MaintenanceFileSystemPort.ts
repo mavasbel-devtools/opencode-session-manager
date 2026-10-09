@@ -7,8 +7,6 @@ export interface MaintenanceFileSystemPort {
   rename(from: string, to: string): void
   mkdirp(directory: string): void
   remove(path: string): void
-  /** Removes a folder only if it is empty. */
-  removeDirectory(directory: string): void
   /** Copies one file's bytes; the source is only read. */
   copyFile(from: string, to: string): void
   /** Removes a folder this tool created, with everything in it. */

@@ -1,4 +1,4 @@
-import type { ProjectIdentity } from "@session-manager/domain/model/Migration"
+import type { ProjectIdentity } from "@session-manager/domain/model/PathMapping"
 
 /** Derives the project OpenCode would assign a folder on this machine, the way OpenCode does. */
 export interface ProjectIdentityPort {

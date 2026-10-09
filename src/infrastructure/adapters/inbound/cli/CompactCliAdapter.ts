@@ -11,38 +11,42 @@ export interface CliEnvironment {
   readonly XDG_DATA_HOME?: string | undefined
   readonly OPENCODE_DB_COMPACT_IMAGE?: string | undefined
   readonly OPENCODE_DB_COMPACT_REHEARSAL_DIR?: string | undefined
-  readonly OPENCODE_DB_MIGRATE_REHEARSAL_DIR?: string | undefined
   readonly XDG_CACHE_HOME?: string | undefined
   /** An explicit Magic Context package folder, instead of the one in OpenCode's package cache. */
   readonly OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT?: string | undefined
 }
 
 export const USAGE =
-  "usage: opencode-session-manager <preflight|rehearse|run|rollback <backupDir>|migrate …|sessions …|context …|tui …> [--db <path>] [--keep]"
+  "usage: opencode-session-manager <preflight|rehearse|run|rollback <backupDir>|sync …|sessions …|context …|tui …> [--db <path>]... [--keep]"
 
 export interface CliArguments {
   readonly mode: string | undefined
   readonly positional: readonly string[]
+  /** The last `--db`. */
   readonly db: string | undefined
+  /** Every `--db`, in order (`rollback` restores each). */
+  readonly dbs: readonly string[]
   readonly keep: boolean
 }
 
 export function parseArguments(argv: readonly string[]): CliArguments {
   const positional: string[] = []
   let db: string | undefined
+  const dbs: string[] = []
   let keep = false
   for (let index = 1; index < argv.length; index++) {
     const token = argv[index]
     if (token === "--db") {
       index++
       db = argv[index]
+      if (db !== undefined) dbs.push(db)
     } else if (token === "--keep") {
       keep = true
     } else if (token !== undefined) {
       positional.push(token)
     }
   }
-  return { mode: argv[0], positional, db, keep }
+  return { mode: argv[0], positional, db, dbs, keep }
 }
 
 export interface CliAdapterOptions {
@@ -106,8 +110,11 @@ export class CompactCliAdapter {
 
     const backupDirectory = args.positional[0]
     if (args.mode === "rollback" && backupDirectory !== undefined) {
-      const outcome = this.options.rollback.execute({ dbPath, backupDir: backupDirectory, image: this.options.image })
-      this.options.output.line(`ROLLED BACK restored=${outcome.restored.join(",")} parked=${outcome.parked}`)
+      const outcomes =
+        args.dbs.length > 1
+          ? this.options.rollback.executeAll({ dbPaths: args.dbs, backupDir: backupDirectory, image: this.options.image })
+          : [this.options.rollback.execute({ dbPath, backupDir: backupDirectory, image: this.options.image })]
+      for (const outcome of outcomes) this.options.output.line(`ROLLED BACK restored=${outcome.restored.join(",")} parked=${outcome.parked}`)
       return 0
     }
 

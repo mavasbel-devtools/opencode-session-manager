@@ -28,11 +28,16 @@ export function relationOf(source: readonly string[], target: readonly string[])
   return source.length < target.length ? "target-ahead" : "source-ahead"
 }
 
+export type Resolution = "replace" | "skip" | "further"
+
 /** One queued copy, as the user decided it. */
 export interface SyncRequest {
   readonly id: string
-  /** "replace" overwrites state the target already has; "skip" leaves such a session alone. */
-  readonly resolution: "replace" | "skip"
+  /**
+   * For a session the target already has state for: "replace" overwrites it, "skip" keeps it, and
+   * "further" replaces it only when the source's summaries reach further into the history.
+   */
+  readonly resolution: Resolution
 }
 
 /** One side of a sync: where its stores are, and where they can be read from. */
@@ -85,6 +90,7 @@ export interface SessionCopyCounts {
 
 export type SkipReason =
   | "resolution-skip"
+  | "target-further"
   | "not-on-source"
   | "not-on-target"
   | "no-state"
@@ -92,6 +98,7 @@ export type SkipReason =
   | "diverged"
   | "stale-anchors"
   | "no-project"
+  | "busy"
 
 export interface SessionOutcome {
   readonly id: string
@@ -111,6 +118,13 @@ export interface SyncChecks {
   readonly counts_ok: boolean
 }
 
+/** The names of the checks that did not pass, in order. */
+export function failedChecks(checks: object): string[] {
+  return Object.entries(checks)
+    .filter(([, ok]) => ok !== true)
+    .map(([name]) => name)
+}
+
 export interface SyncReport {
   readonly source_context_db: string
   readonly target_context_db: string
@@ -124,6 +138,7 @@ export interface SyncReport {
 
 export const SKIP_TEXT: Readonly<Record<SkipReason, string>> = {
   "resolution-skip": "skipped by choice: the target keeps its own state",
+  "target-further": "the target's own summaries reach as far or further into the history",
   "not-on-source": "the session is not in the source's OpenCode store",
   "not-on-target": "the session is not in the target's OpenCode store (sync the session first)",
   "no-state": "no Magic Context state for this OpenCode generation on the source",
@@ -131,10 +146,12 @@ export const SKIP_TEXT: Readonly<Record<SkipReason, string>> = {
   diverged: "the two histories differ",
   "stale-anchors": "its summaries point at messages the target's history does not hold (state written for an older copy of the session)",
   "no-project": "Magic Context's project for the session on the target cannot be resolved here",
+  busy: "Magic Context is working on the session on the target (a wrapup or a history run); try again when it finishes",
 }
 
 const SKIP_SHORT: Readonly<Record<SkipReason, string>> = {
   "resolution-skip": "kept by choice",
+  "target-further": "target further",
   "not-on-source": "not on the source",
   "not-on-target": "not on the target",
   "no-state": "no state",
@@ -142,6 +159,7 @@ const SKIP_SHORT: Readonly<Record<SkipReason, string>> = {
   diverged: "diverged",
   "stale-anchors": "stale summaries",
   "no-project": "no project",
+  busy: "busy",
 }
 
 /** A sync report in four lines, for a person. */

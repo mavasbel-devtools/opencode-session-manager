@@ -148,6 +148,12 @@ describe("ContextCliAdapter", () => {
     const all = cli()
     expect(all.adapter.run(["sync", "--all", "--replace", "--from", "/a", "--to", "/b"])).toBe(0)
     expect(all.syncs[0]).toMatchObject({ sessions: [{ id: "ses_a", resolution: "replace" }], dryRun: false })
+    const further = cli()
+    expect(further.adapter.run(["sync", "--all", "--prefer", "further", "--from", "/a", "--to", "/b"])).toBe(0)
+    expect(further.syncs[0]).toMatchObject({ sessions: [{ id: "ses_a", resolution: "further" }] })
+    const replace = cli()
+    expect(replace.adapter.run(["sync", "--session", "ses_a", "--prefer", "replace", "--from", "/a", "--to", "/b"])).toBe(0)
+    expect(replace.syncs[0]).toMatchObject({ sessions: [{ id: "ses_a", resolution: "replace" }] })
   })
 
   it("closes what it opened when a profile fails", () => {
@@ -169,6 +175,7 @@ describe("ContextCliAdapter", () => {
       ["sync", "--to", "/b", "--all"],
       ["sync", "--from", "/a", "--all"],
       ["sync", "--from", "/a", "--to", "/b", "--all", "--bogus"],
+      ["sync", "--from", "/a", "--to", "/b", "--all", "--prefer", "both"],
     ]) {
       const { adapter, output } = cli()
       expect(adapter.run(argv)).toBe(2)

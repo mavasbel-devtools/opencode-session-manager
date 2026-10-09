@@ -1,6 +1,6 @@
 import { test } from "bun:test"
 import assert from "node:assert/strict"
-import type { PathMapping } from "@session-manager/domain/model/Migration"
+import type { PathMapping } from "@session-manager/domain/model/PathMapping"
 import { normalizeRemote } from "@session-manager/domain/services/GitRemote"
 import { PathRewriter } from "@session-manager/domain/services/PathRewriter"
 import { isWithin, sessionSubpath } from "@session-manager/domain/services/PosixPaths"
@@ -9,7 +9,6 @@ const MAPPING: PathMapping = {
   home: "/home/me",
   windowsUser: "Robin",
   drive: "C",
-  mounts: ["/run/media/me/Windows/"],
   relocations: [{ from: "/home/me/Old/proj", to: "/home/me/New/proj" }],
 }
 
@@ -31,7 +30,7 @@ const CASES: readonly (readonly [string, string])[] = [
   ["D:\\Users\\Robin\\x", "D:\\Users\\Robin\\x"],
   ["xC:\\Users\\Robin", "xC:\\Users\\Robin"],
   ["/mnt/c/Users/Robin/x /c/Users/Robin/y /cygdrive/c/Users/Robin", "/home/me/x /home/me/y /home/me"],
-  ["/run/media/me/Windows/Users/Robin/Dev", "/home/me/Dev"],
+  ["/run/media/me/Windows/Users/Robin/Dev", "/run/media/me/Windows/Users/Robin/Dev"],
   ["Users/Robin/Dev/AIML", "home/me/Dev/AIML"],
   ["my-Users/Robin/x", "my-Users/Robin/x"],
   ['"title":"Users\\\\Robin\\\\Documents\\\\x.md"', '"title":"home/me/Documents/x.md"'],
@@ -69,7 +68,6 @@ test("PathRewriter keeps JSON byte-identical outside the paths it rewrites", () 
 test("PathRewriter relocations: relative sources, and relative targets without a leading slash", () => {
   const relative = new PathRewriter({
     ...MAPPING,
-    mounts: [],
     relocations: [
       { from: "Dev/old", to: "Dev/new" },
       { from: "/srv/a", to: "srv/b" },

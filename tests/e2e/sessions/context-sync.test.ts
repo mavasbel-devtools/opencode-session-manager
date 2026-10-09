@@ -215,7 +215,7 @@ describe("context sync (real stores, the wired container)", () => {
     const missing = await cli(["context", "sync", "--from", at("nowhere"), "--to", at("linux"), "--all"])
     expect(missing.code).toBe(1)
     const usage = await cli(["context", "sync", "--from", at("win")])
-    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager context copy --from <context.db> --to <file>\n       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--replace] [--dry-run]"])
+    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager context copy --from <context.db> --to <file>\n       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--dry-run]"])
     removeTemporary(directory)
     directory = temporaryWorkspace("oc-context-sync-e2e-")
 

@@ -1,4 +1,4 @@
-import type { PathMapping } from "@session-manager/domain/model/Migration"
+import type { PathMapping } from "@session-manager/domain/model/PathMapping"
 
 const WINDOWS_PROFILE = /^([A-Za-z]):[\\/]+Users[\\/]+([^\\/]+)(.*)$/i
 
@@ -17,7 +17,6 @@ export function inferWindowsMapping(sourceDirectory: string, targetDirectory: st
     home,
     windowsUser: match[2]!,
     drive: match[1]!,
-    mounts: [],
     relocations: mapped === targetDirectory ? [] : [{ from: mapped, to: targetDirectory }],
   }
 }

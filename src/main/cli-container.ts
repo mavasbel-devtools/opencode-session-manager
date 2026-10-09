@@ -1,6 +1,11 @@
 import { ApplyQueueUseCase } from "@session-manager/application/ApplyQueueUseCase"
 import type { BrowserControls } from "@session-manager/infrastructure/adapters/inbound/manager-tui/controls"
+import { MagicContextSyncService } from "@session-manager/application/MagicContextSyncService"
 import { SyncMagicContextUseCase } from "@session-manager/application/SyncMagicContextUseCase"
+import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
+import type { SessionSyncStorePort } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
+import { SyncCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/SyncCliAdapter"
+import { BunSessionSyncStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSessionSyncStoreAdapter"
 import type { MagicContextIdentityPort } from "@session-manager/domain/ports/outbound/MagicContextIdentityPort"
 import type { MagicContextSyncStorePort } from "@session-manager/domain/ports/outbound/MagicContextSyncStorePort"
 import { MagicContextIdentityAdapter } from "@session-manager/infrastructure/adapters/outbound/magic-context/MagicContextIdentityAdapter"
@@ -25,17 +30,12 @@ import { BuildAndVerifyService } from "@session-manager/application/BuildAndVeri
 import { CompactUseCase } from "@session-manager/application/CompactUseCase"
 import { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
 import { GuardService } from "@session-manager/application/GuardService"
-import { MigrateUseCase } from "@session-manager/application/MigrateUseCase"
-import { MigrationVerifier } from "@session-manager/application/MigrationVerifier"
 import { PreflightUseCase } from "@session-manager/application/PreflightUseCase"
 import { RehearseUseCase } from "@session-manager/application/RehearseUseCase"
-import { RekeyService } from "@session-manager/application/RekeyService"
-import { RewriteService } from "@session-manager/application/RewriteService"
 import { RollbackUseCase } from "@session-manager/application/RollbackUseCase"
 import { SwapService } from "@session-manager/application/SwapService"
 import { joinPath } from "@session-manager/domain/model/DatabasePaths"
 import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
-import type { MigrationStorePort } from "@session-manager/domain/ports/outbound/MigrationStorePort"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
 import type { DatabaseHoldersPort } from "@session-manager/domain/ports/outbound/DatabaseHoldersPort"
 import type { ProcessListPort } from "@session-manager/domain/ports/outbound/ProcessListPort"
@@ -45,22 +45,20 @@ import type { RuntimePort } from "@session-manager/domain/ports/outbound/Runtime
 import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
 import { FingerprintComparer } from "@session-manager/domain/services/FingerprintComparer"
 import { ParityPolicy } from "@session-manager/domain/services/ParityPolicy"
-import type { PathMapping } from "@session-manager/domain/model/Migration"
+import type { PathMapping } from "@session-manager/domain/model/PathMapping"
 import { PathRewriter, type TextRewriter } from "@session-manager/domain/services/PathRewriter"
 import { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
 import { CliRouter } from "@session-manager/infrastructure/adapters/inbound/cli/CliRouter"
 import { CompactCliAdapter, type CliEnvironment } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
-import { MigrateCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/MigrateCliAdapter"
 import { ConsoleOutputAdapter } from "@session-manager/infrastructure/adapters/outbound/system/ConsoleOutputAdapter"
 import { GitProjectIdentityAdapter } from "@session-manager/infrastructure/adapters/outbound/project/GitProjectIdentityAdapter"
 import { JsonReportAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/JsonReportAdapter"
 import { NodeMaintenanceFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeMaintenanceFileSystemAdapter"
-import { BunMigrationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMigrationStoreAdapter"
 import { BunSqliteAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSqliteAdapter"
 import { SystemClockAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemClockAdapter"
 import { platformAdapters } from "@session-manager/main/cli/platform"
 
-/** The rewriter for one migration's mapping; a migration builds one per run. */
+/** The rewriter for one sync's path mapping. */
 export function rewriterFor(mapping: PathMapping): TextRewriter {
   return new PathRewriter(mapping)
 }
@@ -72,12 +70,12 @@ export interface ContainerOverrides {
   readonly processes?: ProcessListPort
   readonly holders?: DatabaseHoldersPort
   readonly identity?: ProjectIdentityPort
-  readonly store?: MigrationStorePort
   readonly sessionStore?: SessionStorePort
   readonly magicContextStore?: MagicContextStorePort
   readonly magicContextRelease?: MagicContextReleasePort
   readonly magicContextSyncStore?: MagicContextSyncStorePort
   readonly magicContextIdentity?: MagicContextIdentityPort
+  readonly sessionSyncStore?: SessionSyncStorePort
   /** Shows the session browser; the default paints it on this terminal. */
   readonly show?: (initial: BrowserState, controls: BrowserControls) => Promise<void>
   readonly runtime?: RuntimePort
@@ -102,7 +100,6 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
   const reports = overrides.reports ?? new JsonReportAdapter()
   const sqlite = overrides.sqlite ?? new BunSqliteAdapter()
   const identity = overrides.identity ?? new GitProjectIdentityAdapter()
-  const store = overrides.store ?? new BunMigrationStoreAdapter()
   const sessionStore = overrides.sessionStore ?? new BunSessionStoreAdapter()
   const magicContextStore = overrides.magicContextStore ?? new BunMagicContextStoreAdapter()
   const space = overrides.space ?? new RequiredSpacePolicy()
@@ -143,31 +140,6 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
       joinPath(runtime.temporaryDirectory(), "opencode", "compact-rehearsal"),
   })
 
-  const migrateCli = new MigrateCliAdapter({
-    migrate: new MigrateUseCase({
-      guard,
-      swapper,
-      sizes,
-      space,
-      rewriteService: new RewriteService(),
-      rewriterFor,
-      rekeyService: new RekeyService(identity, runtime),
-      verifier: new MigrationVerifier(sqlite, identity),
-      store,
-      sqlite,
-      fileSystem,
-      reports,
-      runtime,
-    }),
-    output,
-    runtime,
-    environment,
-    image,
-    rehearsalDirectory:
-      environment.OPENCODE_DB_MIGRATE_REHEARSAL_DIR ??
-      joinPath(runtime.temporaryDirectory(), "opencode", "migrate-rehearsal"),
-  })
-
   const profiles = new OpenProfileUseCase(new CatalogProfileUseCase(sessionStore, magicContextStore, fileSystem), fileSystem, runtime)
   const sessionsCli = new SessionsCliAdapter({
     profiles,
@@ -185,22 +157,37 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
       runtime.temporaryDirectory(),
     )
   const copier = new CopyMagicContextUseCase(sqlite, magicContextStore, magicContextRelease, fileSystem)
-  const syncContext = new SyncMagicContextUseCase({
+  const contextBuilder = new MagicContextSyncService({
     sqlite,
     sessions: sessionStore,
     contexts: magicContextStore,
     syncStore: overrides.magicContextSyncStore ?? new BunMagicContextSyncStoreAdapter(),
     identity: overrides.magicContextIdentity ?? new MagicContextIdentityAdapter(),
     copier,
-    guard,
-    swap: swapper,
-    fileSystem,
     runtime,
     rewriterFor,
   })
+  const syncContext = new SyncMagicContextUseCase({ builder: contextBuilder, guard, swap: swapper, fileSystem, runtime })
   const contextCli = new ContextCliAdapter({
     copy: copier,
     sync: syncContext,
+    profiles,
+    output,
+  })
+
+  const syncCli = new SyncCliAdapter({
+    sync: new SyncSessionsUseCase({
+      sqlite,
+      sessions: sessionStore,
+      store: overrides.sessionSyncStore ?? new BunSessionSyncStoreAdapter(),
+      identity,
+      contexts: contextBuilder,
+      guard,
+      swap: swapper,
+      fileSystem,
+      runtime,
+      rewriterFor,
+    }),
     profiles,
     output,
   })
@@ -211,5 +198,5 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
   const help = { run: (argv: readonly string[]) => helpCli.run(argv, "help") }
   const version = { run: (argv: readonly string[]) => helpCli.run(argv, "version") }
 
-  return new CliRouter(compactCli, { migrate: migrateCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
+  return new CliRouter(compactCli, { sync: syncCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
 }

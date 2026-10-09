@@ -10,8 +10,9 @@ Tools for working with OpenCode sessions, in two parts:
     id, with what Magic Context holds for each;
   - **Magic Context sync**: copies sessions' Magic Context state (summaries,
     tags, notes, memories) from one installation to the other;
-  - offline maintenance of `opencode.db`: verified **compaction** and
-    **migration** of another machine's sessions.
+  - **session sync**: whole sessions with their Magic Context state, between
+    two profiles (for example a Windows machine's and this one's);
+  - offline maintenance of `opencode.db`: verified **compaction**.
 
   Everything that writes works on copies, checks them, swaps them in by renames
   and keeps the originals for `rollback`.
@@ -80,10 +81,12 @@ The plugin:
 
 The program:
 
-- It copies **Magic Context state**, not OpenCode sessions: a session must
-  already exist on both sides under the same id (after a `migrate`, for
-  example). Copying sessions themselves is the next step
-  (`docs/research/2026-10-08-22-39-session-sync-design.md`).
+- `sync` writes POSIX paths only: a Windows profile can be a source, not a target.
+- Two sessions whose histories differ after a shared beginning (`diverged`) are
+  skipped; forking one of them into a new session is a later step
+  (`docs/plans/2026-10-08-23-15-complete-sync-and-robustness.md`).
+- Magic Context state outside a session (project memories other sessions
+  created, primers, the dreamer's state) is not synced yet; same plan.
 - Anything that writes needs OpenCode closed (`opencode service stop`): it
   refuses while a process holds the target store open, and never kills one.
   Stopping OpenCode also stops a running Magic Context `/ctx-wrapup`.
@@ -134,12 +137,13 @@ opencode-session-manager context copy --from <context.db> --to <file>
 opencode-session-manager preflight [--db <path>]
 
 # Write (to copies, swapped in by renames): OpenCode must be closed
-opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--replace] [--dry-run]
+opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... \
+  (--session <id>... | --all) [--prefer further|keep|replace] [--dry-run]
+opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) \
+  [--prefer keep|further|replace | --replace] [--dry-run]
 opencode-session-manager rehearse [--db <path>] [--keep]
 opencode-session-manager run [--db <path>]
-opencode-session-manager migrate <rehearse|run> --from <db>... --windows-user <name> \
-  [--drive C] [--mount <dir>]... [--relocate <from>=<to>]... [--home <dir>] [--db <path>] [--keep]
-opencode-session-manager rollback <backupDir> [--db <path>]
+opencode-session-manager rollback <backupDir> [--db <path>]...
 ```
 
 `context copy` and `rehearse` write only their own output (a new file, or a
@@ -190,6 +194,62 @@ target store is open. Other keys: `↑↓`/`jk`, `PgUp`/`PgDn`, `g`/`G`, `Enter`
 folds a folder, `/` filters by id, title or folder (`Esc` clears), `Esc` leaves
 the queue, `q` quits; the mouse selects rows and scrolls a list.
 
+### Session sync
+
+`sync` copies whole sessions from one profile to another: each session with its
+sub-agent sessions — every OpenCode row keyed by them (the session rows of both
+OpenCode generations, entries, messages and parts, todos, inbox and pending
+input, instruction state and the instruction blobs it names, the event log and
+its sequence, plugin storage keys that name the session) — together with their
+Magic Context state (as [Magic Context sync](#magic-context-sync) copies it).
+`--all` takes every root session of the source except the runs plugins mark as
+their own (Magic Context's historian and dreamer, `hidden-run`); `--session`
+takes any.
+
+Sessions are matched by id and their histories compared by message id:
+
+| On the target | OpenCode rows | Magic Context state |
+|---|---|---|
+| missing | copied | copied |
+| a beginning of the source's history | replaced | copied |
+| the same history, or one that continues it | kept | by `--prefer`: `further` (default) takes the side whose summaries reach further, `keep` keeps the target's, `replace` takes the source's |
+| a different history after a shared beginning | kept, the session is reported `diverged` | kept |
+
+Paths are rewritten by `--map <from>=<to>` rules: `C:\Users\Me=/home/me` maps a
+Windows profile (every form [the rewriter](#how-paths-are-rewritten) knows),
+`C:\Users\Me\work=/srv/work` moves a folder inside it, `/old=/new` moves a POSIX
+folder. Without a profile rule, the one Windows profile the source's sessions
+live in maps to this home. A session the target already has keeps its folder
+there, and its text follows that folder. A session written to the target gets
+the project OpenCode derives for its folder on this machine (a git remote, a
+stored id, the root commit, else `sha1("directory:" + realpath)`); for a folder
+that does not exist here, the deepest project of the target containing it, else
+the source's project, recreated with its name and settings.
+
+Both OpenCode stores must be at the same OpenCode migration (start the same
+OpenCode version on both once). It works on copies only: both stores of both
+sides are copied with `VACUUM INTO`, the target copies receive the sessions and
+are checked — integrity, foreign keys, every written session present with its
+folder and project and no Windows folder left, and the Magic Context checks —
+then replace the target stores by renames, both originals kept together in
+`sync-backup-<timestamp>/` beside `opencode.db`. If the second swap fails the
+first is undone. The report's `rollback` field is the one command that puts both
+back (`rollback <backupDir> --db <opencode.db> --db <context.db>`). Applying
+refuses while any process holds a target store open, or when there is too little
+free space; `--dry-run` builds and checks without touching the target.
+
+### How paths are rewritten
+
+Text is rewritten only where a whole path matches, so JSON stays byte-identical
+otherwise: `C:\Users\<user>`, `C:/Users/<user>`, the same escaped once, twice or
+three times inside nested JSON, `file:///C:/…`, `@fs/C:/…`, `/mnt/c/…`,
+`/cygdrive/c/…`, `/c/…`, and the `Users/<user>` form OpenCode stores below the
+root project; then each folder rule moves what lies under its folder. A path
+glued to other text (as in binary output) is left alone and counted in the
+report's `residual_windows_paths`. A Windows `opencode.db` on an NTFS partition
+is often NTFS-compressed, which Linux's `ntfs3` driver cannot open for SQLite;
+the profile reader copies such a store to a temporary folder first.
+
 ### Magic Context copy
 
 `context copy` copies a Magic Context store and brings the copy to the format
@@ -208,8 +268,11 @@ history summaries with their embeddings, tags (same `§N§` numbers) with their
 archived contents and pending drops, session notes and facts, and the memories
 the session created — from one profile to another, for sessions both profiles
 hold under the same id. `--all` takes every such session the source has state
-for. A session the target already has state for is kept unless `--replace`
-(in the browser: a conflict you decide).
+for. A session the target already has state for is kept unless `--prefer
+replace` (or `--replace`), or `--prefer further` and the source's summaries reach
+further (in the browser: a conflict you decide). A session Magic Context is
+working on in the target store (a wrapup, or an unexpired history lease) is
+skipped (`busy`).
 
 A session is copied only when it is safe: the target's message history must be
 the source's or continue it (summaries point at messages by id and position),
@@ -261,36 +324,6 @@ keeps the failed copy for inspection.
   there; `--keep` keeps the copy. `run` keeps its evidence in
   `db-backup-<timestamp>/report.json`.
 
-### Migration from a Windows machine
-
-`migrate` merges another machine's sessions into the local database, with every
-Windows profile path rewritten to this home, so each session shows up under its
-folder here as if it had been started on this machine.
-
-1. **Copy** the local database and every `--from` database with `VACUUM INTO`;
-   nothing below touches an original.
-2. **Rewrite** every text cell except the credential tables and OpenCode's
-   migration log: `C:\Users\<user>`, `C:/Users/<user>`, the same escaped once,
-   twice or three times inside nested JSON, `file:///C:/…`, `@fs/C:/…`,
-   `/mnt/c/…`, `/cygdrive/c/…`, `/c/…`, the drive's mount folder here (`--mount`),
-   and the `Users/<user>` form stored below the root project. Only matched paths
-   change, so JSON stays byte-identical otherwise. `--relocate <from>=<to>` then
-   moves folders that live elsewhere here.
-3. **Merge** source rows whose primary key is absent; the local row wins.
-4. **Re-key** every session onto the project id OpenCode derives for its folder
-   here (`sha1("git-remote:" + host/path)` for a repository with a remote, else
-   its stored id, else its root commit; `sha1("directory:" + realpath)` for a
-   plain folder), and recompute `session.path`. A session whose folder is missing
-   keeps its project and is listed in the report.
-5. **Verify** seven gates (integrity, foreign keys, rows kept, no Windows session
-   folder, clean folder columns, consistent subpaths, intact JSON), then **swap**
-   (`run` only) exactly as compaction does. `rollback` undoes it.
-
-`migrate rehearse` works in `OPENCODE_DB_MIGRATE_REHEARSAL_DIR` (default
-`<temp>/opencode/migrate-rehearsal`). A Windows `opencode.db` on an NTFS
-partition is often NTFS-compressed, which Linux's `ntfs3` driver cannot open for
-SQLite: copy the `.db`, `-wal` and `-shm` files to a Linux filesystem first.
-
 ## Architecture
 
 Strict hexagonal, dependencies point inward only; the full contract is in
@@ -326,31 +359,21 @@ family to its inbound adapter. Database maintenance:
 flowchart LR
     CLI[cli/cli.ts] --> ROUTER[CliRouter]
     ROUTER --> CC[CompactCliAdapter]
-    ROUTER --> MC[MigrateCliAdapter]
     ROUTER --> HC[HelpCliAdapter]
     CC --> PF[PreflightUseCase]
     CC --> RH[RehearseUseCase]
     CC --> CP[CompactUseCase]
     CC --> RB[RollbackUseCase]
-    MC --> MG[MigrateUseCase]
     PF --> SZ[DatabaseSizesService]
     RH --> BV[BuildAndVerifyService]
     CP --> BV
     CP --> GD[GuardService]
     CP --> SW[SwapService]
     RB --> GD
-    MG --> RW[RewriteService]
-    MG --> RK[RekeyService]
-    MG --> MV[MigrationVerifier]
-    MG --> GD
-    MG --> SW
     BV --> SQ[SqlitePort -> BunSqliteAdapter]
     BV --> FP[FingerprintComparer / ParityPolicy]
     CP --> RS[RequiredSpacePolicy]
     CP --> REP[ReportSinkPort -> JsonReportAdapter]
-    RW --> MS[MigrationStorePort -> BunMigrationStoreAdapter]
-    RW --> PW[PathRewriter]
-    RK --> PI[ProjectIdentityPort -> GitProjectIdentityAdapter]
     GD --> PL[ProcessListPort / DatabaseHoldersPort -> platform adapters]
     SW --> FSM[MaintenanceFileSystemPort -> NodeMaintenanceFileSystemAdapter]
 ```
@@ -362,6 +385,13 @@ flowchart LR
     ROUTER[CliRouter] --> SC[SessionsCliAdapter]
     ROUTER --> XC[ContextCliAdapter]
     ROUTER --> BC[BrowseCliAdapter]
+    ROUTER --> YC[SyncCliAdapter]
+    YC --> OP
+    YC --> SY[SyncSessionsUseCase]
+    SY --> SST[SessionSyncStorePort -> BunSessionSyncStoreAdapter]
+    SY --> PI[ProjectIdentityPort -> GitProjectIdentityAdapter]
+    SY --> MR[MapRules + PathRewriter]
+    SY --> MB
     BC -->|show| TUI[OpenTuiBrowser: Browser reducer, keys, format]
     TUI -->|BrowserControls.apply| AQ[ApplyQueueUseCase]
     SC --> OP[OpenProfileUseCase]
@@ -374,13 +404,16 @@ flowchart LR
     XC --> SM[SyncMagicContextUseCase]
     AQ --> SM
     AQ --> OP
-    SM --> CM
+    SM --> MB[MagicContextSyncService]
+    MB --> CM
     CM --> REL[MagicContextReleasePort -> InstalledMagicContextAdapter]
-    SM --> SYS[MagicContextSyncStorePort -> BunMagicContextSyncStoreAdapter]
-    SM --> MID[MagicContextIdentityPort -> MagicContextIdentityAdapter]
-    SM --> WM[WindowsMapping + PathRewriter]
+    MB --> SYS[MagicContextSyncStorePort -> BunMagicContextSyncStoreAdapter]
+    MB --> MID[MagicContextIdentityPort -> MagicContextIdentityAdapter]
+    MB --> WM[WindowsMapping + PathRewriter]
     SM --> GD[GuardService]
     SM --> SW[SwapService]
+    SY --> GD
+    SY --> SW
 ```
 
 Composition roots: `src/main/server-container.ts` (v2 server),
@@ -415,19 +448,21 @@ The four tiers live under `tests/{unit,component,e2e,live}`:
   platform, host-fixture and coverage-completeness gates. Coverage-gated.
 - **component** — the wired plugin painted by the real OpenTUI renderer, the
   tool's parity with the hand-written plugin it replaced, and real SQLite
-  compacting and migrating real databases over real folders and git repositories.
+  compacting real databases.
 - **e2e** — the real entries in-process: the v2 TUI loaded by the real 2.0.14
   `Host`, the v1 entries over a real SQLite store and real git repositories, and
   the CLI's container over real databases, including a same-behaviour comparison
   with the frozen original compactor (`tests/support/maintenance/fixtures/legacy/`),
-  Magic Context syncs between real stores, and the browser applying its queue
+  session and Magic Context syncs between real stores with OpenCode 2.0.24's
+  schema over real folders and git repositories, and the browser applying its queue
   in OpenTUI's test renderer. Coverage-gated, per platform.
 - **live** — the real `opencode` executable, the built bundles, the installers,
   and the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`),
   all under isolated XDG directories; for the CLI, a read-only snapshot of the
   real `opencode.db` through preflight, a full run and a rollback, the compiled
-  browser in a pseudo-terminal, and the installed Magic Context upgrading and
-  opening real store copies. Invisible to coverage by construction.
+  browser in a pseudo-terminal, the installed Magic Context upgrading and
+  opening real store copies, and a real profile synced into a copy of this
+  machine's that a sandboxed OpenCode then lists. Invisible to coverage by construction.
 
 `bun run coverage` requires 100 % lines and functions on every `src` file, in the
 unit and the e2e tier separately. The e2e gate is per platform: each platform's
@@ -443,17 +478,15 @@ live tier needs `node` (for the pseudo-terminal).
 | `XDG_CONFIG_HOME` | the installers | the plugins folder (`~/.config/opencode/plugins`) |
 | `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` | `InstalledMagicContextAdapter` | pointed into a throwaway sandbox for the child process that runs Magic Context's code |
 | `OPENCODE_DB_PATH` | the v1 plugin | the OpenCode 1 store, as the v1 host reads it |
-| `OPENCODE_DB_COMPACT_IMAGE` | `preflight`, `run`, `rollback`, `migrate` | the OpenCode process name: `preflight` reports it, the others refuse while it runs (`opencode`, `opencode.exe` on Windows) |
+| `OPENCODE_DB_COMPACT_IMAGE` | `preflight`, `run`, `rollback` | the OpenCode process name: `preflight` reports it, the others refuse while it runs (`opencode`, `opencode.exe` on Windows) |
 | `OPENCODE_DB_COMPACT_REHEARSAL_DIR` | `rehearse` | rehearsal folder (`<temp>/opencode/compact-rehearsal`) |
-| `OPENCODE_DB_MIGRATE_REHEARSAL_DIR` | `migrate rehearse` | rehearsal folder (`<temp>/opencode/migrate-rehearsal`) |
-| `OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT` | `context copy`, `context sync` | a Magic Context package folder, instead of the newest in OpenCode's cache |
+| `OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT` | `context copy`, `context sync`, `sync` | a Magic Context package folder, instead of the newest in OpenCode's cache |
 | `OPENCODE_SESSION_MANAGER_BIN_DIR` | `install:cli` | install folder (`~/.local/bin`) |
 | `OPENCODE_V2_PLUGIN_DIR`, `OPENCODE_V1_PLUGIN_DIR` | the plugin installers | the plugins folder of each lane |
 | `OPENCODE_V2_EXECUTABLE` | live tier | the OpenCode 2 executable (else `~/.opencode/bin/opencode`, `~/.local/bin/opencode.exe` on Windows, else `PATH`) |
-| `OPENCODE_BIN` | live migration test | the `opencode` that lists a migrated store (default `opencode` on `PATH`) |
-| `OPENCODE_DB_MIGRATE_LIVE_SOURCE`, `OPENCODE_DB_MIGRATE_LIVE_USER`, `OPENCODE_DB_MIGRATE_LIVE_MOUNT` | live migration test | a Windows `opencode.db`, its profile user and its mount folder; the test is skipped without the first two |
+| `OPENCODE_BIN` | live `sync` test | the `opencode` that lists the synced copy (default `opencode` on `PATH`) |
 | `OPENCODE_SM_LIVE_OLD_CONTEXT` | live `context copy` test | an older `context.db` to upgrade with the installed Magic Context |
-| `OPENCODE_SM_LIVE_OTHER_PROFILE` | live `context sync` test | another profile's data home to sync into a copy of this machine's; skipped without it |
+| `OPENCODE_SM_LIVE_OTHER_PROFILE` | live `sync` and `context sync` tests | another profile's data home to sync into a copy of this machine's; skipped without it |
 | `OPENCODE_TEST_HOME`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_SERVER_PASSWORD` | `tests/support/live/isolated-host.ts` | set for the isolated OpenCode the live tier starts: its home, no self-update, a fixed server password |
 
 ## License

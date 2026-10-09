@@ -62,7 +62,23 @@ export class BunMagicContextSyncStoreAdapter implements MagicContextSyncStorePor
         harness,
         anchors: harness === null ? [] : anchorsOf(db, sessionId, harness),
         project: recordedProjectOf(db, sessionId, harness),
+        reach: harness === null || !tables.has("compartments") ? 0 : reachOf(db, sessionId, harness),
       }
+    })
+  }
+
+  busy(contextDb: string, sessionId: string, now: number): boolean {
+    return withDb(contextDb, true, (db) => {
+      const tables = tablesOf(db, "main")
+      if (tables.has("compartment_state_lease")) {
+        const lease = db.query("select max(expires_at) as until from compartment_state_lease where session_id = ?").get(sessionId) as { until: number | null }
+        if (lease.until !== null && lease.until > now) return true
+      }
+      if (!tables.has("session_meta")) return false
+      const columns = new Set((db.query("pragma table_info(session_meta)").all() as { name: string }[]).map((row) => row.name))
+      if (!columns.has("wrapup_in_progress_state")) return false
+      const rows = db.query("select wrapup_in_progress_state as state from session_meta where session_id = ?").all(sessionId) as { state: string | null }[]
+      return rows.some((row) => wrapupRunning(row.state, now))
     })
   }
 
@@ -284,6 +300,22 @@ function withDb<T>(path: string, readonly: boolean, work: (db: Database) => T): 
 
 function tablesOf(db: Database, schema: "main" | "src"): ReadonlySet<string> {
   return new Set((db.query(`select name from ${schema}.sqlite_master where type = 'table'`).all() as { name: string }[]).map((row) => row.name))
+}
+
+function reachOf(db: Database, sessionId: string, harness: Harness): number {
+  const row = db.query("select max(end_message) as reach from compartments where session_id = ? and harness = ?").get(sessionId, harness) as { reach: number | null }
+  return row.reach ?? 0
+}
+
+/** A wrapup marker that has not expired. Magic Context writes it as JSON with `expiresAt`; anything unreadable counts as running. */
+function wrapupRunning(state: string | null, now: number): boolean {
+  if (state === null || state === "") return false
+  try {
+    const parsed = JSON.parse(state) as { expiresAt?: unknown }
+    return typeof parsed.expiresAt !== "number" || parsed.expiresAt > now
+  } catch {
+    return true
+  }
 }
 
 function anchorsOf(db: Database, sessionId: string, harness: Harness | null): string[] {

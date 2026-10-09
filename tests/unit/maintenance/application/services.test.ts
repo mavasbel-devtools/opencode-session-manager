@@ -84,6 +84,12 @@ test("SwapService moves every sidecar into the backup and restores them when a l
   assert.equal(fileSystem.exists("C:/x/opencode.db-wal"), false)
   assert.equal(fileSystem.size("C:/x/db-backup-1/opencode.db-wal"), 3)
 
+  swapper.undo({ dbPath: "C:/x/opencode.db", compacted: "C:/x/compact.db", backupDir: "C:/x/db-backup-1" }, moved)
+  assert.equal(fileSystem.size("C:/x/compact.db"), 3, "the copy is back where it came from")
+  assert.equal(fileSystem.size("C:/x/opencode.db"), 2, "the original is back")
+  assert.equal(fileSystem.size("C:/x/opencode.db-wal"), 3)
+  assert.equal(fileSystem.exists("C:/x/db-backup-1/opencode.db"), false)
+
   const failing = new FakeFileSystem()
   failing.add("C:/y/opencode.db", "db")
   failing.add("C:/y/opencode.db-wal", "wal")

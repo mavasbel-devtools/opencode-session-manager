@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
-import { GLOBAL_PROJECT, type ProjectIdentity } from "@session-manager/domain/model/Migration"
+import { GLOBAL_PROJECT, type ProjectIdentity } from "@session-manager/domain/model/PathMapping"
 import type { ProjectIdentityPort } from "@session-manager/domain/ports/outbound/ProjectIdentityPort"
 import { normalizeRemote } from "@session-manager/domain/services/GitRemote"
 

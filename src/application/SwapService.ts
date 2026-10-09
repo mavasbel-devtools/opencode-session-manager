@@ -1,5 +1,5 @@
 import { SwapFailedError } from "@session-manager/domain/errors/SwapFailedError"
-import { baseName } from "@session-manager/domain/model/DatabasePaths"
+import { baseName, dirName } from "@session-manager/domain/model/DatabasePaths"
 import { SIDECARS } from "@session-manager/domain/model/Sidecars"
 import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/outbound/MaintenanceFileSystemPort"
 import { joinPath } from "@session-manager/domain/model/DatabasePaths"
@@ -35,5 +35,15 @@ export class SwapService {
       throw new SwapFailedError(error instanceof Error ? error.message : String(error))
     }
     return moved.map((suffix) => baseName(input.dbPath) + suffix)
+  }
+
+  /**
+   * Reverses a swap that succeeded: the copy goes back to where it came from and the originals
+   * (`moved`, as `swap` returned them) come back from the backup.
+   */
+  undo(input: SwapInput, moved: readonly string[]): void {
+    this.fileSystem.rename(input.dbPath, input.compacted)
+    const folder = dirName(input.dbPath)
+    for (const name of moved) this.fileSystem.rename(joinPath(input.backupDir, name), joinPath(folder, name))
   }
 }

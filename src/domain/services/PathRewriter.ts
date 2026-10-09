@@ -1,4 +1,4 @@
-import type { PathMapping } from "@session-manager/domain/model/Migration"
+import type { PathMapping } from "@session-manager/domain/model/PathMapping"
 
 /** Escapes a literal for use inside a regular expression. */
 function literal(text: string): string {
@@ -46,7 +46,6 @@ export interface TextRewriter {
  * - drive paths `C:\Users\Me`, `C:/Users/Me` (also after `/`, as in `file:///C:/…` or `@fs/C:/…`, and
  *   `C\:\Users\Me` as Java properties escape it);
  * - `/mnt/c/Users/Me` (WSL), `/cygdrive/c/Users/Me`, `/c/Users/Me` (MSYS);
- * - `<mount>/Users/Me` for each folder the Windows drive is mounted at;
  * - `Users/Me` or `Users\Me` relative to `/`, the form OpenCode stores for a path below the root project.
  * Then each relocation moves a folder that lives somewhere else on this machine.
  */
@@ -56,7 +55,6 @@ export class PathRewriter implements TextRewriter {
   private readonly relocationHints: readonly string[]
   private readonly drivePath: RegExp
   private readonly posixPath: RegExp
-  private readonly mountPaths: readonly RegExp[]
   private readonly relativePath: RegExp
   private readonly relocations: readonly { readonly pattern: RegExp; readonly to: string; readonly absolute: boolean }[]
   private readonly residualPath: RegExp
@@ -72,9 +70,6 @@ export class PathRewriter implements TextRewriter {
       "g",
     )
     this.posixPath = new RegExp(String.raw`${START}(?:\/mnt|\/cygdrive)?\/${drive}\/${users}\/${user}${NAME_END}`, "g")
-    this.mountPaths = mapping.mounts.map(
-      (mount) => new RegExp(String.raw`${START}${literal(mount.replace(/\/+$/, ""))}\/${users}\/${user}${NAME_END}`, "g"),
-    )
     this.relativePath = new RegExp(
       String.raw`(?<=^|[^\w.\-/\\:]|\\[nrtbf]|${ANSI})${users}(\/|\\+)${user}${NAME_END}((?:(?:\1(?!\\)|\/)${SEGMENT})*)`,
       "g",
@@ -101,7 +96,6 @@ export class PathRewriter implements TextRewriter {
       return root + tail.split(separator).join("/")
     })
     out = out.replace(this.posixPath, home)
-    for (const mount of this.mountPaths) out = out.replace(mount, home)
     out = out.replace(this.relativePath, (_match, separator: string, tail: string) => home.slice(1) + tail.split(separator).join("/"))
     for (const relocation of this.relocations) {
       out = out.replace(relocation.pattern, (_match, slash: string | undefined) => {

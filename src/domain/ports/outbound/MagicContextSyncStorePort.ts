@@ -8,6 +8,8 @@ export interface SourceSessionState {
   /** Every message id the session's summaries start or end at. */
   readonly anchors: readonly string[]
   readonly project: string | null
+  /** The last message ordinal the session's summaries cover under that label (0 without summaries). */
+  readonly reach: number
 }
 
 export interface PlannedCopy {
@@ -47,4 +49,9 @@ export interface MagicContextSyncStorePort {
   copySessions(sourceDb: string, targetDb: string, copies: readonly PlannedCopy[]): readonly CopyResult[]
   stateOf(contextDb: string, sessionId: string): StoredSessionState
   health(contextDb: string): StoreHealth
+  /**
+   * Whether Magic Context is working on the session at `now` (epoch milliseconds): a wrapup in
+   * progress, or a history lease that has not expired.
+   */
+  busy(contextDb: string, sessionId: string, now: number): boolean
 }

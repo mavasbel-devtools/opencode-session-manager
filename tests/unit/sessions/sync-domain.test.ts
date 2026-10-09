@@ -55,14 +55,12 @@ describe("Magic Context sync rules", () => {
       home: "/home/me",
       windowsUser: "Me",
       drive: "C",
-      mounts: [],
       relocations: [],
     })
     expect(inferWindowsMapping("d:\\users\\Robin\\x\\", "/srv/x", "/home/r")).toEqual({
       home: "/home/r",
       windowsUser: "Robin",
       drive: "d",
-      mounts: [],
       relocations: [{ from: "/home/r/x", to: "/srv/x" }],
     })
     expect(inferWindowsMapping("C:/Users/Me", "/home/me", "/home/me")?.relocations).toEqual([])

@@ -1,16 +1,20 @@
 import type { OpenedProfile } from "@session-manager/domain/model/Browser"
-import { syncSideOf, type SyncRequest } from "@session-manager/domain/model/MagicContextSync"
+import { syncSideOf, type Resolution, type SyncRequest } from "@session-manager/domain/model/MagicContextSync"
+import { isPrefer, type Prefer } from "@session-manager/domain/model/SessionSync"
 import { profileAt } from "@session-manager/domain/model/Profile"
 import { hasContextState } from "@session-manager/domain/model/SessionCatalog"
 import type { CopyMagicContextPort } from "@session-manager/domain/ports/inbound/CopyMagicContextPort"
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
 import type { SyncMagicContextPort } from "@session-manager/domain/ports/inbound/SyncMagicContextPort"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
+import { parseOptions as parse } from "@session-manager/infrastructure/adapters/inbound/cli/arguments"
 
 export const CONTEXT_USAGE = [
   "usage: opencode-session-manager context copy --from <context.db> --to <file>",
-  "       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--replace] [--dry-run]",
+  "       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--dry-run]",
 ].join("\n")
+
+const RESOLUTION: Readonly<Record<Prefer, Resolution>> = { keep: "skip", further: "further", replace: "replace" }
 
 export interface ContextCliOptions {
   readonly copy: CopyMagicContextPort
@@ -24,8 +28,9 @@ export interface ContextCliOptions {
  * Context writes; the source is only read, so it is safe while OpenCode runs.
  * `context sync`: copies sessions' Magic Context state from one profile to another, for sessions
  * both hold; `--all` takes every such session the source has state for. A session the target already
- * has state for is replaced only with `--replace`. `--dry-run` builds and checks the result without
- * touching the target.
+ * has state for keeps it unless `--prefer replace` (or `--replace`), or `--prefer further` when the
+ * source's summaries reach further. `--dry-run` builds and checks the result without touching the
+ * target.
  */
 export class ContextCliAdapter {
   private readonly options: ContextCliOptions
@@ -50,12 +55,13 @@ export class ContextCliAdapter {
   }
 
   private sync(argv: readonly string[]): number {
-    const values = parse(argv, ["--from", "--to", "--session"], ["--all", "--replace", "--dry-run"])
+    const values = parse(argv, ["--from", "--to", "--session", "--prefer"], ["--all", "--replace", "--dry-run"])
     const from = values?.single.get("--from")
     const to = values?.single.get("--to")
     const ids = values?.many.get("--session") ?? []
     const all = values?.flags.has("--all") === true
-    if (values === null || from === undefined || to === undefined || (ids.length === 0) === !all) return this.usage()
+    const prefer = values?.flags.has("--replace") === true ? "replace" : (values?.single.get("--prefer") ?? "keep")
+    if (values === null || from === undefined || to === undefined || (ids.length === 0) === !all || !isPrefer(prefer)) return this.usage()
     const { profiles } = this.options
     const opened: OpenedProfile[] = []
     try {
@@ -67,7 +73,7 @@ export class ContextCliAdapter {
       const chosen = all
         ? [...new Set(source.catalog.sessions.filter((session) => hasContextState(session.magicContext) && onTarget.has(session.id)).map((session) => session.id))]
         : ids
-      const resolution = values.flags.has("--replace") ? "replace" : "skip"
+      const resolution = RESOLUTION[prefer]
       const sessions: SyncRequest[] = chosen.map((id) => ({ id, resolution }))
       const report = this.options.sync.sync({
         source: syncSideOf(source),
@@ -86,28 +92,4 @@ export class ContextCliAdapter {
     this.options.output.line(CONTEXT_USAGE)
     return 2
   }
-}
-
-interface Parsed {
-  readonly single: Map<string, string>
-  readonly many: Map<string, string[]>
-  readonly flags: Set<string>
-}
-
-/** `--name value` options (the last one wins, or all are kept for `--session`) and bare flags; null on anything else. */
-function parse(argv: readonly string[], withValue: readonly string[], bare: readonly string[]): Parsed | null {
-  const parsed: Parsed = { single: new Map(), many: new Map(), flags: new Set() }
-  for (let index = 0; index < argv.length; index++) {
-    const name = argv[index]!
-    if (bare.includes(name)) {
-      parsed.flags.add(name)
-      continue
-    }
-    const value = argv[index + 1]
-    if (!withValue.includes(name) || value === undefined || value.startsWith("--")) return null
-    parsed.single.set(name, value)
-    parsed.many.set(name, [...(parsed.many.get(name) ?? []), value])
-    index++
-  }
-  return parsed
 }

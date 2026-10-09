@@ -22,6 +22,12 @@ export class RollbackUseCase implements RollbackPort {
     this.runtime = runtime
   }
 
+  executeAll(input: Omit<RollbackInput, "dbPath"> & { readonly dbPaths: readonly string[] }): readonly RollbackOutcome[] {
+    for (const dbPath of input.dbPaths)
+      if (!this.fileSystem.exists(joinPath(input.backupDir, baseName(dbPath)))) throw new MissingOriginalError(input.backupDir)
+    return input.dbPaths.map((dbPath) => this.execute({ dbPath, backupDir: input.backupDir, image: input.image }))
+  }
+
   execute(input: RollbackInput): RollbackOutcome {
     const original = joinPath(input.backupDir, baseName(input.dbPath))
     if (!this.fileSystem.exists(original)) throw new MissingOriginalError(input.backupDir)

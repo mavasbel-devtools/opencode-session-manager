@@ -53,12 +53,6 @@ export class FakeFileSystem implements MaintenanceFileSystemPort {
     this.files.delete(path)
   }
 
-  removeDirectory(directory: string): void {
-    const prefix = `${directory}/`
-    if ([...this.files.keys()].some((file) => file.startsWith(prefix))) throw new Error(`ENOTEMPTY: ${directory}`)
-    this.directories.delete(directory)
-  }
-
   copyFile(from: string, to: string): void {
     const content = this.files.get(from)
     if (content === undefined) throw new Error(`ENOENT: ${from}`)

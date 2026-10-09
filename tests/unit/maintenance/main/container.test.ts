@@ -47,7 +47,7 @@ test("overrides replace adapters and drive a full preflight end to end", async (
 })
 
 test("rewriterFor builds the path rewriter for a migration's mapping", () => {
-  const rewriter = rewriterFor({ home: "/home/me", windowsUser: "Robin", drive: "C", mounts: [], relocations: [] })
+  const rewriter = rewriterFor({ home: "/home/me", windowsUser: "Robin", drive: "C", relocations: [] })
   assert.equal(rewriter.rewrite("C:\\Users\\Robin\\x"), "/home/me/x")
   assert.equal(rewriter.residual("Users/Robin"), true)
 })

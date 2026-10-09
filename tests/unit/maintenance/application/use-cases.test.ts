@@ -162,6 +162,23 @@ test("RollbackUseCase restores the originals and parks the current files", () =>
   assert.equal(w.fileSystem.size(`${backupDir}/rolled-back-${STAMP}/opencode.db`), "compacted".length)
 })
 
+test("RollbackUseCase.executeAll restores several databases from one backup, or none when one is missing", () => {
+  const w = world()
+  const backupDir = "C:/x/sync-backup-1"
+  const context = "C:/c/context.db"
+  w.fileSystem.add(`${backupDir}/opencode.db`, "original")
+  w.fileSystem.add(DB, "synced")
+  const useCase = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime)
+  assert.throws(() => useCase.executeAll({ dbPaths: [DB, context], backupDir, image: "x" }), /no original database/)
+  assert.equal(w.fileSystem.size(DB), "synced".length, "nothing was restored")
+
+  w.fileSystem.add(`${backupDir}/context.db`, "original context")
+  w.fileSystem.add(context, "synced context")
+  const outcomes = useCase.executeAll({ dbPaths: [DB, context], backupDir, image: "x" })
+  assert.deepEqual(outcomes.map((outcome) => outcome.restored), [["opencode.db"], ["context.db"]])
+  assert.equal(w.fileSystem.size(context), "original context".length)
+})
+
 test("RollbackUseCase refuses a missing backup and a running image", () => {
   const w = world()
   const useCase = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime)

@@ -44,18 +44,41 @@ describe("BunMagicContextSyncStoreAdapter reads", () => {
                  values ('ses_both', 9, 0, 0, 'new', 'new2', 't', 'c', 1, 'opencode2');
                  insert into session_projects values ('ses_both', 'opencode2', 'dir:new', 1)`,
     })
-    expect(store.sourceState(file("s"), "ses_both")).toEqual({ harness: "opencode2", anchors: ["new", "new2"], project: "dir:new" })
-    expect(store.sourceState(file("s"), "ses_v1")).toEqual({ harness: "opencode", anchors: ["m1", "m2"], project: "git:abc" })
-    expect(store.sourceState(file("s"), "ses_bare")).toEqual({ harness: null, anchors: [], project: null })
+    expect(store.sourceState(file("s"), "ses_both")).toEqual({ harness: "opencode2", anchors: ["new", "new2"], project: "dir:new", reach: 0 })
+    expect(store.sourceState(file("s"), "ses_v1")).toEqual({ harness: "opencode", anchors: ["m1", "m2"], project: "git:abc", reach: 1 })
+    expect(store.sourceState(file("s"), "ses_bare")).toEqual({ harness: null, anchors: [], project: null, reach: 0 })
     expect(store.recordedProject(file("s"), "ses_both")).toBe("dir:new")
     expect(store.recordedProject(file("s"), "ses_none")).toBeNull()
   })
 
   it("reads a store that lacks the tables as empty", () => {
     makeSyncContextStore(file("bare"), { without: ["compartments", "tags", "session_facts", "session_projects", "notes"] })
-    expect(store.sourceState(file("bare"), "ses_a")).toEqual({ harness: null, anchors: [], project: null })
+    expect(store.sourceState(file("bare"), "ses_a")).toEqual({ harness: null, anchors: [], project: null, reach: 0 })
     expect(store.recordedProject(file("bare"), "ses_a")).toBeNull()
     expect(store.stateOf(file("bare"), "ses_a")).toEqual({ compartments: 0, tags: 0, notes: 0, anchors: [] })
+  })
+
+  it("tells when Magic Context is working on a session: an unexpired lease or wrapup", () => {
+    makeSyncContextStore(file("busy"), {
+      sessions: { ses_lease: { meta: true }, ses_wrap: { meta: true }, ses_old: { meta: true }, ses_bad: { meta: true }, ses_free: { meta: true } },
+      extraSql: `insert into compartment_state_lease (session_id, holder_id, acquired_at, expires_at) values ('ses_lease', 'h', 0, 2000), ('ses_old', 'h', 0, 500);
+                 update session_meta set wrapup_in_progress_state = '{"expiresAt":2000}' where session_id = 'ses_wrap';
+                 update session_meta set wrapup_in_progress_state = '{"expiresAt":500}' where session_id = 'ses_old';
+                 update session_meta set wrapup_in_progress_state = 'not json' where session_id = 'ses_bad';
+                 update session_meta set wrapup_in_progress_state = '' where session_id = 'ses_free';`,
+    })
+    expect(["ses_lease", "ses_wrap", "ses_old", "ses_bad", "ses_free", "ses_none"].map((id) => store.busy(file("busy"), id, 1000))).toEqual([
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+    ])
+    makeSyncContextStore(file("bare-busy"), { without: ["compartment_state_lease", "session_meta"] })
+    expect(store.busy(file("bare-busy"), "ses_a", 1000)).toBe(false)
+    makeSyncContextStore(file("old-meta"), { without: ["compartment_state_lease"], extraSql: "alter table session_meta drop column wrapup_in_progress_state" })
+    expect(store.busy(file("old-meta"), "ses_a", 1000)).toBe(false)
   })
 
   it("checks a store's integrity and foreign keys", () => {

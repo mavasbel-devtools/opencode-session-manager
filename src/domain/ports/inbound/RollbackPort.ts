@@ -12,4 +12,6 @@ export interface RollbackOutcome {
 
 export interface RollbackPort {
   execute(input: RollbackInput): RollbackOutcome
+  /** Restores several databases from one backup folder; refuses before restoring any when one has no original there. */
+  executeAll(input: Omit<RollbackInput, "dbPath"> & { readonly dbPaths: readonly string[] }): readonly RollbackOutcome[]
 }

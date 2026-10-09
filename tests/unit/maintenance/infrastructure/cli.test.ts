@@ -65,7 +65,10 @@ function run(argv: readonly string[], stubs: Stubs = {}): { code: number; output
           postIntegrityOk: true,
         }),
       },
-    rollback: stubs.rollback ?? { execute: () => ({ restored: ["opencode.db"], parked: "C:/b/rolled-back-x" }) },
+    rollback: stubs.rollback ?? {
+      execute: () => ({ restored: ["opencode.db"], parked: "C:/b/rolled-back-x" }),
+      executeAll: (input) => input.dbPaths.map((dbPath) => ({ restored: [dbPath.split("/").at(-1)!], parked: "C:/b/rolled-back-x" })),
+    },
     output,
     runtime: new FakeRuntime(),
     environment: { XDG_DATA_HOME: "C:/data" },
@@ -76,23 +79,26 @@ function run(argv: readonly string[], stubs: Stubs = {}): { code: number; output
 }
 
 test("parseArguments reads the mode, --db, --keep and positionals", () => {
-  assert.deepEqual(parseArguments([]), { mode: undefined, positional: [], db: undefined, keep: false })
+  assert.deepEqual(parseArguments([]), { mode: undefined, positional: [], db: undefined, dbs: [], keep: false })
   assert.deepEqual(parseArguments(["run", "--db", "C:/x.db", "extra", "--keep"]), {
     mode: "run",
     positional: ["extra"],
     db: "C:/x.db",
+    dbs: ["C:/x.db"],
     keep: true,
   })
-  assert.deepEqual(parseArguments(["rollback", "C:/backup"]), {
+  assert.deepEqual(parseArguments(["rollback", "C:/backup", "--db", "C:/a.db", "--db", "C:/c.db"]), {
     mode: "rollback",
     positional: ["C:/backup"],
-    db: undefined,
+    db: "C:/c.db",
+    dbs: ["C:/a.db", "C:/c.db"],
     keep: false,
   })
   assert.deepEqual(parseArguments(["preflight", "--db"]), {
     mode: "preflight",
     positional: [],
     db: undefined,
+    dbs: [],
     keep: false,
   })
 })
@@ -193,6 +199,11 @@ test("rollback prints the restored files, and needs a backup directory", () => {
   assert.equal(rolled.output.lines[1], "ROLLED BACK restored=opencode.db parked=C:/b/rolled-back-x")
   assert.equal(run(["rollback"]).code, 2)
   assert.equal(run(["rollback"]).output.lines[1], USAGE)
+  const both = run(["rollback", "C:/backup", "--db", "C:/o/opencode.db", "--db", "C:/c/context.db"])
+  assert.deepEqual(both.output.lines.slice(1), [
+    "ROLLED BACK restored=opencode.db parked=C:/b/rolled-back-x",
+    "ROLLED BACK restored=context.db parked=C:/b/rolled-back-x",
+  ])
 })
 
 test("an unknown mode prints the usage and returns 2", () => {

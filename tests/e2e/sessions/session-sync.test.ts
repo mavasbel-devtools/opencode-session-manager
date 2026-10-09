@@ -1,0 +1,268 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { Database } from "bun:sqlite"
+import { mkdirSync, readdirSync, realpathSync } from "node:fs"
+import { join } from "node:path"
+import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import { buildContainer } from "@session-manager/main/cli-container"
+import { captureConsole, captureConsoleError } from "@test/support/maintenance/console"
+import { fileSha } from "@test/support/maintenance/database"
+import { makeRepository, query, sha1 } from "@test/support/maintenance/repositories"
+import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { makeOpenCode2Store, MIGRATIONS } from "@test/support/sessions/opencode-stores"
+import { makeSyncContextStore, rowsOf, type StateSpec } from "@test/support/sessions/sync-stores"
+
+const STAMP = "2026-10-09-12-00-00"
+const NO_IMAGE = "no-such-opencode-image"
+
+let directory = ""
+beforeEach(() => {
+  directory = realpathSync(temporaryWorkspace("oc-session-sync-e2e-"))
+})
+afterEach(() => {
+  removeTemporary(directory)
+})
+
+const at = (...parts: string[]) => join(directory, ...parts)
+const opencodeOf = (side: string) => at(side, "opencode", "opencode.db")
+const contextOf = (side: string) => at(side, "cortexkit", "magic-context", "context.db")
+const backupOf = () => at("linux", "opencode", `sync-backup-${STAMP}`)
+
+function runtime(): RuntimePort {
+  mkdirSync(at("tmp"), { recursive: true })
+  return {
+    pid: () => process.pid,
+    platform: () => process.platform,
+    now: () => Date.now(),
+    stamp: () => STAMP,
+    temporaryDirectory: () => at("tmp"),
+    homeDirectory: () => at("home"),
+  }
+}
+
+async function cli(argv: string[]) {
+  const out = captureConsole()
+  const errors = captureConsoleError()
+  try {
+    const container = await buildContainer({ OPENCODE_DB_COMPACT_IMAGE: NO_IMAGE }, { runtime: runtime() })
+    let code: number
+    try {
+      code = await container.run(argv)
+    } catch (error) {
+      errors.lines.push(`ERROR: ${error instanceof Error ? error.message : String(error)}`)
+      code = 1
+    }
+    const text = out.lines.join("\n")
+    return { code, json: text.startsWith("{") ? JSON.parse(text) : null, text, errors: errors.lines }
+  } finally {
+    out.restore()
+    errors.restore()
+  }
+}
+
+const compartments = (id: string, count: number) =>
+  Array.from({ length: count }, (_, index) => ({ start: `${id}-m${index}`, end: `${id}-m${index}`, content: `summary ${index} of C:\\Users\\Me\\repo` }))
+
+/**
+ * A Windows profile (`win`, its sessions under `C:/Users/Me`) and this machine's (`linux`), with
+ * this machine's home holding a git repository, a plain folder and a folder a session moved to.
+ */
+function makeProfiles(options: { sourceMigrations?: readonly string[]; targetContextSql?: string } = {}) {
+  const home = at("home")
+  makeRepository(join(home, "repo"), { remote: "https://GitHub.com/Ex/Repo.git", commit: true })
+  mkdirSync(join(home, "repo", "sub"), { recursive: true })
+  mkdirSync(join(home, "plain"), { recursive: true })
+  mkdirSync(join(home, "moved", "rep"), { recursive: true })
+  makeRepository(join(home, "scp"), { remote: "git@Example.org:team/scp.git", commit: true })
+
+  makeOpenCode2Store(opencodeOf("win"), {
+    projects: [
+      { id: "p_win_repo", worktree: "C:/Users/Me/repo", name: "Repo" },
+      { id: "p_win_gone", worktree: "C:/Users/Me/gone", name: "Gone" },
+    ],
+    sessions: [
+      { id: "ses_new", directory: "C:/Users/Me/repo", projectId: "p_win_repo", v1: true, extras: true },
+      { id: "ses_new_child", directory: "C:/Users/Me/repo/sub", projectId: "p_win_repo", parentId: "ses_new" },
+      { id: "ses_plain", directory: "C:/Users/Me/plain" },
+      { id: "ses_rep", directory: "C:/Users/Me/rep", entries: ["a", "b", "c"] },
+      { id: "ses_same", directory: "C:/Users/Me/plain" },
+      { id: "ses_same2", directory: "C:/Users/Me/plain" },
+      { id: "ses_busy", directory: "C:/Users/Me/plain" },
+      { id: "ses_div", directory: "C:/Users/Me/plain", entries: ["ses_div-m0", "x"] },
+      { id: "ses_hidden", directory: "C:/Users/Me", metadata: '{"magic_context":"hidden-run","role":"historian"}' },
+      { id: "ses_badmeta", directory: "C:/Users/Me/plain", metadata: "{hidden-run" },
+      { id: "ses_v1only", directory: "C:/Users/Me/plain", v1Only: true },
+      { id: "ses_gone", directory: "C:/Users/Me/gone/x", projectId: "p_win_gone" },
+      { id: "ses_scp", directory: "C:/Users/Me/scp" },
+      { id: "ses_deep", directory: "C:/Users/Me/moved/deep/x" },
+    ],
+    // The form OpenCode stores for a path below the root project, inside nested JSON.
+    extraSql: `update session_message set data = '{"title":"Users\\\\Me\\\\plain\\\\a.md"}' where id = 'ses_plain-m1'`,
+    ...(options.sourceMigrations === undefined ? {} : { migrations: options.sourceMigrations }),
+  })
+  makeOpenCode2Store(opencodeOf("linux"), {
+    projects: [
+      { id: "p_moved", worktree: join(home, "moved") },
+      { id: "p_moved_deep", worktree: join(home, "moved", "deep") },
+    ],
+    sessions: [
+      { id: "ses_rep", directory: join(home, "moved", "rep"), projectId: "p_moved", entries: ["a"] },
+      { id: "ses_same", directory: join(home, "plain") },
+      { id: "ses_same2", directory: join(home, "plain") },
+      { id: "ses_busy", directory: join(home, "plain") },
+      { id: "ses_div", directory: join(home, "plain"), entries: ["ses_div-m0", "y"] },
+    ],
+  })
+
+  const source: Record<string, StateSpec> = {
+    ses_new: { compartments: compartments("ses_new", 2), tags: 2, notes: ["see C:\\Users\\Me\\repo"], project: "dir:winrepo" },
+    ses_rep: { compartments: [{ start: "a", end: "c" }], tags: 1 },
+    ses_same: { compartments: compartments("ses_same", 2), tags: 1 },
+    ses_same2: { compartments: compartments("ses_same2", 1), tags: 1 },
+    ses_busy: { compartments: compartments("ses_busy", 2), tags: 1 },
+  }
+  makeSyncContextStore(contextOf("win"), { sessions: source })
+  makeSyncContextStore(contextOf("linux"), {
+    sessions: {
+      ses_same: { compartments: compartments("ses_same", 1), tags: 5, meta: true },
+      ses_same2: { compartments: compartments("ses_same2", 2), tags: 5 },
+      ses_busy: { compartments: compartments("ses_busy", 1), tags: 5, meta: true },
+    },
+    extraSql: `update session_meta set wrapup_in_progress_state = '{"expiresAt":1}' where session_id = 'ses_same';
+               update session_meta set wrapup_in_progress_state = 'not json' where session_id = 'ses_busy';
+               ${options.targetContextSql ?? ""}`,
+  })
+  return { home, repoId: sha1("git-remote:github.com/Ex/Repo"), plainId: sha1(`directory:${join(home, "plain")}`) }
+}
+
+describe("sync (real stores, the wired container)", () => {
+  it("rehearses, then copies whole sessions with their Magic Context state, and one rollback restores both stores", async () => {
+    const { home, repoId, plainId } = makeProfiles()
+    const before = { opencode: fileSha(opencodeOf("linux")), context: fileSha(contextOf("linux")) }
+    const sources = { opencode: fileSha(opencodeOf("win")), context: fileSha(contextOf("win")) }
+
+    const dry = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all", "--dry-run"])
+    expect(dry.code).toBe(0)
+    expect([fileSha(opencodeOf("linux")), fileSha(contextOf("linux"))]).toEqual([before.opencode, before.context])
+    const outcomes = dry.json.sessions.map((session: { id: string; relation: string | null; action: string; reason: string | null; project_source: string | null }) => [
+      session.id,
+      session.relation,
+      session.action,
+      session.reason,
+      session.project_source,
+    ])
+    expect(outcomes.sort()).toEqual([
+      ["ses_badmeta", "missing", "copy", null, "derived"],
+      ["ses_busy", "same", "keep", null, null],
+      ["ses_div", "diverged", "skip", "diverged", null],
+      ["ses_gone", "missing", "copy", null, "source"],
+      ["ses_hidden", null, "skip", "hidden-run", null],
+      ["ses_new", "missing", "copy", null, "derived"],
+      ["ses_plain", "missing", "copy", null, "derived"],
+      ["ses_rep", "source-ahead", "replace", null, "target"],
+      ["ses_same", "same", "keep", null, null],
+      ["ses_same2", "same", "keep", null, null],
+      ["ses_scp", "missing", "copy", null, "derived"],
+      ["ses_v1only", "missing", "copy", null, "derived"],
+      ["ses_deep", "missing", "copy", null, "target"],
+    ].sort())
+    const contextOutcome = (id: string) => dry.json.sessions.find((session: { id: string }) => session.id === id).context
+    expect([contextOutcome("ses_same").status, contextOutcome("ses_same2").reason, contextOutcome("ses_busy").reason, contextOutcome("ses_new").status]).toEqual([
+      "copied",
+      "target-further",
+      "busy",
+      "copied",
+    ])
+
+    const run = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all"])
+    expect(run.code).toBe(0)
+    expect(run.json.rollback).toBe(`opencode-session-manager rollback ${backupOf()} --db ${opencodeOf("linux")} --db ${contextOf("linux")}`)
+    expect([fileSha(opencodeOf("win")), fileSha(contextOf("win"))]).toEqual([sources.opencode, sources.context])
+    const target = opencodeOf("linux")
+    expect(query(target, "select id, project_id, directory, path from session_v2 where id in ('ses_new', 'ses_new_child', 'ses_plain', 'ses_rep', 'ses_gone') order by id")).toEqual([
+      { id: "ses_gone", project_id: "p_win_gone", directory: join(home, "gone", "x"), path: "x" },
+      { id: "ses_new", project_id: repoId, directory: join(home, "repo"), path: null },
+      { id: "ses_new_child", project_id: repoId, directory: join(home, "repo", "sub"), path: "sub" },
+      { id: "ses_plain", project_id: plainId, directory: join(home, "plain"), path: null },
+      { id: "ses_rep", project_id: "p_moved", directory: join(home, "moved", "rep"), path: "rep" },
+    ])
+    expect(query(target, "select project_id, directory from session where id = 'ses_v1only'")).toEqual([{ project_id: plainId, directory: join(home, "plain") }])
+    expect(query(target, "select project_id, path from session_v2 where id in ('ses_scp', 'ses_deep') order by id")).toEqual([
+      { project_id: "p_moved_deep", path: "x" },
+      { project_id: sha1("git-remote:example.org/team/scp"), path: null },
+    ])
+    expect(query(target, "select data from session_message where id = 'ses_plain-m1'")).toEqual([{ data: `{"title":"${home.slice(1)}/plain/a.md"}` }])
+    expect(query(target, "select data from session_message where session_id = 'ses_rep' order by seq")[2]).toEqual({
+      data: JSON.stringify({ cwd: join(home, "moved", "rep"), text: `edited ${join(home, "moved", "rep")}/file.ts` }),
+    })
+    expect(query(target, "select id, worktree, name from project where id in (?, 'p_win_gone') order by name", repoId)).toEqual([
+      { id: "p_win_gone", worktree: join(home, "gone"), name: "Gone" },
+      { id: repoId, worktree: join(home, "repo"), name: "Repo" },
+    ])
+    expect(query(target, "select count(*) as n from kv where key like '%/ses_new%'")).toEqual([{ n: 2 }])
+
+    const context = contextOf("linux")
+    expect(rowsOf(context, "select count(*) as n from compartments where session_id = 'ses_new'")).toEqual([{ n: 2 }])
+    expect(rowsOf(context, "select content from compartments where session_id = 'ses_new' order by sequence")[0]).toEqual({ content: `summary 0 of ${home}/repo` })
+    expect(rowsOf(context, "select count(*) as n from compartments where session_id = 'ses_same'")).toEqual([{ n: 2 }])
+    expect(rowsOf(context, "select count(*) as n from tags where session_id = 'ses_same2'")).toEqual([{ n: 5 }])
+    expect(rowsOf(context, "select project_path from session_projects where session_id = 'ses_new'")).toEqual([{ project_path: expect.stringMatching(/^git:[0-9a-f]{40}$/) }])
+
+    const rollback = await cli(["rollback", backupOf(), "--db", target, "--db", context])
+    expect(rollback.code).toBe(0)
+    expect([fileSha(target), fileSha(context)]).toEqual([before.opencode, before.context])
+    const missing = await cli(["rollback", backupOf(), "--db", target, "--db", at("nowhere", "x.db")])
+    expect(missing.errors[0]).toContain("no original database")
+  })
+
+  it("syncs named sessions only, and only the OpenCode store when one side has no Magic Context", async () => {
+    makeProfiles()
+    removeTemporary(at("linux", "cortexkit"))
+    const run = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_plain", "--session", "ses_nowhere", "--prefer", "keep"])
+    expect(run.code).toBe(0)
+    expect(run.json).toMatchObject({ target_context_db: null, sessions: [{ id: "ses_plain", action: "copy" }, { id: "ses_nowhere", reason: "not-on-source" }] })
+    expect(run.json.rollback).toBe(`opencode-session-manager rollback ${backupOf()} --db ${opencodeOf("linux")}`)
+  })
+
+  it("refuses a held target, different OpenCode formats, rules it cannot apply and bad arguments", async () => {
+    makeProfiles({ sourceMigrations: [...MIGRATIONS, "20261001000000_newer"] })
+    const newer = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all"])
+    expect(newer.errors[0]).toContain("is at OpenCode migration 20261001000000_newer")
+    removeTemporary(directory)
+    directory = realpathSync(temporaryWorkspace("oc-session-sync-e2e-"))
+
+    makeProfiles()
+    const holder = new Database(opencodeOf("linux"))
+    try {
+      expect((await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all"])).errors[0]).toContain("is held open by")
+    } finally {
+      holder.close()
+    }
+    const several = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all", "--map", "C:\\Users\\Other\\x=/y"])
+    expect(several.errors[0]).toContain("several Windows profiles")
+    const deeper = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all", "--map", "D:\\Users\\Me=/h", "--map", "C:\\Users\\Me\\x=/y"])
+    expect(deeper.errors[0]).toContain("map the Windows profile it is in as well")
+    const relative = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all", "--map", "rel/x=/y"])
+    expect(relative.errors[0]).toContain("the source folder must be absolute")
+    const rules = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all", "--dry-run", "--map", "C:\\Users\\Me=/srv/me", "--map", "C:\\Users\\Me\\plain=/srv/plain", "--map", "/srv/me/repo=/srv/repo"])
+    expect(rules.json.sessions.find((session: { id: string }) => session.id === "ses_plain").target_directory).toBe("/srv/plain")
+    expect(rules.json.sessions.find((session: { id: string }) => session.id === "ses_new").target_directory).toBe("/srv/repo")
+    const usage = await cli(["sync", "--from", at("win")])
+    expect([usage.code, usage.text]).toEqual([
+      2,
+      "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--dry-run]",
+    ])
+  })
+
+  it("undoes the OpenCode swap when the Magic Context swap fails, leaving both stores as they were", async () => {
+    makeProfiles()
+    const before = { opencode: fileSha(opencodeOf("linux")), context: fileSha(contextOf("linux")) }
+    // A full folder where the Magic Context original would go: its rename fails after the OpenCode one succeeded.
+    mkdirSync(join(backupOf(), "context.db", "occupied"), { recursive: true })
+    const failed = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all"])
+    expect(failed.code).toBe(1)
+    expect([fileSha(opencodeOf("linux")), fileSha(contextOf("linux"))]).toEqual([before.opencode, before.context])
+    expect(readdirSync(backupOf())).toEqual(["context.db"])
+    expect(readdirSync(at("linux", "opencode")).filter((name) => name.includes("incoming"))).toEqual([])
+    expect(readdirSync(at("linux", "cortexkit", "magic-context")).filter((name) => name.includes("incoming"))).toEqual([])
+  })
+})
