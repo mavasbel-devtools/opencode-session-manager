@@ -63,10 +63,13 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
    `VACUUM INTO` from a read-only connection.
 7. A migration **only ever writes copies it made itself**, and the result passes
    the seven gates of `MigrationVerifier` before the same swap.
-8. Reading a profile (`sessions`, `tui`) and copying a Magic Context store
-   (`context copy`) open their sources **read-only**; they are the only
-   commands allowed while OpenCode runs. A store that cannot be opened in place
-   is read from a private temporary copy, removed afterwards.
+8. Reading a profile (`sessions`, the browser `tui`), `preflight` and copying a
+   Magic Context store (`context copy`) open their sources **read-only** and are
+   the only commands allowed while OpenCode runs. A store that cannot be opened
+   in place is read from a private temporary copy, removed afterwards. The
+   browser writes only when the user applies its queue (`a`), through the same
+   use case as `context sync` and under rule 10; its dry run (`d`) writes only
+   private copies.
 9. Magic Context's own code runs **only on copies, only in a child process**
    whose `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` and
    `XDG_CONFIG_HOME` point into a throwaway sandbox
@@ -97,11 +100,17 @@ defined in `src/domain/model/Migration.ts`.
 
 ### Declared fault-injection seams (e2e only)
 
-`DemandingSpacePolicy` (demands more space than any disk has),
-`TamperingSqlite` (really deletes a row from the copy after the vacuum) and
-`FakeRuntime` (pins the timestamp, reports a platform without adapters), all in
-`tests/support/maintenance/`. Nothing else in the e2e tier is faked; the
-swap-restore and migration failures are real filesystem and database conditions.
+`DemandingSpacePolicy` (demands more space than any disk has) and
+`TamperingSqlite` (really deletes a row from the copy after the vacuum), in
+`tests/support/maintenance/faults.ts`; `FakeRuntime`
+(`tests/support/maintenance/fakes/runtime.ts`: pins the timestamp, reports a
+platform without adapters); and `makeMagicContextPackage`
+(`tests/support/sessions/magic-context-package.ts`: a stand-in for the installed
+Magic Context package with its exported store functions, backed by real SQLite).
+Nothing else in the e2e tier is faked: swap-restore, migration and sync failures
+are real filesystem and database conditions — a file in the backup's place, a
+connection the test holds open, an SQLite trigger in the target store that
+aborts a write or moves a summary's anchor.
 
 ## 4. Architecture law (strict hexagonal)
 
@@ -163,6 +172,17 @@ by session id), `BrowserQueue.ts` (Magic Context copies and their conflicts) and
 `src/infrastructure/adapters/inbound/manager-tui/` turns keys into
 actions (`keys.ts`), state into text (`format.ts`) and paints it
 (`OpenTuiBrowser.tsx`, the only file there that imports OpenTUI at run time).
+Applying is asked of the program around the view through `BrowserControls`
+(`controls.ts`), wired by `BrowseCliAdapter` to `ApplyQueueUseCase`, which runs
+one `SyncMagicContextUseCase` per direction that has entries (left to right
+first), reads each changed side again and returns lines for a person. The view
+dispatches a `notice` first and starts the work after a short timer (`PAINT_BEFORE_WORK_MS`), so "Applying…"
+is painted before the synchronous work blocks; the outcome arrives as an
+`applied` action (a change clears the queue and replaces the side's catalog).
+Tests that wait on that timer use `waitForText` (`tests/support/sessions/frames.ts`):
+OpenTUI's `waitForFrame` renders passes back to back and cannot see work behind a
+timer.
+
 It bundles its own Solid and OpenTUI: `scripts/build.mjs` compiles it with
 OpenTUI's Solid transform, and `bunfig.toml` preloads the same transform for
 `bun run cli`. The compiled executable is built with `autoloadBunfig`,
@@ -177,6 +197,157 @@ Bun's `os.homedir()` caches its first answer and ignores a later `HOME`
 base therefore comes from `HomeDirectoryPort`
 (`SystemHomeDirectoryAdapter` reads `HOME`/`USERPROFILE` per call), and every
 test that expands `~` points `HOME` at a temporary directory.
+
+### Source map
+
+Every file under `src`, by layer (the docs lint fails when one is missing here).
+Areas: **plugin** (session id, transfer), **maintenance** (compaction,
+migration), **sessions** (profiles, browser, Magic Context).
+
+**`src/domain/model`** — plain data and pure functions.
+
+| File | Area | Role |
+|---|---|---|
+| `Browser.ts` | sessions | the browser reducer (`createBrowser`, `reduce`): cursors, linked panes, layout, marks, queue view, apply results |
+| `BrowserState.ts` | sessions | the browser's state types |
+| `BrowserRows.ts` | sessions | the left, right and paired lists: grouping by folder, filter, matching by session id |
+| `BrowserQueue.ts` | sessions | the queue of Magic Context copies, conflicts and their resolutions; `requestsFor` turns it into sync requests |
+| `Profile.ts` | sessions | a profile (data home → `opencode.db` + `context.db`), `profileAt`, `profileOfFiles`, `defaultDataHome` |
+| `SessionCatalog.ts` | sessions | stored sessions (v1/v2), Magic Context counts per session, the joined catalog |
+| `MagicContextSync.ts` | sessions | sync requests, sides, history relation (`relationOf`), harness labels, the sync report and its summary for a person |
+| `MagicContextRelease.ts` | sessions | the installed Magic Context release, an upgrade's outcome, the `context copy` report |
+| `Migration.ts` | maintenance | path mapping, relocations, the tables a migration leaves untouched, the migration report |
+| `Build.ts` | maintenance | the six checks of a compacted copy |
+| `Database.ts` | maintenance | page statistics, schema, header and per-table fingerprints of a database |
+| `DatabasePaths.ts` | all | `baseName`, `dirName`, `joinPath` for either separator, so inner layers never import `node:path` |
+| `Sidecars.ts` | maintenance | a database's `-wal`/`-shm`/`-journal` sidecars |
+| `Paths.ts` | plugin | `~` expansion and abbreviation |
+| `Session.ts` | plugin | session summaries, projects, transfer and move results, picker options |
+| `SessionId.ts` | plugin | the session-id guard and sidebar text |
+| `SidebarEntry.ts` | plugin | one sidebar line |
+
+**`src/domain/services`** — pure rules.
+
+| File | Area | Role |
+|---|---|---|
+| `PathRewriter.ts` | maintenance, sessions | `TextRewriter`: rewrites Windows profile paths in text, through nested JSON escaping; counts what is left |
+| `WindowsMapping.ts` | sessions | the mapping a session's own folders imply (Windows profile → this home, plus a moved folder) |
+| `GitRemote.ts` | maintenance | a remote URL in the form OpenCode hashes into a project id |
+| `PosixPaths.ts` | maintenance | `isWithin`, `sessionSubpath` |
+| `FingerprintComparer.ts` | maintenance | names every difference between two database fingerprints |
+| `ParityPolicy.ts` | maintenance | whether a build passed (strict offline, drift-tolerant rehearsal) |
+| `RequiredSpacePolicy.ts` | maintenance | free space a compaction needs |
+
+**`src/domain/errors`** — one class per file: `DatabaseError.ts`,
+`DatabaseHeldError.ts`, `DatabaseNotFoundError.ts`, `InsufficientSpaceError.ts`,
+`MissingOriginalError.ts`, `ProcessRunningError.ts`, `SwapFailedError.ts`,
+`TargetExistsError.ts`, `UnsupportedPlatformError.ts` (maintenance);
+`MagicContextFormatMismatchError.ts`, `MagicContextTooNewError.ts`,
+`MagicContextUnavailableError.ts`, `MagicContextUpgradeError.ts`,
+`ProfileUnreadableError.ts`, `SyncVerificationError.ts` (sessions);
+`InvalidDirectoryError.ts`, `MissingSessionIdError.ts`,
+`SessionNotFoundError.ts` (plugin).
+
+**`src/domain/tool`** — `SessionIdToolDefinition.ts`, the frozen tool surface.
+
+**`src/domain/ports/inbound`** — one per use case: `CompactPort.ts`,
+`PreflightPort.ts`, `RehearsePort.ts`, `RollbackPort.ts`, `MigratePort.ts`
+(maintenance); `OpenProfilePort.ts`, `CatalogProfilePort.ts`,
+`CopyMagicContextPort.ts`, `SyncMagicContextPort.ts`, `ApplyQueuePort.ts`
+(sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`,
+`MoveSessionPort.ts`, `TransferSessionPort.ts`, `BuildDirectoryOptionsPort.ts`
+(plugin).
+
+**`src/domain/ports/outbound`** — what the inner layers need from outside:
+`SqlitePort.ts`, `MigrationStorePort.ts`, `ProjectIdentityPort.ts`,
+`ProcessListPort.ts`, `DatabaseHoldersPort.ts`, `MaintenanceFileSystemPort.ts`,
+`ReportSinkPort.ts`, `RuntimePort.ts`, `OutputPort.ts` (maintenance and the
+program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
+`MagicContextSyncStorePort.ts`, `MagicContextReleasePort.ts`,
+`MagicContextIdentityPort.ts` (sessions); `SessionHostPort.ts`,
+`SessionDbPort.ts`, `ProjectResolverPort.ts`, `FileSystemPort.ts`,
+`KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`,
+`SidebarViewPort.ts` (plugin).
+
+**`src/application`** — use cases and the services they compose.
+
+| File | Area | Role |
+|---|---|---|
+| `PreflightUseCase.ts` | maintenance | read-only sizes, page statistics, free disk, running OpenCode |
+| `RehearseUseCase.ts` | maintenance | build and check a compacted copy away from the database |
+| `CompactUseCase.ts` | maintenance | guard, build, check, swap, write evidence |
+| `RollbackUseCase.ts` | maintenance, sessions | put a backup's originals back (an `opencode.db` or a `context.db`) |
+| `MigrateUseCase.ts` | maintenance | copy, rewrite, merge, re-key, verify, swap |
+| `BuildAndVerifyService.ts` | maintenance | `VACUUM INTO` and the six checks |
+| `GuardService.ts` | maintenance, sessions | refuse while OpenCode runs, a process holds the file, or space is short |
+| `SwapService.ts` | maintenance, sessions | rename-only swap into a backup folder, restored on failure |
+| `DatabaseSizesService.ts` | maintenance | sizes of a database and its sidecars |
+| `RewriteService.ts` | maintenance | rewrite every text cell of a migration copy |
+| `RekeyService.ts` | maintenance | put every session on the project OpenCode derives here |
+| `MigrationVerifier.ts` | maintenance | the seven migration gates |
+| `OpenProfileUseCase.ts` | sessions | open a profile read-only, from a snapshot when needed, and close it |
+| `CatalogProfileUseCase.ts` | sessions | join a profile's sessions with their Magic Context counts |
+| `CopyMagicContextUseCase.ts` | sessions | copy a store and upgrade the copy with the installed Magic Context |
+| `SyncMagicContextUseCase.ts` | sessions | copy sessions' Magic Context state between profiles, check, swap |
+| `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one sync per direction |
+| `ResolveSessionIdToolUseCase.ts` | plugin | the `session-id` tool |
+| `RenderSidebarEntryUseCase.ts` | plugin | the sidebar line |
+| `MoveSessionUseCase.ts` | plugin | v2 transfer through the host |
+| `TransferSessionUseCase.ts` | plugin | v1 transfer through the store |
+| `BuildDirectoryOptionsUseCase.ts` | plugin | the transfer picker's options |
+
+**`src/infrastructure/adapters/inbound`**
+
+| File | Role |
+|---|---|
+| `cli/CliRouter.ts` | sends each command family to its adapter |
+| `cli/CompactCliAdapter.ts` | `preflight`, `rehearse`, `run`, `rollback` |
+| `cli/MigrateCliAdapter.ts` | `migrate` |
+| `cli/SessionsCliAdapter.ts` | `sessions` |
+| `cli/ContextCliAdapter.ts` | `context copy`, `context sync` |
+| `cli/BrowseCliAdapter.ts` | `tui`: opens the profiles, shows the browser, wires its controls |
+| `cli/HelpCliAdapter.ts` | `--help`, `--version` |
+| `manager-tui/OpenTuiBrowser.tsx` | the browser view (the only file there importing OpenTUI at run time) |
+| `manager-tui/keys.ts` | keys → commands |
+| `manager-tui/format.ts` | state → text |
+| `manager-tui/controls.ts` | `BrowserControls`: what the view asks of the program |
+| `server/SessionIdToolV2Adapter.ts` | registers the `session-id` tool (v2) |
+| `tui/SessionIdSidebarSlotV2Adapter.ts` | the sidebar slot (v2) |
+| `tui/SessionTransferV2TuiAdapter.ts`, `tui/SessionTransferV1TuiAdapter.ts` | `/transfer-session` (v2, v1) |
+
+**`src/infrastructure/adapters/outbound`**
+
+| File | Role |
+|---|---|
+| `sqlite/BunSqliteAdapter.ts` | read-only reads, `VACUUM INTO`, fingerprints, checks |
+| `sqlite/BunMigrationStoreAdapter.ts` | writes to a migration's working copy |
+| `sqlite/BunSessionStoreAdapter.ts` | reads `opencode.db` sessions and their message ids |
+| `sqlite/BunMagicContextStoreAdapter.ts` | reads a `context.db`'s counts and format |
+| `sqlite/BunMagicContextSyncStoreAdapter.ts` | reads and writes session state in `context.db` working copies |
+| `sqlite/SqliteSessionDbAdapter.ts` | the OpenCode 1 store, for the v1 transfer |
+| `magic-context/InstalledMagicContextAdapter.ts` | finds the installed Magic Context and runs its store code in a sandboxed child process |
+| `magic-context/MagicContextIdentityAdapter.ts` | Magic Context's project identity of a folder |
+| `project/GitProjectIdentityAdapter.ts` | OpenCode 2's project id of a folder |
+| `project/ProjectResolverAdapter.ts` | OpenCode 1.18.32's project resolution |
+| `platform/linux/ProcProcessListAdapter.ts`, `platform/linux/ProcFdHoldersAdapter.ts`, `platform/linux/ProcFs.ts` | Linux: running processes and file holders from `/proc` |
+| `platform/win32/TasklistAdapter.ts`, `platform/win32/RenameProbeHoldersAdapter.ts` | Windows: `tasklist` and the rename probe |
+| `fs/NodeMaintenanceFileSystemAdapter.ts` | the program's file operations |
+| `fs/NodeFileSystemAdapter.ts` | the plugin's file operations |
+| `fs/JsonReportAdapter.ts` | JSON evidence files |
+| `system/ConsoleOutputAdapter.ts` | the program's stdout |
+| `system/SystemClockAdapter.ts` | time, process id, platform, temp and home folders |
+| `system/SystemHomeDirectoryAdapter.ts` | the home folder, read per call |
+| `opencode2/OpenCode2HostAdapter.ts` | the OpenCode 2 host API |
+| `tui/HostThemePaletteV2Adapter.ts`, `tui/OpenTuiSidebarViewAdapter.tsx` | theme colours and the sidebar line view |
+
+**`src/infrastructure/host`** — the v2 host API typed structurally:
+`V2ServerContext.ts`, `V2TuiContext.ts`, `V2Client.ts`.
+
+**`src/main`** — composition roots and entries: `server-container.ts`,
+`tui-container.ts`, `v1-container.ts`, `cli-container.ts`,
+`linux-container.ts`, `win32-container.ts`, `plugin-id.ts` (plugin ids);
+`v2/server.ts`, `v2/tui.ts`, `v1/server.ts`, `v1/tui.ts`; `cli/cli.ts` (the
+program's entry), `cli/platform.ts` (loads one platform's container).
 
 ## 5. Host behaviour this plugin relies on
 
@@ -211,11 +382,36 @@ test that expands `~` points `HOME` at a temporary directory.
 |---|---|---|
 | unit | one class at a time with stand-ins; the architecture, SOLID, platform, host-fixture and coverage-completeness gates | **measured, 100%** |
 | component | the wired plugin painted by the real OpenTUI renderer; tool parity; real SQLite compacting and migrating real databases | not gated |
-| e2e | `src` driven end to end in-process: the v2 entries through the real 2.0.14 `Host.resolve`/`Host.load` and slot resolver; the v1 entries over a real SQLite store, real directories and real git repositories; the CLI container over real databases, folders and git repositories, and legacy parity | **measured, 100%, per platform** |
-| live | the real `opencode` executable, the built bundles, the installer, the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`); the CLI on a snapshot of the real `opencode.db`, and a real migration listed by a sandboxed OpenCode (when `OPENCODE_DB_MIGRATE_LIVE_SOURCE` and `OPENCODE_DB_MIGRATE_LIVE_USER` are set) | not measurable |
+| e2e | `src` driven end to end in-process: the v2 entries through the real 2.0.14 `Host.resolve`/`Host.load` and slot resolver; the v1 entries over a real SQLite store, real directories and real git repositories; the CLI container over real databases, Magic Context stores, folders and git repositories, legacy parity, and the browser applying its queue in OpenTUI's test renderer | **measured, 100%, per platform** |
+| live | the real `opencode` executable, the built bundles, the installers, the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`); the CLI on a snapshot of the real `opencode.db`; the compiled browser in a pseudo-terminal; the installed Magic Context upgrading and opening real store copies; a real migration (when `OPENCODE_DB_MIGRATE_LIVE_SOURCE` and `OPENCODE_DB_MIGRATE_LIVE_USER` are set) and a real sync into a copy of this machine's profile (when `OPENCODE_SM_LIVE_OTHER_PROFILE` is set). Variables: README, *Environment variables* | not measurable |
 
 Coverage tools only see code executed in the test process, so "e2e" is the
 in-process real-host tier and "live" is the real external process.
+
+### Test support (`tests/support`)
+
+| File | What it gives a test |
+|---|---|
+| `source-files.ts` | every `src` file, for the architecture and completeness gates |
+| `fakes/hosts.ts`, `fakes/transfer-ports.ts` | stand-ins for the OpenCode hosts and the transfer ports |
+| `fixtures/host-2.0.14/` | verbatim OpenCode 2.0.14 host sources (re-extracted, never edited), so tests run the host's own rules |
+| `fixtures/legacy-session-id-index.js`, `fixtures/legacy-session-id-index.d.ts` | the hand-written tool this plugin replaced, kept verbatim |
+| `live/process.ts` | runs processes, finds OpenCode, `removeTemporary()`/`removeTemporarySync()` |
+| `live/isolated-host.ts` | an OpenCode with every XDG folder, its home and server password private to the test |
+| `live/load-built-tui.ts` | loads the built v2 TUI bundle |
+| `live/drive-tui.mjs`, `live/drive-transfer.mjs`, `live/drive-browser.mjs` | drive a real TUI (OpenCode's, or the compiled browser) in a pseudo-terminal with `node-pty` and a headless terminal |
+| `maintenance/fakes/*.ts` | stand-ins for the maintenance ports: file system, holders, processes, SQLite, migration store, output, report sink, runtime |
+| `maintenance/faults.ts` | the declared fault-injection seams (`DemandingSpacePolicy`, `TamperingSqlite`) |
+| `maintenance/database.ts`, `maintenance/migration.ts` | real databases: OpenCode-shaped stores, a Windows store and a home folder of real repositories |
+| `maintenance/console.ts`, `maintenance/temporary.ts`, `maintenance/platform.ts` | captured output, guarded temporary folders, facts about the machine |
+| `maintenance/fixtures/legacy/` | the original compactor, kept verbatim for the parity test |
+| `sessions/stores.ts` | small `opencode.db` and `context.db` stores with given sessions and counts |
+| `sessions/sync-stores.ts` | Magic Context stores with the real format-94 tables and per-session state (`makeSyncContextStore`, `rowsOf`) |
+| `sessions/magic-context-94.sql` | the exact `CREATE` statements of the tables a sync touches, read from a live 0.45.0 store with `select sql from sqlite_master where name in (…)`; refresh it the same way when Magic Context changes format |
+| `sessions/magic-context-package.ts` | a stand-in Magic Context package (declared seam) |
+| `sessions/catalogs.ts` | catalogued sessions and opened profiles for browser tests |
+| `sessions/frames.ts` | `waitForText`: waits in real time for text in OpenTUI's test renderer |
+| `sessions/terminal-streams.ts` | a silent terminal for OpenTUI's renderer |
 
 ### Coverage law
 
@@ -260,7 +456,20 @@ the command in use); `validate:installed:cli` byte-compares it and runs
 `validate:installed:v2` / `validate:installed:v1` byte-compare the installed
 files with `dist/`, check the module shapes, and fail if another form is present.
 
-## 9. Definition of done
+## 9. Documents
+
+`README.md` is for users, this file for whoever changes the code. Everything else
+lives under `docs/`, named `YYYY-MM-DD-HH-MM-<name>.md` with the real time:
+`docs/plans/` (approved plans), `docs/research/` (designs and evaluations before a
+plan), `docs/reference/` (ground truth: external formats, frozen predecessors'
+docs), `docs/issues/` (bugs being chased), `docs/sessions/` (an agent session's
+state), `docs/temp/` (scratch). `bun run lint:diagrams` checks fences, mermaid
+blocks, that referenced paths exist (except under `docs/reference/`), that every
+`bun run` script named exists, and that README and this file name every `src`
+file, every `tests/support` file, every `package.json` script and every
+environment variable the code reads.
+
+## 10. Definition of done
 
 A change is done only when:
 
@@ -272,7 +481,7 @@ A change is done only when:
 5. `bun run lint:diagrams` passes and README / AGENTS / package.json / code agree;
 6. a secrets and personal-data scan of the staged diff is clean and the diff has been read.
 
-## 10. Git
+## 11. Git
 
 Dev dependencies are pinned exactly (no `^`/`~`/`latest`); the built plugin and
 the compiled CLI have no runtime dependencies. `node_modules/`, `dist/`, `build/`, `coverage/` are

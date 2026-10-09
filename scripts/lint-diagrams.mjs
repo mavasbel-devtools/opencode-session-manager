@@ -6,9 +6,14 @@
  *  3. every repo-relative path referenced in docs (src/…, tests/…, scripts/…, docs/…) exists, except in
  *     docs/reference/, which holds frozen snapshots of the predecessors' docs and their old paths
  *  4. every package.json script named in README.md/AGENTS.md as `bun run <name>` exists
+ *  5. README.md and AGENTS.md together name every package.json script as `bun run <name>`, every
+ *     environment variable the code reads (OPENCODE_*, XDG_*, MAGIC_CONTEXT_*), and AGENTS.md names
+ *     every file under src/ and tests/support/ (by its path below the layer or support folder, or by
+ *     its file name when that is unique, or through a mentioned folder written as `dir/` or `dir/*`)
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { join, relative } from "node:path"
+import { spawnSync } from "node:child_process"
+import { basename, dirname, join, relative } from "node:path"
 
 const ROOT = join(import.meta.dir, "..")
 const failures = []
@@ -49,6 +54,36 @@ for (const doc of docs) {
     for (const match of text.matchAll(/bun run ([a-z0-9:_-]+)/g)) if (!scripts.has(match[1])) failures.push(`${rel}: unknown script 'bun run ${match[1]}'`)
   }
 }
+
+// 5. Nothing the code has goes unmentioned.
+const readme = readFileSync(join(ROOT, "README.md"), "utf8")
+const agents = readFileSync(join(ROOT, "AGENTS.md"), "utf8")
+const both = `${readme}\n${agents}`
+for (const script of scripts) if (!both.includes(`bun run ${script}`)) failures.push(`README.md/AGENTS.md: script '${script}' is never named as 'bun run ${script}'`)
+
+const tracked = (folder) =>
+  spawnSync("git", ["ls-files", folder], { cwd: ROOT, encoding: "utf8" }).stdout.split("\n").filter((line) => line.length > 0)
+const variables = new Set()
+for (const file of [...tracked("src"), ...tracked("tests"), ...tracked("scripts")]) {
+  if (!/\.(tsx?|mjs|js)$/.test(file)) continue
+  for (const match of readFileSync(join(ROOT, file), "utf8").matchAll(/\b(?:OPENCODE|XDG|MAGIC_CONTEXT)_[A-Z0-9_]+\b/g)) variables.add(match[0])
+}
+for (const variable of [...variables].sort()) if (!both.includes(variable)) failures.push(`README.md/AGENTS.md: environment variable ${variable} is never named`)
+
+function unmentioned(folder) {
+  const files = tracked(folder).map((file) => relative(join(ROOT, folder), join(ROOT, file)))
+  const names = new Map()
+  for (const file of files) names.set(basename(file), (names.get(basename(file)) ?? 0) + 1)
+  return files.filter((file) => {
+    if (agents.includes(file)) return false
+    const name = basename(file)
+    if (names.get(name) === 1 && agents.includes(name)) return false
+    for (let dir = dirname(file); dir !== "."; dir = dirname(dir)) if (agents.includes(`${dir}/\``) || agents.includes(`${dir}/*`)) return false
+    return true
+  })
+}
+for (const file of unmentioned("src")) failures.push(`AGENTS.md: src/${file} is missing from the source map`)
+for (const file of unmentioned("tests/support")) failures.push(`AGENTS.md: tests/support/${file} is missing from the test support table`)
 
 if (failures.length) {
   console.error(`docs lint FAILED (${failures.length}):`)
