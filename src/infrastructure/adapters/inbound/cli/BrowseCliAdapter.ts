@@ -1,9 +1,11 @@
 import { createBrowser, type BrowserState, type OpenedProfile } from "@session-manager/domain/model/Browser"
 import { defaultDataHome, profileAt, profileOfFiles, type Profile } from "@session-manager/domain/model/Profile"
+import type { ApplyQueuePort } from "@session-manager/domain/ports/inbound/ApplyQueuePort"
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 import type { CliEnvironment } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
+import type { BrowserControls } from "@session-manager/infrastructure/adapters/inbound/manager-tui/controls"
 
 export const TUI_USAGE =
   "usage: opencode-session-manager tui [--left <dataHome> | --left-db <opencode.db> [--left-context <context.db>]] [--right <dataHome> | --right-db <opencode.db> [--right-context <context.db>]]"
@@ -15,8 +17,9 @@ export interface BrowseCliOptions {
   readonly output: OutputPort
   readonly runtime: RuntimePort
   readonly environment: CliEnvironment
+  readonly apply: ApplyQueuePort
   /** Shows the browser and resolves when the user quits. */
-  readonly show: (initial: BrowserState) => Promise<void>
+  readonly show: (initial: BrowserState, controls: BrowserControls) => Promise<void>
 }
 
 /**
@@ -51,16 +54,22 @@ export class BrowseCliAdapter {
     const leftProfile = profileFor("left")
     const rightProfile = profileFor("right")
     if (leftProfile === undefined || rightProfile === undefined) return this.usage()
-    const opened: OpenedProfile[] = []
+    const shown: { left?: OpenedProfile; right?: OpenedProfile } = {}
     try {
-      const left = profiles.open(leftProfile as Profile)
-      opened.push(left)
-      const right = rightProfile === null ? null : profiles.open(rightProfile)
-      if (right !== null) opened.push(right)
-      await this.options.show(createBrowser(left, right, 1))
+      shown.left = profiles.open(leftProfile as Profile)
+      if (rightProfile !== null) shown.right = profiles.open(rightProfile)
+      const controls: BrowserControls = {
+        apply: (queue, dryRun) => {
+          const outcome = this.options.apply.apply({ queue, left: shown.left!, right: shown.right!, dryRun })
+          // A side read again replaces the one shown; the use case closed the old one.
+          Object.assign(shown, outcome.left === undefined ? {} : { left: outcome.left }, outcome.right === undefined ? {} : { right: outcome.right })
+          return outcome
+        },
+      }
+      await this.options.show(createBrowser(shown.left, shown.right ?? null, 1), controls)
       return 0
     } finally {
-      for (const profile of opened) profiles.close(profile)
+      for (const profile of [shown.left, shown.right]) if (profile !== undefined) profiles.close(profile)
     }
   }
 

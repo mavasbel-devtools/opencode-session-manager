@@ -115,6 +115,8 @@ describe("browser text", () => {
       queue: [{ id: "ses_q", title: "Q", direction: "to-right", source: stats, conflict: true, resolution: null, ...entry }],
     })
     expect(detailLines({ ...one, view: "queue" }, undefined)).toEqual(["The queue is empty: mark sessions (Space) and queue copies with > or <."])
+    expect(detailLines({ ...one, view: "queue", lastResult: ["Applied: 1", "two"] }, undefined)).toEqual(["Applied: 1", "two"])
+    expect(detailLines({ ...queued({}), lastResult: ["Dry run"] }, undefined)[0]).toBe("Q")
     expect(detailLines(queued({}), undefined)).toEqual([
       "Q",
       "ses_q · copy Magic Context state from the left to the right",
@@ -138,7 +140,7 @@ describe("browser text", () => {
     expect(footerText(one)).toBe("↑↓ move · PgUp/PgDn · Enter fold · Space mark · / filter · q quit")
     expect(footerText(two)).toBe("↑↓ · Enter fold · Space/* mark · >/< queue copy · Q queue · Tab pane · p pair · / filter · q quit")
     expect(footerText(run(two, { type: "layout" }))).toContain("· p panes ·")
-    expect(footerText(run(two, { type: "view" }))).toBe("↑↓ move · r/s replace/skip · R/S all conflicts · x remove · c clear · Esc back · q quit")
+    expect(footerText(run(two, { type: "view" }))).toBe("a apply · d dry run · r/s replace/skip · R/S all · x remove · c clear · Esc back · q quit")
     expect(footerText({ ...two, notice: "Done." })).toStartWith("Done.   ↑↓ ·")
     const typing = run(one, { type: "filter-start" }, { type: "filter-input", text: "ab" })
     expect(footerText(typing)).toBe("filter: ab▏  Enter keep · Esc clear")
@@ -187,6 +189,8 @@ describe("browser keys", () => {
     expect(commandFor(key("x"), queue)).toEqual({ type: "unqueue" })
     expect(commandFor(key("delete"), queue)).toEqual({ type: "unqueue" })
     expect(commandFor(key("c"), queue)).toEqual({ type: "queue-clear" })
+    expect(commandFor(key("a"), queue)).toEqual({ type: "apply", dryRun: false })
+    expect(commandFor(key("d"), queue)).toEqual({ type: "apply", dryRun: true })
     expect(commandFor(key("escape"), queue)).toEqual({ type: "view", view: "list" })
     expect(commandFor(key("q", { shift: true, sequence: "Q" }), queue)).toEqual({ type: "view", view: "list" })
     expect(commandFor(key("q"), queue)).toEqual({ type: "quit" })

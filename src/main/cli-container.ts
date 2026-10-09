@@ -1,3 +1,10 @@
+import { ApplyQueueUseCase } from "@session-manager/application/ApplyQueueUseCase"
+import type { BrowserControls } from "@session-manager/infrastructure/adapters/inbound/manager-tui/controls"
+import { SyncMagicContextUseCase } from "@session-manager/application/SyncMagicContextUseCase"
+import type { MagicContextIdentityPort } from "@session-manager/domain/ports/outbound/MagicContextIdentityPort"
+import type { MagicContextSyncStorePort } from "@session-manager/domain/ports/outbound/MagicContextSyncStorePort"
+import { MagicContextIdentityAdapter } from "@session-manager/infrastructure/adapters/outbound/magic-context/MagicContextIdentityAdapter"
+import { BunMagicContextSyncStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextSyncStoreAdapter"
 import packageJson from "@package-json" with { type: "json" }
 import { HelpCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/HelpCliAdapter"
 import { OpenProfileUseCase } from "@session-manager/application/OpenProfileUseCase"
@@ -69,8 +76,10 @@ export interface ContainerOverrides {
   readonly sessionStore?: SessionStorePort
   readonly magicContextStore?: MagicContextStorePort
   readonly magicContextRelease?: MagicContextReleasePort
+  readonly magicContextSyncStore?: MagicContextSyncStorePort
+  readonly magicContextIdentity?: MagicContextIdentityPort
   /** Shows the session browser; the default paints it on this terminal. */
-  readonly show?: (initial: BrowserState) => Promise<void>
+  readonly show?: (initial: BrowserState, controls: BrowserControls) => Promise<void>
   readonly runtime?: RuntimePort
   readonly reports?: ReportSinkPort
   readonly output?: OutputPort
@@ -175,12 +184,28 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
       process.execPath,
       runtime.temporaryDirectory(),
     )
+  const copier = new CopyMagicContextUseCase(sqlite, magicContextStore, magicContextRelease, fileSystem)
+  const syncContext = new SyncMagicContextUseCase({
+    sqlite,
+    sessions: sessionStore,
+    contexts: magicContextStore,
+    syncStore: overrides.magicContextSyncStore ?? new BunMagicContextSyncStoreAdapter(),
+    identity: overrides.magicContextIdentity ?? new MagicContextIdentityAdapter(),
+    copier,
+    guard,
+    swap: swapper,
+    fileSystem,
+    runtime,
+    rewriterFor,
+  })
   const contextCli = new ContextCliAdapter({
-    copy: new CopyMagicContextUseCase(sqlite, magicContextStore, magicContextRelease, fileSystem),
+    copy: copier,
+    sync: syncContext,
+    profiles,
     output,
   })
 
-  const browseCli = new BrowseCliAdapter({ profiles, output, runtime, environment, show: overrides.show ?? showBrowser(terminalRenderer) })
+  const browseCli = new BrowseCliAdapter({ profiles, output, runtime, environment, apply: new ApplyQueueUseCase(syncContext, profiles), show: overrides.show ?? showBrowser(terminalRenderer) })
 
   const helpCli = new HelpCliAdapter(output, packageJson.version)
   const help = { run: (argv: readonly string[]) => helpCli.run(argv, "help") }

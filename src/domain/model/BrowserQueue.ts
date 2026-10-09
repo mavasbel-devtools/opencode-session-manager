@@ -1,5 +1,7 @@
 import { activeList, idsOf, paneOf, selectedRow } from "@session-manager/domain/model/BrowserRows"
 import type { BrowserState, Direction, QueueEntry, Resolution } from "@session-manager/domain/model/BrowserState"
+import type { SyncRequest } from "@session-manager/domain/model/MagicContextSync"
+import { hasContextState } from "@session-manager/domain/model/SessionCatalog"
 
 /**
  * The action queue: copies of one session's Magic Context state to the other side. A copy needs the
@@ -21,10 +23,10 @@ export function enqueue(state: BrowserState, direction: Direction): BrowserState
     const target = to.get(id)
     if (source === undefined) skipped.source++
     else if (target === undefined) skipped.target++
-    else if (source.magicContext === null) skipped.empty++
+    else if (!hasContextState(source.magicContext)) skipped.empty++
     else {
-      const conflict = target.magicContext !== null
-      const entry: QueueEntry = { id, title: source.title, direction, source: source.magicContext, conflict, resolution: conflict ? null : "replace" }
+      const conflict = hasContextState(target.magicContext)
+      const entry: QueueEntry = { id, title: source.title, direction, source: source.magicContext!, conflict, resolution: conflict ? null : "replace" }
       queue = [...queue.filter((existing) => existing.id !== id), entry]
       queued++
     }
@@ -71,4 +73,10 @@ export function queueSummary(queue: readonly QueueEntry[]): { readonly entries: 
 
 function clampQueue(cursor: number, length: number): number {
   return Math.min(Math.max(0, cursor), Math.max(0, length - 1))
+}
+
+/** The queue's entries for one direction as sync requests; null while a conflict is undecided. */
+export function requestsFor(queue: readonly QueueEntry[], direction: Direction): SyncRequest[] | null {
+  if (queue.some((entry) => entry.resolution === null)) return null
+  return queue.filter((entry) => entry.direction === direction).map((entry) => ({ id: entry.id, resolution: entry.resolution! }))
 }

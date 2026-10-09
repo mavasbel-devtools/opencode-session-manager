@@ -9,7 +9,9 @@ import {
   showBrowser,
   terminalRenderer,
 } from "@session-manager/infrastructure/adapters/inbound/manager-tui/OpenTuiBrowser"
+import type { BrowserControls } from "@session-manager/infrastructure/adapters/inbound/manager-tui/controls"
 import { opened, session } from "@test/support/sessions/catalogs"
+import { waitForText } from "@test/support/sessions/frames"
 import { silentTerminal } from "@test/support/sessions/terminal-streams"
 
 const T = Date.UTC(2026, 9, 8, 9, 30)
@@ -25,10 +27,12 @@ afterEach(() => {
   destroy = undefined
 })
 
+const NO_CONTROLS: BrowserControls = { apply: () => ({ result: ["not used"], changed: false }) }
+
 async function paint(withRight: boolean, size = { width: 120, height: 30 }) {
   let quits = 0
   const setup = await testRender(
-    () => <BrowserView initial={createBrowser(left, withRight ? right : null, 1)} onQuit={() => quits++} />,
+    () => <BrowserView initial={createBrowser(left, withRight ? right : null, 1)} onQuit={() => quits++} controls={NO_CONTROLS} />,
     size,
   )
   destroy = () => setup.renderer.destroy()
@@ -128,7 +132,15 @@ describe("BrowserView pairing and the queue", () => {
   it("lists queued entries, undecided conflicts highlighted", async () => {
     const both = opened("left", [session({ id: "ses_x", directory: "/w", updated: T, title: "Both", context: {} })])
     const other = opened("right", [session({ id: "ses_x", directory: "C:/w", updated: T, context: {} })])
-    const setup = await testRender(() => <BrowserView initial={createBrowser(both, other, 1)} onQuit={() => {}} />, { width: 120, height: 20 })
+    const calls: string[] = []
+    const fresh = opened("left", [session({ id: "ses_x", directory: "/w", updated: T, title: "Both", context: { compartments: 42 } })])
+    const controls: BrowserControls = {
+      apply: (queue, dryRun) => {
+        calls.push(`${dryRun ? "check" : "apply"} ${queue.length}`)
+        return dryRun ? { result: ["Dry run: fine", "line 2"], changed: false } : { result: ["Applied: done", "line 2"], changed: true, left: fresh, right: other }
+      },
+    }
+    const setup = await testRender(() => <BrowserView initial={createBrowser(both, other, 1)} onQuit={() => {}} controls={controls} />, { width: 120, height: 20 })
     destroy = () => setup.renderer.destroy()
     setup.mockInput.pressArrow("down")
     setup.mockInput.pressKey(">")
@@ -138,13 +150,22 @@ describe("BrowserView pairing and the queue", () => {
     expect(queued).toContain("→ Both")
     setup.mockInput.pressKey("r")
     expect(await frame(setup)).toContain("conflict: replace")
+    setup.mockInput.pressKey("d")
+    setup.mockInput.pressKey("a")
+    expect(await frame(setup)).toContain("Checking the queue on copies…")
+    expect(await waitForText(setup, "Dry run: fine")).toContain("→ Both")
+    setup.mockInput.pressKey("a")
+    expect(await waitForText(setup, "Applied: done")).toContain("line 2")
+    expect(calls).toEqual(["check 1", "apply 1"])
+    setup.mockInput.pressEscape()
+    expect(await waitForText(setup, "S42")).toContain("Both")
   })
 })
 
 describe("showBrowser", () => {
   it("paints on the renderer it is given, resolves on quit and destroys the renderer", async () => {
     const setup = await createTestRenderer({ width: 100, height: 24 })
-    const shown = showBrowser(async () => setup.renderer)(createBrowser(left, null, 1))
+    const shown = showBrowser(async () => setup.renderer)(createBrowser(left, null, 1), NO_CONTROLS)
     await setup.waitForFrame((text) => text.includes("Left 0"))
     setup.mockInput.pressKey("q")
     await shown

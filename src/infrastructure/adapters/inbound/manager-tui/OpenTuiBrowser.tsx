@@ -22,6 +22,7 @@ import {
   queueTitle,
   rowText,
 } from "@session-manager/infrastructure/adapters/inbound/manager-tui/format"
+import type { BrowserControls } from "@session-manager/infrastructure/adapters/inbound/manager-tui/controls"
 import { commandFor } from "@session-manager/infrastructure/adapters/inbound/manager-tui/keys"
 
 /** Rows the layout spends outside the lists: the detail panel (with its border) and the footer. */
@@ -47,7 +48,11 @@ export function listHeightFor(terminalHeight: number): number {
 export interface BrowserViewProps {
   readonly initial: BrowserState
   readonly onQuit: () => void
+  readonly controls: BrowserControls
 }
+
+/** Long enough for the renderer to paint the notice before the work blocks the event loop. */
+const PAINT_BEFORE_WORK_MS = 50
 
 export function BrowserView(props: BrowserViewProps) {
   const [state, setState] = createSignal(props.initial)
@@ -56,10 +61,23 @@ export function BrowserView(props: BrowserViewProps) {
 
   createEffect(() => dispatch({ type: "resize", listHeight: listHeightFor(dimensions().height) }))
 
+  let busy = false
+  const apply = async (dryRun: boolean) => {
+    if (busy) return
+    busy = true
+    dispatch({ type: "notice", text: dryRun ? "Checking the queue on copies…" : "Applying the queue…" })
+    await new Promise((resolve) => setTimeout(resolve, PAINT_BEFORE_WORK_MS))
+    const outcome = props.controls.apply(state().queue, dryRun)
+    const { left, right } = outcome
+    dispatch({ type: "applied", result: outcome.result, changed: outcome.changed, ...(left === undefined ? {} : { left }), ...(right === undefined ? {} : { right }) })
+    busy = false
+  }
+
   useKeyboard((key) => {
     const command = commandFor(key, state())
     if (command === null) return
     if (command.type === "quit") props.onQuit()
+    else if (command.type === "apply") void apply(command.dryRun)
     else dispatch(command)
   })
 
@@ -158,14 +176,14 @@ export function terminalRenderer(config: CliRendererConfig = {}): Promise<CliRen
 
 /** Shows the browser on a renderer and resolves when the user quits; the renderer is destroyed then. */
 export function showBrowser(createRenderer: () => Promise<CliRenderer>) {
-  return async (initial: BrowserState): Promise<void> => {
+  return async (initial: BrowserState, controls: BrowserControls): Promise<void> => {
     const renderer = await createRenderer()
     let quit!: () => void
     const done = new Promise<void>((resolve) => {
       quit = resolve
     })
     try {
-      await render(() => <BrowserView initial={initial} onQuit={() => quit()} />, renderer)
+      await render(() => <BrowserView initial={initial} onQuit={() => quit()} controls={controls} />, renderer)
       await done
     } finally {
       renderer.destroy()

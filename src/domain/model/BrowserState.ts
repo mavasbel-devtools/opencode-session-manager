@@ -90,6 +90,8 @@ export interface BrowserState {
   readonly queueCursor: number
   /** One line about what the last action did, until the next action. */
   readonly notice: string | null
+  /** What the last apply or dry run did, shown in the queue view. */
+  readonly lastResult: readonly string[] | null
 }
 
 export type BrowserAction =
@@ -116,6 +118,15 @@ export type BrowserAction =
   | { readonly type: "filter-commit" }
   | { readonly type: "filter-clear" }
   | { readonly type: "resize"; readonly listHeight: number }
+  | { readonly type: "notice"; readonly text: string }
+  | {
+      readonly type: "applied"
+      readonly result: readonly string[]
+      /** True when the target changed: the queue is done. */
+      readonly changed: boolean
+      readonly left?: OpenedProfile
+      readonly right?: OpenedProfile
+    }
 
 export interface OpenedProfile {
   readonly catalog: ProfileCatalog

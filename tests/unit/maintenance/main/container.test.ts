@@ -62,7 +62,7 @@ test("overrides replace the session and Magic Context stores behind `sessions`",
       fileSystem,
       runtime: new FakeRuntime(),
       output,
-      sessionStore: { sessions: () => [] },
+      sessionStore: { sessions: () => [], messageIds: () => [] },
       magicContextStore: { summary: () => ({ available: true, schemaVersion: 1, sessions: {} }), formatVersion: () => 1 },
     },
   )

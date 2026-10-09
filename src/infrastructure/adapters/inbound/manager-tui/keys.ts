@@ -8,7 +8,7 @@ export interface KeyInput {
   readonly sequence: string
 }
 
-export type Command = BrowserAction | { readonly type: "quit" }
+export type Command = BrowserAction | { readonly type: "quit" } | { readonly type: "apply"; readonly dryRun: boolean }
 
 const BROWSE: Readonly<Record<string, Command>> = {
   up: { type: "move", delta: -1 },
@@ -54,6 +54,8 @@ const QUEUE: Readonly<Record<string, Command>> = {
   x: { type: "unqueue" },
   delete: { type: "unqueue" },
   c: { type: "queue-clear" },
+  a: { type: "apply", dryRun: false },
+  d: { type: "apply", dryRun: true },
   escape: { type: "view", view: "list" },
   q: { type: "quit" },
 }

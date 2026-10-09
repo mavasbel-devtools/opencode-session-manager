@@ -51,4 +51,18 @@ export class BunSessionStoreAdapter implements SessionStorePort {
       db.close()
     }
   }
+
+  messageIds(dbPath: string, sessionId: string, generation: SessionGeneration): readonly string[] {
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      // v2 entries are ordered by `seq`; v1 messages by creation time, their ids breaking ties as OpenCode 1 does.
+      const sql =
+        generation === "v2"
+          ? "select id from session_message where session_id = ? order by seq, id"
+          : "select id from message where session_id = ? order by time_created, id"
+      return (db.query(sql).all(sessionId) as { id: string }[]).map((row) => row.id)
+    } finally {
+      db.close()
+    }
+  }
 }

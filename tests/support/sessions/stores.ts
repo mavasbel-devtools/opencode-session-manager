@@ -36,7 +36,7 @@ export function makeOpenCodeStore(
            directory text not null, time_created integer not null, time_updated integer not null, time_archived integer)`,
     )
     if (!options.withoutEntries) {
-      db.exec("create table message (id text primary key, session_id text not null, data text)")
+      db.exec("create table message (id text primary key, session_id text not null, time_created integer, data text)")
       db.exec("create table session_message (id text primary key, session_id text not null, seq integer, data text)")
     }
     const v1 = db.query("insert into session values (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -45,8 +45,9 @@ export function makeOpenCodeStore(
       : db.query("insert into session_v2 values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     const entry = (table: string, id: string, count: number) => {
       if (options.withoutEntries) return
-      const insert = db.query(`insert into ${table} (id, session_id) values (?, ?)`)
-      for (let index = 0; index < count; index++) insert.run(`${id}-m${index}`, id)
+      const order = table === "message" ? "time_created" : "seq"
+      const insert = db.query(`insert into ${table} (id, session_id, ${order}) values (?, ?, ?)`)
+      for (let index = 0; index < count; index++) insert.run(`${id}-m${index}`, id, index)
     }
     db.transaction(() => {
       for (const s of sessions.v1 ?? []) {

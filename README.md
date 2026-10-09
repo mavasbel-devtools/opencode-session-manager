@@ -118,6 +118,7 @@ closed:
 opencode-session-manager tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …]
 opencode-session-manager sessions [--data <dataHome>] [--json]
 opencode-session-manager context copy --from <context.db> --to <file>
+opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--replace] [--dry-run]
 ```
 
 `tui` opens the **session browser**. Each side is a data home (`--left`,
@@ -142,8 +143,11 @@ With two sides, sessions are **matched by session id**:
 copy needs the session on both sides and state to copy, and when the target has
 state of its own the entry is a conflict until you decide. `Q` opens the queue:
 `r`/`s` replace or skip a conflict (`R`/`S` all of them), `x` removes an entry,
-`c` clears it, `Esc` returns. Applying the queue is the next step; for now the
-browser only reads, so it is safe while OpenCode runs. Other keys: `↑↓`/`jk`,
+`c` clears it, `d` checks the queue on copies (a dry run) and `a` applies it
+(see [Magic Context sync](#magic-context-sync)); the result replaces the queue
+in the details, and the changed side is read again. Browsing only reads, so it
+is safe while OpenCode runs; applying refuses while the target store is open.
+Other keys: `↑↓`/`jk`,
 `PgUp`/`PgDn`, `g`/`G`, `Enter` folds a folder, `/` filters by id, title or
 folder (`Esc` clears), `q` quits; the mouse selects rows and scrolls a list.
 
@@ -165,6 +169,42 @@ its live store when OpenCode starts), taken from OpenCode's package cache
 version wins, or `OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT` names a package
 folder). It runs in a child process whose XDG folders point into a throwaway
 sandbox. A store newer than the installed Magic Context is refused.
+
+### Magic Context sync
+
+`context sync` (and the browser's `a`) copies sessions' Magic Context state —
+history summaries with their embeddings, tags (same `§N§` numbers) with their
+archived contents and pending drops, session notes and facts, and the memories
+the session created — from one profile to another, for sessions both profiles
+hold under the same id. `--all` takes every such session the source has state
+for. A session the target already has state for is kept unless `--replace`
+(in the browser: a conflict you decide).
+
+A session is copied only when it is safe: the target's message history must be
+the source's or continue it (summaries point at messages by id and position),
+and every message a summary points at must be in the target. Otherwise it is
+skipped and the report says why (`source-ahead`, `diverged`, `stale-anchors` —
+state written for an older copy of the session —, `no-state`, `no-project`,
+`not-on-source`, `not-on-target`). The session's Magic Context project on the
+target is the one already recorded there, else derived from its folder on this
+machine (`git:<root commit>` or `dir:<hash>`, as Magic Context derives it), else
+the source's when it is a git identity. A session that moved from a Windows
+profile (`C:/Users/<you>/…`) to a folder here has the paths in its copied text
+rewritten to this machine's home, and to its new folder if it moved. Memories
+are merged into the target project; one with the same text already there is
+kept. Magic Context's cached context snapshots for the session are dropped, as
+its own session move does.
+
+It works on copies only: both stores are read with `VACUUM INTO` (a source in an
+older format is first brought to the target's by the installed Magic Context; a
+source newer than the target is refused — update Magic Context where the target
+is used first). The copy is checked (integrity, foreign keys, every summary's
+messages present, row counts), then replaces the target store by renames, the
+original kept in `context-sync-backup-<timestamp>/` beside it:
+`opencode-session-manager rollback <backupDir> --db <context.db>` undoes it.
+Applying refuses while any process holds the target store open (OpenCode with
+Magic Context does): close OpenCode and run `opencode service stop` first.
+`--dry-run` builds and checks the copy without touching the target.
 
 From a checkout, `bun run cli -- <arguments>` runs the same thing. The database
 defaults to `$XDG_DATA_HOME/opencode/opencode.db`

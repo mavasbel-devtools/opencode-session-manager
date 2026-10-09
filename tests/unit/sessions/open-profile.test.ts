@@ -37,7 +37,7 @@ function setup(unreadable: readonly string[], options: { failCopy?: boolean; cra
     if (unreadable.includes(path)) throw new Error("disk I/O error")
   }
   const catalog = new CatalogProfileUseCase(
-    { sessions: (path) => (read(path), [stored]) },
+    { sessions: (path) => (read(path), [stored]), messageIds: () => [] },
     { summary: (path) => (read(path), { available: true, schemaVersion: 91, sessions: {} }), formatVersion: () => 91 },
     files,
   )
@@ -132,9 +132,20 @@ describe("BrowseCliAdapter", () => {
       output,
       runtime,
       environment: {},
-      show: async (initial) => {
+      apply: {
+        apply: (input) => {
+          events.push(`apply ${input.left.catalog.profile.name} ${input.right.catalog.profile.name} ${input.queue.length}`)
+          return input.dryRun ? { result: ["checked"], changed: false } : { result: ["done"], changed: true, right: opened("right", [], { snapshot: "/fresh" }) }
+        },
+      },
+      show: async (initial, controls) => {
         shown.push(initial)
         events.push("shown")
+        if (initial.right !== null) {
+          events.push(controls.apply([], true).result[0]!)
+          events.push(controls.apply([], false).result[0]!)
+          events.push(controls.apply([], true).result[0]!)
+        }
       },
     })
     return { adapter, output, events, shown }
@@ -155,6 +166,12 @@ describe("BrowseCliAdapter", () => {
       "open left /l/opencode/opencode.db /l/cortexkit/magic-context/context.db",
       "open right /r/opencode/opencode.db /r/cortexkit/magic-context/context.db",
       "shown",
+      "apply left right 0",
+      "checked",
+      "apply left right 0",
+      "done",
+      "apply left right 0",
+      "checked",
       "close left",
       "close right",
     ])

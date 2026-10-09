@@ -5,10 +5,12 @@ import { MagicContextTooNewError } from "@session-manager/domain/errors/MagicCon
 import { MagicContextUnavailableError } from "@session-manager/domain/errors/MagicContextUnavailableError"
 import { MagicContextUpgradeError } from "@session-manager/domain/errors/MagicContextUpgradeError"
 import type { MagicContextRelease, MagicContextUpgradeOutcome } from "@session-manager/domain/model/MagicContextRelease"
-import { ContextCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/ContextCliAdapter"
+import { CONTEXT_USAGE, ContextCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/ContextCliAdapter"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
 import { FakeOutput } from "@test/support/maintenance/fakes/output"
 import { FakeSqlite } from "@test/support/maintenance/fakes/sqlite"
+import { opened, session } from "@test/support/sessions/catalogs"
+import type { SyncInput } from "@session-manager/domain/model/MagicContextSync"
 
 const RELEASE: MagicContextRelease = { version: "0.45.0", latestFormat: 94, packageDirectory: "/pkg" }
 
@@ -80,6 +82,8 @@ describe("ContextCliAdapter", () => {
   const cli = () => {
     const output = new FakeOutput()
     const seen: unknown[] = []
+    const syncs: SyncInput[] = []
+    const events: string[] = []
     const adapter = new ContextCliAdapter({
       copy: {
         copy: (input) => {
@@ -87,9 +91,32 @@ describe("ContextCliAdapter", () => {
           return { source: input.source, target: input.target, from_format: 1, to_format: 2, upgraded: true, magic_context_version: "x" }
         },
       },
+      sync: {
+        sync: (input) => {
+          syncs.push(input)
+          return { source_context_db: "s", target_context_db: "t", format: 94, dry_run: input.dryRun, sessions: [], checks: null, backup_dir: null }
+        },
+      },
+      profiles: {
+        open: (profile) => {
+          events.push(`open ${profile.name} ${profile.dataHome}`)
+          if (profile.dataHome === "/broken") throw new Error("broken profile")
+          return profile.name === "from"
+            ? opened("from", [
+                session({ id: "ses_a", directory: "/w", updated: 3, context: {} }),
+                session({ id: "ses_a", directory: "/w", updated: 2, context: {} }),
+                session({ id: "ses_b", directory: "/w", updated: 1 }),
+                session({ id: "ses_c", directory: "/w", updated: 1, context: {} }),
+              ])
+            : opened("to", [session({ id: "ses_a", directory: "/w", updated: 1 }), session({ id: "ses_b", directory: "/w", updated: 1 })], { snapshot: "/snap" })
+        },
+        close: (profile) => {
+          events.push(`close ${profile.catalog.profile.name}`)
+        },
+      },
       output,
     })
-    return { adapter, output, seen }
+    return { adapter, output, seen, syncs, events }
   }
 
   it("copies with --from and --to in any order and prints the report", () => {
@@ -99,11 +126,53 @@ describe("ContextCliAdapter", () => {
     expect(JSON.parse(output.text())).toMatchObject({ from_format: 1, to_format: 2 })
   })
 
+  it("syncs named sessions or --all the source has state for, keeping the target's state unless --replace", () => {
+    const named = cli()
+    expect(named.adapter.run(["sync", "--from", "/a", "--to", "/b", "--session", "ses_x", "--session", "ses_y", "--dry-run"])).toBe(0)
+    expect(named.syncs[0]).toEqual({
+      source: { opencodeDb: "/data/from/opencode/opencode.db", contextDb: "/data/from/cortexkit/magic-context/context.db", readableOpencodeDb: null, readableContextDb: null },
+      target: {
+        opencodeDb: "/data/to/opencode/opencode.db",
+        contextDb: "/data/to/cortexkit/magic-context/context.db",
+        readableOpencodeDb: "/snap/opencode/opencode.db",
+        readableContextDb: "/snap/cortexkit/magic-context/context.db",
+      },
+      sessions: [
+        { id: "ses_x", resolution: "skip" },
+        { id: "ses_y", resolution: "skip" },
+      ],
+      dryRun: true,
+    })
+    expect(named.events).toEqual(["open from /a", "open to /b", "close from", "close to"])
+    expect(JSON.parse(named.output.text())).toMatchObject({ dry_run: true })
+    const all = cli()
+    expect(all.adapter.run(["sync", "--all", "--replace", "--from", "/a", "--to", "/b"])).toBe(0)
+    expect(all.syncs[0]).toMatchObject({ sessions: [{ id: "ses_a", resolution: "replace" }], dryRun: false })
+  })
+
+  it("closes what it opened when a profile fails", () => {
+    const { adapter, events } = cli()
+    expect(() => adapter.run(["sync", "--from", "/a", "--to", "/broken", "--all"])).toThrow("broken profile")
+    expect(events).toEqual(["open from /a", "open to /broken", "close from"])
+  })
+
   it("prints the usage for anything else", () => {
-    for (const argv of [[], ["move"], ["copy", "--from", "/a"], ["copy", "--from", "--to"], ["copy", "--from", "/a", "--bad", "/b"], ["copy", "--to"]]) {
+    for (const argv of [
+      [],
+      ["move"],
+      ["copy", "--from", "/a"],
+      ["copy", "--from", "--to"],
+      ["copy", "--from", "/a", "--bad", "/b"],
+      ["copy", "--to"],
+      ["sync", "--from", "/a", "--to", "/b"],
+      ["sync", "--from", "/a", "--to", "/b", "--all", "--session", "x"],
+      ["sync", "--to", "/b", "--all"],
+      ["sync", "--from", "/a", "--all"],
+      ["sync", "--from", "/a", "--to", "/b", "--all", "--bogus"],
+    ]) {
       const { adapter, output } = cli()
       expect(adapter.run(argv)).toBe(2)
-      expect(output.lines).toEqual(["usage: opencode-session-manager context copy --from <context.db> --to <file>"])
+      expect(output.lines).toEqual([CONTEXT_USAGE])
     }
   })
 })

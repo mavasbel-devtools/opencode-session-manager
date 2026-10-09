@@ -117,3 +117,17 @@ describe("BunMagicContextStoreAdapter.formatVersion", () => {
     expect(new BunMagicContextStoreAdapter().formatVersion(none)).toBeNull()
   })
 })
+
+describe("BunSessionStoreAdapter.messageIds", () => {
+  it("lists a session's v2 entries by sequence and v1 messages by creation time", () => {
+    const db = join(directory, "ids.db")
+    makeOpenCodeStore(db, {
+      v1: [{ id: "ses_one", directory: "/w", updated: 1, entries: 12 }],
+      v2: [{ id: "ses_two", directory: "/w", updated: 1, entries: 11 }],
+    })
+    const store = new BunSessionStoreAdapter()
+    expect(store.messageIds(db, "ses_two", "v2")).toEqual(Array.from({ length: 11 }, (_, index) => `ses_two-m${index}`))
+    expect(store.messageIds(db, "ses_one", "v1").slice(9)).toEqual(["ses_one-m9", "ses_one-m10", "ses_one-m11"])
+    expect(store.messageIds(db, "ses_none", "v2")).toEqual([])
+  })
+})

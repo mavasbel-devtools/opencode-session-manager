@@ -34,6 +34,15 @@ export interface MagicContextSessionStats {
   readonly project: string | null
 }
 
+/**
+ * Whether Magic Context holds conversation state for the session: summaries, tags or session notes.
+ * A recorded project or memories alone are not state of the session (Magic Context records the
+ * project of every session it sees; memories belong to the project).
+ */
+export function hasContextState(stats: MagicContextSessionStats | null | undefined): boolean {
+  return stats !== null && stats !== undefined && stats.compartments + stats.tags + stats.notes > 0
+}
+
 export interface MagicContextSummary {
   readonly available: boolean
   /** The store's format version (`schema_migrations`), or null when there is no store. */

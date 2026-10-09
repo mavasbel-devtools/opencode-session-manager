@@ -98,7 +98,8 @@ export function queueText(entry: QueueEntry, width: number): string {
 
 /** The detail panel for the row under the active cursor, or the queue entry under the queue cursor. */
 export function detailLines(state: BrowserState, row: BrowserRow | undefined): string[] {
-  if (state.view === "queue") return queueDetail(state.queue[state.queueCursor])
+  if (state.view === "queue")
+    return state.queue.length === 0 && state.lastResult !== null ? [...state.lastResult] : queueDetail(state.queue[state.queueCursor])
   if (row === undefined) return ["No sessions."]
   if (row.kind === "group") return [`Folder ${row.directory}`, `${row.sessions} sessions${row.collapsed ? " (collapsed)" : ""}${row.marked === 0 ? "" : ` · ${row.marked} marked`}`]
   if (row.kind === "pair") {
@@ -159,7 +160,7 @@ function sessionDetail(row: SessionRow): string[] {
 export function footerText(state: BrowserState): string {
   if (state.editingFilter) return `filter: ${state.filter}▏  Enter keep · Esc clear`
   const notice = state.notice === null ? "" : `${state.notice}   `
-  if (state.view === "queue") return `${notice}↑↓ move · r/s replace/skip · R/S all conflicts · x remove · c clear · Esc back · q quit`
+  if (state.view === "queue") return `${notice}a apply · d dry run · r/s replace/skip · R/S all · x remove · c clear · Esc back · q quit`
   const filter = state.filter === "" ? "" : `filter "${state.filter}" · `
   if (state.right === null) return `${notice}${filter}↑↓ move · PgUp/PgDn · Enter fold · Space mark · / filter · q quit`
   const layout = state.layout === "panes" ? "Tab pane · p pair" : "p panes"

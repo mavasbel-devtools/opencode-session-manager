@@ -14,7 +14,7 @@ import type { BrowserAction, BrowserState, ListId, ListPosition, OpenedProfile, 
 
 export * from "@session-manager/domain/model/BrowserState"
 export { activeList, paneOf, rowsOf, selectedRow } from "@session-manager/domain/model/BrowserRows"
-export { queueSummary, queueWindowStart } from "@session-manager/domain/model/BrowserQueue"
+export { queueSummary, queueWindowStart, requestsFor } from "@session-manager/domain/model/BrowserQueue"
 
 /**
  * The two-pane session browser as pure state: what each list shows, where its cursor is, what is
@@ -38,6 +38,7 @@ export function createBrowser(left: OpenedProfile, right: OpenedProfile | null, 
     view: "list",
     queueCursor: 0,
     notice: null,
+    lastResult: null,
   }
 }
 
@@ -102,7 +103,19 @@ function step(state: BrowserState, action: BrowserAction): BrowserState {
       return { ...refilter(state, ""), editingFilter: false }
     case "resize":
       return clampAll({ ...state, listHeight: Math.max(1, action.listHeight) })
+    case "notice":
+      return { ...state, notice: action.text }
+    case "applied":
+      return applied(state, action)
   }
+}
+
+/** The result of an apply: sides read again replace the ones shown, and a change empties the queue. */
+function applied(state: BrowserState, action: Extract<BrowserAction, { type: "applied" }>): BrowserState {
+  const left = action.left === undefined ? state.left : { ...state.left, ...action.left }
+  const right = action.right === undefined || state.right === null ? state.right : { ...state.right, ...action.right }
+  const queue = action.changed ? [] : state.queue
+  return clampAll({ ...state, left, right, queue, queueCursor: action.changed ? 0 : state.queueCursor, lastResult: action.result, notice: action.result[0]! })
 }
 
 /** Collapses or expands the folder under the cursor; on a session, collapses its folder and selects it. */

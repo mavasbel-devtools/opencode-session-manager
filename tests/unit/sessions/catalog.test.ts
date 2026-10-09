@@ -23,7 +23,7 @@ const session = (id: string, updated: number): StoredSession => ({
 const stats = { compartments: 1, tags: 2, lastTag: 2, notes: 0, memoriesOriginated: 0, project: "dir:abc" }
 
 function useCase(files: FakeFileSystem, sessions: () => readonly StoredSession[], summary: () => MagicContextSummary) {
-  return new CatalogProfileUseCase({ sessions }, { summary, formatVersion: () => null }, files)
+  return new CatalogProfileUseCase({ sessions, messageIds: () => [] }, { summary, formatVersion: () => null }, files)
 }
 
 describe("CatalogProfileUseCase", () => {
