@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite"
-import { getTableColumns, getTableName, sql } from "drizzle-orm"
+import { and, eq, getTableColumns, getTableName, sql } from "drizzle-orm"
 import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite"
 import { sqliteTable, type SQLiteColumn, type SQLiteTable } from "drizzle-orm/sqlite-core"
 import { value } from "@session-manager/infrastructure/adapters/outbound/sqlite/schema/value"
@@ -68,6 +68,10 @@ export interface Store {
   fit(table: SQLiteTable, row: Row): Row
   /** Inserts one row with exactly the columns it carries that the store's table has. */
   insert(orm: Orm, table: SQLiteTable, row: Row, conflict?: Conflict): WriteResult
+  /** The columns of a table's primary key in this store, in key order (empty: it has none). */
+  primaryKey(table: string): readonly string[]
+  /** Sets `set`'s columns of the one row whose primary key is `key`; returns the rows changed. */
+  update(orm: Orm, table: SQLiteTable, key: Row, set: Row): number
   /** Runs `work` in one `BEGIN IMMEDIATE` transaction, rolled back when it throws. */
   transaction<T>(work: (orm: Orm) => T): T
   /** `pragma integrity_check`: `["ok"]` when the store is sound. */
@@ -194,6 +198,23 @@ class SqliteStore implements Store {
               .run()
     const written = result as unknown as { changes: number | bigint; lastInsertRowid: number | bigint }
     return { changes: Number(written.changes), lastInsertRowid: BigInt(written.lastInsertRowid) }
+  }
+
+  primaryKey(table: string): readonly string[] {
+    if (!this.tables().has(table)) return []
+    return (this.db.query(`pragma table_info(${quoted(table)})`).all() as { name: string; pk: bigint }[])
+      .filter((column) => Number(column.pk) > 0)
+      .sort((a, b) => Number(a.pk) - Number(b.pk))
+      .map((column) => column.name)
+  }
+
+  update(orm: Orm, table: SQLiteTable, key: Row, set: Row): number {
+    const names = Object.keys(key)
+    if (names.length === 0) throw new Error(`${getTableName(table)}: an update needs a key`)
+    const narrow = this.narrow(getTableName(table), [...new Set([...names, ...Object.keys(set)])])
+    const where = and(...names.map((name) => eq(narrow[name] as SQLiteColumn, key[name])))
+    const result = orm.update(narrow).set(set).where(where).run() as unknown as { changes: number | bigint }
+    return Number(result.changes)
   }
 
   /** A table of only the named columns, each passing its values through untouched. */

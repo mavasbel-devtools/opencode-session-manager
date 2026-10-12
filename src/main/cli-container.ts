@@ -3,6 +3,13 @@ import type { BrowserControls } from "@session-manager/infrastructure/adapters/i
 import { MagicContextSyncService } from "@session-manager/application/MagicContextSyncService"
 import { SyncMagicContextUseCase } from "@session-manager/application/SyncMagicContextUseCase"
 import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
+import { JointSwapService } from "@session-manager/application/JointSwapService"
+import { RelocateSessionsUseCase } from "@session-manager/application/RelocateSessionsUseCase"
+import { RelocateCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/RelocateCliAdapter"
+import { BunRelocationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunRelocationStoreAdapter"
+import { BunMagicContextRelocationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextRelocationStoreAdapter"
+import type { RelocationStorePort } from "@session-manager/domain/ports/outbound/RelocationStorePort"
+import type { MagicContextRelocationStorePort } from "@session-manager/domain/ports/outbound/MagicContextRelocationStorePort"
 import { VerifyProfileUseCase } from "@session-manager/application/VerifyProfileUseCase"
 import { ForkSessionUseCase } from "@session-manager/application/ForkSessionUseCase"
 import { ForkCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/ForkCliAdapter"
@@ -95,6 +102,8 @@ export interface ContainerOverrides {
   readonly magicContextSyncStore?: MagicContextSyncStorePort
   readonly magicContextIdentity?: MagicContextIdentityPort
   readonly sessionSyncStore?: SessionSyncStorePort
+  readonly relocationStore?: RelocationStorePort
+  readonly magicContextRelocationStore?: MagicContextRelocationStorePort
   readonly storeLock?: StoreLockPort
   /** Shows the session browser; the default paints it on this terminal. */
   readonly show?: (initial: BrowserState, controls: BrowserControls) => Promise<void>
@@ -132,6 +141,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
   const guard = new GuardService(fileSystem, processes, holders)
   const locks = new StoreLockService(overrides.storeLock ?? new FsStoreLockAdapter(), runtime)
   const swapper = new SwapService(fileSystem)
+  const joint = new JointSwapService(fileSystem, guard, swapper)
   const buildAndVerify = new BuildAndVerifyService(
     sqlite,
     fileSystem,
@@ -224,7 +234,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     contexts: contextBuilder,
     guard,
     locks,
-    swap: swapper,
+    joint,
     fileSystem,
     runtime,
     rewriterFor,
@@ -235,6 +245,23 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     profiles,
     output,
   })
+  const relocate = new RelocateSessionsUseCase({
+    sqlite,
+    sessions: sessionStore,
+    opencode: sessionSyncStore,
+    relocation: overrides.relocationStore ?? new BunRelocationStoreAdapter(),
+    context: contextSyncStore,
+    contextRelocation: overrides.magicContextRelocationStore ?? new BunMagicContextRelocationStoreAdapter(),
+    identity,
+    contextIdentity,
+    guard,
+    locks,
+    joint,
+    fileSystem,
+    runtime,
+    rewriterFor,
+  })
+  const relocateCli = new RelocateCliAdapter({ relocate, profiles, output, runtime, environment })
 
   const verifyProfile = new VerifyProfileUseCase({
     sessions: sessionStore,
@@ -279,5 +306,5 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
   const help = { run: (argv: readonly string[]) => helpCli.run(argv, "help") }
   const version = { run: (argv: readonly string[]) => helpCli.run(argv, "version") }
 
-  return new CliRouter(compactCli, { sync: syncCli, fork: forkCli, verify: verifyCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
+  return new CliRouter(compactCli, { sync: syncCli, relocate: relocateCli, fork: forkCli, verify: verifyCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
 }

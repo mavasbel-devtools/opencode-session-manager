@@ -3,6 +3,7 @@ import { GuardService } from "@session-manager/application/GuardService"
 import type { ForkPlan } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
 import type { ContextBuild, ContextBuildInput } from "@session-manager/application/MagicContextSyncService"
 import { SwapService } from "@session-manager/application/SwapService"
+import { JointSwapService } from "@session-manager/application/JointSwapService"
 import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
 import { BusySessionsError } from "@session-manager/domain/errors/BusySessionsError"
 import { DatabaseHeldError } from "@session-manager/domain/errors/DatabaseHeldError"
@@ -145,7 +146,7 @@ function setup(world: World = {}) {
     },
     guard: new GuardService(files, new FakeProcessList(), holders),
     locks: fakeLocks(runtime, lock),
-    swap: new SwapService(files),
+    joint: new JointSwapService(files, new GuardService(files, new FakeProcessList(), holders), new SwapService(files)),
     fileSystem: files,
     runtime,
     ids: { sessionId: () => "ses_fork", messageBase: () => "msg_base", slug: () => "calm-otter" },

@@ -161,6 +161,7 @@ opencode-session-manager fork --session <id> [--before <messageId>] [--server <u
 # Write (to copies, swapped in by renames): OpenCode must be closed
 opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... \
   (--session <id>... | --all) [--prefer further|keep|replace] [--diverged skip|fork] [--context all|sessions] [--strict] [--dry-run]
+opencode-session-manager relocate [--data <dataHome>] --map <from>=<to>... (--session <id>... | --all) [--dry-run] [--json]
 opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) \
   [--prefer keep|further|replace | --replace] [--context all|sessions] [--strict] [--dry-run]
 opencode-session-manager rehearse [--db <path>] [--keep]
@@ -415,6 +416,52 @@ Applying refuses while any process holds the target store open (OpenCode with
 Magic Context does): close OpenCode and run `opencode service stop` first.
 `--dry-run` builds and checks the copy without touching the target.
 
+### Moving sessions whose folders moved: `relocate`
+
+When a project's folder moves on this machine (a repository cloned elsewhere, a
+folder renamed), its sessions still name the old folder: OpenCode no longer lists
+them for the new one, and Magic Context keeps them under the old project.
+`relocate` moves them, inside one profile:
+
+```sh
+opencode-session-manager relocate --map ~/Documents/old-course=~/repos/course --all --dry-run
+opencode-session-manager relocate --map /home/me/Documents/old-course=/home/me/repos/course --all
+```
+
+- Rules are `--map <from>=<to>` between absolute POSIX folders (a shell expands
+  `~`); Windows paths are `sync`'s business.
+- **Sessions:** every session whose folder is a rule's `from` or below it
+  (`--all`), or the `--session`s named, each with its sub-agent sessions. Each
+  gets its new folder and the project OpenCode derives there (the project row is
+  added when the store lacks it). A family whose new folder does not exist here
+  stays where it is and is reported (`folder-missing`).
+- **Text:** every stored text that names an old folder as a whole name — the
+  absolute path, without its leading slash (after `file:///` or `@fs/`), or
+  `~/…` below the home — is rewritten to the new folder: messages, parts, the
+  event log, plugin storage, and in Magic Context summaries, notes, memories
+  (re-keyed by their new text; one that would repeat another memory of its
+  project is left as it is) and archived tool outputs. With `--all` that is the
+  whole profile, other sessions' mentions included; with `--session` only the rows
+  of the sessions moved. A folder that only starts with the same name
+  (`course-2025`) is left alone. OpenCode's project records of the old folders and
+  its content-addressed instruction blobs are kept (reported as `kept`).
+- **Magic Context:** each moved session is linked to the project Magic Context
+  derives for its new folder, its cached prompt snapshots cleared; the old
+  project's memories, notes and primers are merged into the new one (without
+  duplicates; the old project keeps its own).
+- **Safety:** as `sync` — working copies, checks (`integrity_ok`,
+  `foreign_keys_ok`, `sessions_ok`, `text_ok`: no rewritten row still names an old
+  folder, and the same for Magic Context with `links_ok`), then both stores
+  swapped in by renames into `<opencode dir>/relocate-backup-<stamp>/`, undone by
+  the `rollback` command it prints. It takes both stores' locks and refuses while
+  OpenCode holds a store or Magic Context works on a session it would move. A dry
+  run changes nothing and reports failed checks (exit 1).
+
+Checked on a copy of a real profile: 84 sessions in two moved course folders,
+31,710 OpenCode rows and 107 Magic Context rows rewritten with nothing left over;
+a sandboxed OpenCode 2.0.26 then lists every moved session under its new folder,
+and `rollback` restores both stores byte for byte (the live test `relocate.test.ts`).
+
 ### Forking a session: `fork` and `sync --diverged fork`
 
 A fork is a new session that starts from another one: OpenCode 2 writes it as a
@@ -566,6 +613,12 @@ flowchart LR
     ROUTER --> BC[BrowseCliAdapter]
     ROUTER --> YC[SyncCliAdapter]
     ROUTER --> VC[VerifyCliAdapter]
+    ROUTER --> RC[RelocateCliAdapter]
+    RC --> RL[RelocateSessionsUseCase]
+    RL --> RLS[RelocationStorePort -> BunRelocationStoreAdapter]
+    RL --> RLC[MagicContextRelocationStorePort -> BunMagicContextRelocationStoreAdapter]
+    RL --> JS[JointSwapService]
+    SY --> JS
     ROUTER --> FC[ForkCliAdapter]
     FC --> FK[ForkSessionUseCase]
     BC -->|F| FK
@@ -687,6 +740,7 @@ live tier needs `node` (for the pseudo-terminal).
 | `OPENCODE_V2_EXECUTABLE` | live tier | the OpenCode 2 executable (else `~/.opencode/bin/opencode`, `~/.local/bin/opencode.exe` on Windows, else `PATH`) |
 | `OPENCODE_BIN` | live `sync` test | the `opencode` that lists the synced copy (default `opencode` on `PATH`) |
 | `OPENCODE_SM_LIVE_OLD_CONTEXT` | live `context copy` test | an older `context.db` to upgrade with the installed Magic Context |
+| `OPENCODE_SM_LIVE_RELOCATE_MAP` | live `relocate` test | the folder moves to check on a copy of this machine's profile, `<from>=<to>` separated by `;` (unset: the test is skipped) |
 | `OPENCODE_SM_LIVE_FORK_SESSION` | live `fork` test | the session forked in the sandbox (default: the smallest with 5–80 messages whose folder exists) |
 | `OPENCODE_SM_LIVE_REBUILD_SESSION` | live `context recomp` test | a session of this machine to rebuild with `/ctx-recomp` through the running OpenCode (spends historian tokens); skipped without it |
 | `OPENCODE_SM_LIVE_OTHER_PROFILE` | live `sync` and `context sync` tests | another profile's data home to sync into a copy of this machine's; skipped without it |

@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { BunSessionSyncStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSessionSyncStoreAdapter"
 import { OpencodeIdentifiersAdapter } from "@session-manager/infrastructure/adapters/outbound/system/OpencodeIdentifiersAdapter"
 import { removeTemporary } from "@test/support/maintenance/temporary"
-import { requireOpenCode } from "@test/support/live/process"
+import { type SandboxServer, sandboxEnvironment, serveSandbox } from "@test/support/live/sandbox-opencode"
 
 /**
  * Forks against the real OpenCode 2 on a copy of this machine's store, in a sandbox (its own
@@ -20,48 +20,15 @@ import { requireOpenCode } from "@test/support/live/process"
 const live = join(process.env["XDG_DATA_HOME"] || join(process.env["HOME"] ?? homedir(), ".local", "share"), "opencode", "opencode.db")
 const cli = fileURLToPath(new URL("../../../src/main/cli/cli.ts", import.meta.url))
 let sandbox = ""
-let server: { url: string; password: string; stop: () => Promise<void> } | null = null
+let server: SandboxServer | null = null
 
-const env = () => ({
-  ...process.env,
-  XDG_DATA_HOME: join(sandbox, "data"),
-  XDG_STATE_HOME: join(sandbox, "state"),
-  XDG_CACHE_HOME: join(sandbox, "cache"),
-  XDG_CONFIG_HOME: join(sandbox, "config"),
-})
-
-/** A sandboxed `opencode serve` on the copied store, recorded in the sandbox's service.json as the service records itself. */
-async function serve(): Promise<NonNullable<typeof server>> {
-  const port = 49_000 + Math.floor(Math.random() * 900)
-  const child = Bun.spawn([requireOpenCode(), "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: sandbox, env: env(), stdin: "ignore", stdout: "pipe", stderr: "pipe" })
-  const reader = child.stdout.getReader()
-  let text = ""
-  const deadline = Date.now() + 60_000
-  while (!/server password (\S+)/.test(text) || !text.includes("server listening")) {
-    if (Date.now() > deadline) throw new Error(`opencode serve did not start:\n${text}`)
-    const { value, done } = await reader.read()
-    if (done) throw new Error(`opencode serve exited:\n${text}`)
-    text += new TextDecoder().decode(value)
-  }
-  reader.releaseLock()
-  const password = text.match(/server password (\S+)/)![1]!
-  const url = `http://127.0.0.1:${port}`
-  mkdirSync(join(sandbox, "state", "opencode"), { recursive: true })
-  writeFileSync(join(sandbox, "state", "opencode", "service.json"), JSON.stringify({ url, password }))
-  return {
-    url,
-    password,
-    stop: async () => {
-      child.kill()
-      await child.exited
-    },
-  }
-}
+const env = () => sandboxEnvironment(sandbox)
+const serve = () => serveSandbox(sandbox)
 
 async function get(path: string): Promise<{ data: unknown }> {
-  const response = await fetch(`${server!.url}${path}`, { headers: { Authorization: `Basic ${Buffer.from(`opencode:${server!.password}`).toString("base64")}` } })
+  const response = await server!.get(path)
   expect(response.status).toBe(200)
-  return (await response.json()) as { data: unknown }
+  return response.body as { data: unknown }
 }
 
 const store = () => join(sandbox, "data", "opencode", "opencode.db")

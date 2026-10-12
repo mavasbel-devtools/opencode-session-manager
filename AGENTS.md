@@ -17,7 +17,7 @@ code is wrong until one of them is deliberately changed.
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | deployed at (v1) | `<plugins>/session-manager.js`, `<plugins>/session-manager.tui.js` | v1.18.32 forbids `server` and `tui` in one module |
 | build outputs | `dist/v2/{server,tui}.js`, `dist/v1/session-manager{,.tui}.js` | the entrypoints the hosts load |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `relocate [--data <dataHome>] --map <from>=<to>... (--session <id>... \| --all) [--dry-run] [--json]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
@@ -105,7 +105,7 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
    blobs they need); credentials, accounts and OpenCode's `migration` log are
    never touched.
 12. **One writer per store.** Every command that writes a store (`run`,
-    `rollback`, `sync`, `context sync`, the browser's apply) first takes
+    `rollback`, `sync`, `relocate`, `context sync`, the browser's apply) first takes
     `<store>.session-manager.lock` (`FsStoreLockAdapter`, created exclusively,
     holding pid, command and start time), for all its stores or none, and
     releases it however it ends. A second writer is refused with the holder named.
@@ -127,6 +127,16 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
     `fork`/`F`, or the offline fork `sync --diverged fork` writes (on copies, like
     any sync). Neither copies Magic Context state: Magic Context 0.47 inherits a
     fork's state from its parent itself on the fork's first prompt.
+16. **`relocate` moves sessions inside one profile, never partly.** A family
+    (a session and its sub-agent sessions) moves whole, to folders that exist
+    here, or stays and is reported (`folder-missing`); Magic Context working on a
+    session it would move refuses the whole run. Text is rewritten in place by
+    primary key, only where a rule's folder appears as a whole name (absolute,
+    without its leading slash after `file:///`/`@fs/`, or `~/…`); a session row's
+    folder is set only by the move. Project records and content-addressed blobs
+    are kept. Old Magic Context projects are merged, never deleted. Working copies
+    must pass every check (`text_ok`: no rewritten row still names an old folder)
+    before both stores are swapped in together (`JointSwapService`).
 
 ### The report JSON is a contract
 
@@ -303,6 +313,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `MagicContextSync.ts` | sessions | sync requests and resolutions (`replace`, `skip`, `further`), sides, history relation (`relationOf`), harness labels, `failedChecks`, the sync report and its summary for a person |
 | `MagicContextRelease.ts` | sessions | the installed Magic Context release, an upgrade's outcome, the `context copy` report |
 | `PathMapping.ts` | sessions | path mapping (a Windows profile → a home, folder relocations), `GLOBAL_PROJECT`, the project OpenCode derives for a folder |
+| `Relocate.ts` | sessions | `relocate` input, moved and skipped sessions, text rewrite counts, checks, the report and `relocateLines` |
 | `SessionSync.ts` | sessions | session sync input, map rules, `--prefer`, the action per history relation (`actionFor`), the report |
 | `Verify.ts` | sessions | `verify`: finding kinds and their severity, a session's Magic Context vitals, the report and its text (`verifyLines`) |
 | `Build.ts` | maintenance | the six checks of a compacted copy |
@@ -321,6 +332,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 |---|---|---|
 | `PathRewriter.ts` | sessions | `TextRewriter`: rewrites Windows profile paths in text, through nested JSON escaping; counts what is left |
 | `WindowsMapping.ts` | sessions | the mapping a session's own folders imply (Windows profile → this home, plus a moved folder) |
+| `RelocateRules.ts` | sessions | `relocate --map` rules → folder moves, the text mapping (absolute, and `~/…` below the home) and the hints a rewrite searches for (`relocationsFromRules`, `relocatedFolder`) |
 | `MapRules.ts` | sessions | `--map` rules → a `PathMapping` (`parseMapRule`, `mappingFromRules`, `NO_WINDOWS_PROFILE`) |
 | `Versions.ts` | sessions | `compareVersions` (dotted numeric versions) |
 | `Fork.ts` (model) | sessions | OpenCode 2.0.26's fork rules: `forkTitle`, `isSettled` (what a fork copies), `opencodeId` (OpenCode's id format), slug words, the `fork` report |
@@ -341,7 +353,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `ProfileUnreadableError.ts`, `SyncVerificationError.ts`,
 `InvalidMapRuleError.ts`, `OpenCodeFormatMismatchError.ts`,
 `UnknownStoreSchemaError.ts`, `BusySessionsError.ts`, `ServerNotFoundError.ts`,
-`ServerRefusedError.ts` (sessions);
+`ServerRefusedError.ts`, `RelocateBusyError.ts`, `RelocateVerificationError.ts` (sessions);
 `InvalidDirectoryError.ts`, `MissingSessionIdError.ts`,
 `SessionNotFoundError.ts` (plugin).
 
@@ -351,7 +363,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `PreflightPort.ts`, `RehearsePort.ts`, `RollbackPort.ts` (maintenance);
 `OpenProfilePort.ts`, `CatalogProfilePort.ts`, `CopyMagicContextPort.ts`,
 `SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
-`MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`
+`MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`,
 `MoveSessionPort.ts`, `TransferSessionPort.ts`, `BuildDirectoryOptionsPort.ts`
 (plugin).
@@ -363,7 +375,8 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextSyncStorePort.ts`, `SessionSyncStorePort.ts`, `MagicContextReleasePort.ts`,
 `MagicContextIdentityPort.ts`, `MagicContextConfigPort.ts`, `PublishedVersionPort.ts`, `OpencodeServerPort.ts`,
-`MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts` (sessions); `SessionHostPort.ts`,
+`MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts`, `RelocationStorePort.ts`,
+`MagicContextRelocationStorePort.ts` (sessions); `SessionHostPort.ts`,
 `SessionDbPort.ts`, `ProjectResolverPort.ts`, `FileSystemPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`,
 `SidebarViewPort.ts` (plugin).
@@ -379,6 +392,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `BuildAndVerifyService.ts` | maintenance | `VACUUM INTO` and the six checks |
 | `GuardService.ts` | maintenance, sessions | refuse while OpenCode runs, a process holds the file, or space is short |
 | `StoreLockService.ts` | maintenance, sessions | run a write under its stores' locks (`StoreLockPort`), released however it ends |
+| `JointSwapService.ts` | sessions | puts checked working copies of several stores in place by renames into one backup folder, undoing the earlier swaps when a later one fails (`sync`, `relocate`) |
 | `SwapService.ts` | maintenance, sessions | rename-only swap into a backup folder, restored on failure; `undo` reverses a finished swap |
 | `DatabaseSizesService.ts` | maintenance | sizes of a database and its sidecars |
 | `OpenProfileUseCase.ts` | sessions | open a profile read-only, from a snapshot when needed, and close it |
@@ -388,6 +402,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `MagicContextSyncService.ts` | sessions | build and check a working copy of a target Magic Context store holding sessions' state and, for scope `all`, their projects' state |
 | `SyncMagicContextUseCase.ts` | sessions | `context sync`: the service's copy swapped in, with a backup |
 | `SyncSessionsUseCase.ts` | sessions | `sync`: whole sessions (OpenCode rows + Magic Context state) into working copies of both target stores, checked, swapped in together |
+| `RelocateSessionsUseCase.ts` | sessions | `relocate`: sessions in mapped folders (with their sub-agent sessions) get their new folder and the project OpenCode derives there, text naming an old folder is rewritten, Magic Context links and merges their projects; on working copies, checked, swapped in together |
 | `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one whole-session sync per direction |
 | `ForkSessionUseCase.ts` | sessions | `fork` and the browser's `F`: OpenCode's own fork through the running server (writes nothing itself) |
 | `RebuildContextUseCase.ts` | sessions | `context wrapup|recomp` and the browser's `W`/`R`: one session at a time through the OpenCode server, followed in the store (read-only); refuses a session Magic Context already works on |
@@ -405,6 +420,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `cli/CliRouter.ts` | sends each command family to its adapter |
 | `cli/CompactCliAdapter.ts` | `preflight`, `rehearse`, `run`, `rollback` |
 | `cli/SyncCliAdapter.ts` | `sync` |
+| `cli/RelocateCliAdapter.ts` | `relocate` |
 | `cli/ForkCliAdapter.ts` | `fork` |
 | `cli/arguments.ts` | `parseOptions`: `--name value` options and flags |
 | `cli/SessionsCliAdapter.ts` | `sessions` |
@@ -425,6 +441,9 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | File | Role |
 |---|---|
 | `sqlite/BunSqliteAdapter.ts` | read-only reads, `VACUUM INTO`, fingerprints, checks |
+| `sqlite/BunRelocationStoreAdapter.ts` | moves session rows and rewrites text in a working copy of an OpenCode store (keeps project records and content-addressed blobs) |
+| `sqlite/BunMagicContextRelocationStoreAdapter.ts` | relinks sessions' Magic Context projects and rewrites text in a working copy (a memory's key follows its text) |
+| `sqlite/TextRelocation.ts` | rewrites, in place and by primary key, every text cell holding a hint (`rewriteTable`), and counts mentions (`countMentions`) |
 | `sqlite/BunSessionSyncStoreAdapter.ts` | reads OpenCode stores for a sync, writes session families into a working copy |
 | `sqlite/engine/Store.ts` | the store engine: opens a store (`openStore`, `withStore`), drizzle-orm over it, and the only SQL text in `src` |
 | `sqlite/schema/opencode.ts`, `sqlite/schema/magic-context.ts` | generated Drizzle tables of OpenCode 2.0.24 and Magic Context format 95 (a superset of 94: the code reads only the tables and columns a store has, so 94 and 95 stores both work) |
@@ -513,6 +532,7 @@ in-process real-host tier and "live" is the real external process.
 | `fixtures/host-2.0.14/` | verbatim OpenCode 2.0.14 host sources (re-extracted, never edited), so tests run the host's own rules |
 | `fixtures/legacy-session-id-index.js`, `fixtures/legacy-session-id-index.d.ts` | the hand-written tool this plugin replaced, kept verbatim |
 | `live/process.ts` | runs processes, finds OpenCode, `removeTemporary()`/`removeTemporarySync()` |
+| `live/sandbox-opencode.ts` | a sandboxed `opencode serve` on copied stores (`serveSandbox`, `sandboxEnvironment`), for the live `fork` and `relocate` tests |
 | `live/isolated-host.ts` | an OpenCode with every XDG folder, its home and server password private to the test |
 | `live/load-built-tui.ts` | loads the built v2 TUI bundle |
 | `live/drive-tui.mjs`, `live/drive-transfer.mjs`, `live/drive-browser.mjs` | drive a real TUI (OpenCode's, or the compiled browser) in a pseudo-terminal with `node-pty` and a headless terminal |

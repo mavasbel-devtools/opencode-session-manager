@@ -106,7 +106,7 @@ const READ: readonly SQLiteTable[] = [
 ]
 
 /** Text columns that hold keys, never prose: never rewritten. */
-const KEYS = new Set([
+export const KEYS = new Set([
   "session_id",
   "harness",
   "project_path",

@@ -1,7 +1,7 @@
 import type { GuardService } from "@session-manager/application/GuardService"
 import type { MagicContextSyncService } from "@session-manager/application/MagicContextSyncService"
 import type { StoreLockService } from "@session-manager/application/StoreLockService"
-import type { SwapService } from "@session-manager/application/SwapService"
+import type { JointSwapService } from "@session-manager/application/JointSwapService"
 import { BusySessionsError } from "@session-manager/domain/errors/BusySessionsError"
 import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNotFoundError"
 import { OpenCodeFormatMismatchError } from "@session-manager/domain/errors/OpenCodeFormatMismatchError"
@@ -41,7 +41,7 @@ export interface SyncSessionsDependencies {
   readonly contexts: Pick<MagicContextSyncService, "build">
   readonly guard: GuardService
   readonly locks: StoreLockService
-  readonly swap: SwapService
+  readonly joint: JointSwapService
   readonly fileSystem: MaintenanceFileSystemPort
   readonly runtime: RuntimePort
   readonly rewriterFor: (mapping: PathMapping) => TextRewriter
@@ -311,34 +311,18 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
     })
   }
 
-  /**
-   * Puts the checked copies in place by renames: each is first copied next to its target (they may
-   * be on another file system), then swapped in, the originals moved into one backup folder. When
-   * the second swap fails, the first is undone, so the two stores never disagree.
-   */
+  /** Puts the checked copies in place (`JointSwapService`), the originals in one backup folder next to the target's OpenCode store. */
   private replace(input: SessionSyncInput, copies: { readonly opencode: string | null; readonly context: string | null }): string {
-    const { fileSystem, runtime, guard, swap } = this.deps
-    const stamp = runtime.stamp()
+    const stamp = this.deps.runtime.stamp()
     const backupDir = joinPath(dirName(input.target.opencodeDb), `sync-backup-${stamp}`)
-    const steps = [
-      ...(copies.opencode === null ? [] : [{ dbPath: input.target.opencodeDb, work: copies.opencode }]),
-      ...(copies.context === null ? [] : [{ dbPath: input.target.contextDb, work: copies.context }]),
-    ].map((step) => ({ ...step, incoming: `${step.dbPath}.incoming-${stamp}` }))
-    for (const step of steps) {
-      guard.assertNotHeld(step.dbPath)
-      guard.checkSpace({ dbPath: step.dbPath, requiredBytes: fileSystem.size(step.work) })
-    }
-    const done: { readonly step: (typeof steps)[number]; readonly moved: readonly string[] }[] = []
-    try {
-      for (const step of steps) {
-        fileSystem.copyFile(step.work, step.incoming)
-        done.push({ step, moved: swap.swap({ dbPath: step.dbPath, compacted: step.incoming, backupDir }) })
-      }
-    } catch (error) {
-      for (const { step, moved } of done.reverse()) swap.undo({ dbPath: step.dbPath, compacted: step.incoming, backupDir }, moved)
-      for (const step of steps) if (fileSystem.exists(step.incoming)) fileSystem.remove(step.incoming)
-      throw error
-    }
+    this.deps.joint.replace(
+      [
+        ...(copies.opencode === null ? [] : [{ dbPath: input.target.opencodeDb, work: copies.opencode }]),
+        ...(copies.context === null ? [] : [{ dbPath: input.target.contextDb, work: copies.context }]),
+      ],
+      backupDir,
+      stamp,
+    )
     return backupDir
   }
 }
