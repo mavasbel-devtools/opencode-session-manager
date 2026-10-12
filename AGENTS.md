@@ -182,7 +182,7 @@ text anywhere else. The engine owns what no query builder expresses: PRAGMAs,
   <store.db> <out.sql>` (`scripts/schema.ts`) dumps a real store's `CREATE` statements;
   `bun run schema -- generate <fixture.sql> <out.ts> <title>` writes the
   Drizzle tables (`schema/opencode.ts` from `opencode-2.0.24.sql`,
-  `schema/magic-context.ts` from `magic-context-94.sql`, in
+  `schema/magic-context.ts` from `magic-context-95.sql`, in
   `tests/support/sessions/`). Every column keeps its store name; INTEGER
   columns are BigInt (`bigInteger`), untyped ones pass through (`value`).
   `tests/unit/sessions/schema.test.ts` regenerates both and fails on drift.
@@ -370,7 +370,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `sqlite/BunSqliteAdapter.ts` | read-only reads, `VACUUM INTO`, fingerprints, checks |
 | `sqlite/BunSessionSyncStoreAdapter.ts` | reads OpenCode stores for a sync, writes session families into a working copy |
 | `sqlite/engine/Store.ts` | the store engine: opens a store (`openStore`, `withStore`), drizzle-orm over it, and the only SQL text in `src` |
-| `sqlite/schema/opencode.ts`, `sqlite/schema/magic-context.ts` | generated Drizzle tables of OpenCode 2.0.24 and Magic Context format 94 |
+| `sqlite/schema/opencode.ts`, `sqlite/schema/magic-context.ts` | generated Drizzle tables of OpenCode 2.0.24 and Magic Context format 95 (a superset of 94: the code reads only the tables and columns a store has, so 94 and 95 stores both work) |
 | `sqlite/schema/value.ts` | the `bigInteger` and pass-through `value` column types the generated schemas use |
 | `sqlite/BunSessionStoreAdapter.ts` | reads `opencode.db` sessions and their message ids |
 | `sqlite/BunMagicContextStoreAdapter.ts` | reads a `context.db`'s counts and format |
@@ -458,9 +458,10 @@ in-process real-host tier and "live" is the real external process.
 | `maintenance/console.ts`, `maintenance/temporary.ts`, `maintenance/platform.ts` | captured output, guarded temporary folders, facts about the machine |
 | `maintenance/fixtures/legacy/` | the original compactor, kept verbatim for the parity test |
 | `sessions/stores.ts` | small `opencode.db` and `context.db` stores with given sessions and counts |
-| `sessions/sync-stores.ts` | Magic Context stores with the real format-94 schema, triggers included, and per-session state (`makeSyncContextStore`, `rowsOf`); `without` drops tables and the triggers that write into them |
+| `sessions/sync-stores.ts` | Magic Context stores with the real schema of their format (`SCHEMA_95` from format 95 on, else `SCHEMA_94`), triggers included, and per-session state (`makeSyncContextStore`, `rowsOf`); `without` drops tables and the triggers that write into them |
 | `sessions/opencode-stores.ts`, `sessions/opencode-2.0.24.sql` | stores with OpenCode 2.0.24's real schema (every `CREATE`, read from a live store with `select sql from sqlite_master`; refresh it the same way when OpenCode changes its schema) and given projects and sessions, optionally with OpenCode 1 rows and every per-session table filled (`makeOpenCode2Store`) |
 | `sessions/magic-context-94.sql` | every `CREATE` statement (tables, virtual tables, indexes, triggers) of a real Magic Context 0.45.0 store, written by `bun run schema -- fixture`; refresh it the same way when Magic Context changes format, then regenerate `schema/magic-context.ts` |
+| `sessions/magic-context-95.sql` | the same for a real Magic Context 0.47.0 store (format 95: format 94 plus `temporal_decisions` and `git_commit_fts_rowid_map`, and changed indexes); `schema/magic-context.ts` is generated from it |
 | `sessions/magic-context-package.ts` | a stand-in Magic Context package (declared seam) |
 | `sessions/catalogs.ts` | catalogued sessions and opened profiles for browser tests |
 | `sessions/frames.ts` | `waitForText`: waits in real time for text in OpenTUI's test renderer |

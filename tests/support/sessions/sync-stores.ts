@@ -7,6 +7,9 @@ import { normalizedHash } from "@session-manager/infrastructure/adapters/outboun
 /** Every table, index and trigger of a Magic Context 0.45.0 store (format 94), read from a real one. */
 export const SCHEMA_94 = readFileSync(new URL("./magic-context-94.sql", import.meta.url), "utf8")
 
+/** The same for Magic Context 0.47.0 (format 95): format 94 plus `temporal_decisions` and `git_commit_fts_rowid_map`. */
+export const SCHEMA_95 = readFileSync(new URL("./magic-context-95.sql", import.meta.url), "utf8")
+
 export interface CompartmentSpec {
   readonly start: string
   readonly end: string
@@ -46,12 +49,12 @@ export interface SyncStoreSpec {
   readonly extraSql?: string
 }
 
-/** A Magic Context store with the real format-94 tables and the given per-session state. */
+/** A Magic Context store with the real tables of its format (95 from 95 on, else 94) and the given per-session state. */
 export function makeSyncContextStore(file: string, spec: SyncStoreSpec): void {
   mkdirSync(dirname(file), { recursive: true })
   const db = new Database(file)
   try {
-    db.exec(SCHEMA_94)
+    db.exec((spec.format ?? 94) >= 95 ? SCHEMA_95 : SCHEMA_94)
     db.query("insert into schema_migrations (version, description, applied_at) values (?, 'fixture', 0)").run(spec.format ?? 94)
     db.transaction(() => {
       for (const [id, state] of Object.entries(spec.sessions ?? {})) addState(db, id, state)

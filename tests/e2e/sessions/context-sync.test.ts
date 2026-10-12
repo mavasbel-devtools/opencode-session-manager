@@ -69,7 +69,7 @@ const anchors = (id: string, last: number) => [{ start: `${id}-m0`, end: `${id}-
  * A Windows profile (source) and this machine's (target). Every session id is on both sides unless
  * noted; folders exist under the test folder, which stands for this machine.
  */
-function makeProfiles(options: { sourceFormat?: number; targetExtraSql?: string } = {}) {
+function makeProfiles(options: { sourceFormat?: number; targetFormat?: number; targetExtraSql?: string } = {}) {
   const app = at("home", "apps", "app")
   const repo = at("home", "repo")
   mkdirSync(app, { recursive: true })
@@ -129,6 +129,7 @@ function makeProfiles(options: { sourceFormat?: number; targetExtraSql?: string 
   }
   makeSyncContextStore(contextOf("win"), { format: options.sourceFormat ?? 94, sessions: sourceState })
   makeSyncContextStore(contextOf("linux"), {
+    ...(options.targetFormat === undefined ? {} : { format: options.targetFormat }),
     sessions: { ses_keep: { compartments: [{ start: "ses_keep-m0", end: "ses_keep-m0", content: "linux's own" }], tags: 7, project: dirIdentity(app) } },
     ...(options.targetExtraSql === undefined ? {} : { extraSql: options.targetExtraSql }),
   })
@@ -209,6 +210,24 @@ describe("context sync (real stores, the wired container)", () => {
     const wrong = makeMagicContextPackage(at("mc93"), { version: "0.44.0", latest: 93 })
     const missed = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--all"], { OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT: wrong })
     expect(missed.errors[0]).toEndWith("the installed Magic Context cannot bring the source to the target's format; update Magic Context here")
+  })
+
+  it("syncs into a format-95 target (Magic Context 0.47.0), keeping the target's temporal decisions", async () => {
+    const decisions = "insert into temporal_decisions values ('ses_win', 'ses_win-m0', 'linux decision')"
+    makeProfiles({ sourceFormat: 95, targetFormat: 95, targetExtraSql: decisions })
+    const run = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_win"])
+    expect(run.code).toBe(0)
+    expect(run.json).toMatchObject({ format: 95, sessions: [{ id: "ses_win", status: "copied" }], checks: { integrity_ok: true, anchors_ok: true } })
+    expect(rowsOf(contextOf("linux"), "select message_id, marker from temporal_decisions")).toEqual([{ message_id: "ses_win-m0", marker: "linux decision" }])
+  })
+
+  it("brings an older source to format 95 with the installed Magic Context 0.47.0", async () => {
+    makeProfiles({ sourceFormat: 91, targetFormat: 95 })
+    const release = makeMagicContextPackage(at("mc95"), { version: "0.47.0", latest: 95 })
+    const upgraded = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_win", "--dry-run"], {
+      OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT: release,
+    })
+    expect(upgraded.json).toMatchObject({ format: 95, sessions: [{ id: "ses_win", status: "copied" }] })
   })
 
   it("refuses a newer source, a missing store, a held target, a failed check, a failed write and a failed swap", async () => {

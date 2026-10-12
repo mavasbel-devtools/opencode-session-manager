@@ -15,9 +15,9 @@ const SCHEMAS = [
     tables: opencode.TABLES,
   },
   {
-    fixture: "../../support/sessions/magic-context-94.sql",
+    fixture: "../../support/sessions/magic-context-95.sql",
     source: "../../../src/infrastructure/adapters/outbound/sqlite/schema/magic-context.ts",
-    title: "tests/support/sessions/magic-context-94.sql (Magic Context 0.45.0, format 94)",
+    title: "tests/support/sessions/magic-context-95.sql (Magic Context 0.47.0, format 95)",
     tables: magicContext.TABLES,
   },
 ] as const

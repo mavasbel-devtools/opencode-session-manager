@@ -342,6 +342,18 @@ describe("BunMagicContextSyncStoreAdapter.copySessions", () => {
     expect(() => copyOne(file("source2"), file("target2"), copyOf("ses_a"))).toThrow(/future_state/)
   })
 
+  it("knows format 95 (Magic Context 0.47.0): copies from a 94 store into a 95 store, keeping the target's temporal decisions", () => {
+    makeSyncContextStore(file("source94"), { sessions: { ses_a: { compartments: [{ start: "a", end: "a" }], tags: 2 } } })
+    // Magic Context's own decisions about the target's messages are kept, never copied (like session_replay_decisions).
+    const decisions = "insert into temporal_decisions values ('ses_a', 'msg_target', 'kept'); insert into git_commit_fts_rowid_map values (1, x'00')"
+    makeSyncContextStore(file("target95"), { format: 95, extraSql: decisions })
+    makeSyncContextStore(file("source95"), { format: 95, sessions: { ses_a: { tags: 1 } }, extraSql: "insert into temporal_decisions values ('ses_a', 'msg_source', 'not copied')" })
+    expect(copyOne(file("source94"), file("target95"), copyOf("ses_a")).sessions[0]).toMatchObject({ id: "ses_a", compartments: 1, tags: 2 })
+    expect(copyOne(file("source95"), file("target95"), copyOf("ses_a")).sessions[0]).toMatchObject({ id: "ses_a", compartments: 0, tags: 1 })
+    expect(rowsOf(file("target95"), "select session_id, message_id, marker from temporal_decisions")).toEqual([{ session_id: "ses_a", message_id: "msg_target", marker: "kept" }])
+    expect(rowsOf(file("target95"), "select count(*) as n from git_commit_fts_rowid_map")).toEqual([{ n: 1 }])
+  })
+
   it("copies only the tables both stores have", () => {
     const optional = ["compartment_chunk_embeddings", "notes", "compartment_events", "session_projects", "session_meta", "compartment_history_versions", "project_state", "memory_embeddings", "memory_verifications"]
     const history = ["historian_runs", "subagent_invocations", "primer_candidates", "user_memory_candidates"]
