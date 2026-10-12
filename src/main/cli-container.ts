@@ -4,11 +4,15 @@ import { MagicContextSyncService } from "@session-manager/application/MagicConte
 import { SyncMagicContextUseCase } from "@session-manager/application/SyncMagicContextUseCase"
 import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
 import { VerifyProfileUseCase } from "@session-manager/application/VerifyProfileUseCase"
+import { ForkSessionUseCase } from "@session-manager/application/ForkSessionUseCase"
+import { ForkCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/ForkCliAdapter"
 import { RebuildContextUseCase } from "@session-manager/application/RebuildContextUseCase"
 import { HttpOpencodeServerAdapter } from "@session-manager/infrastructure/adapters/outbound/opencode2/HttpOpencodeServerAdapter"
 import { BunMagicContextProgressAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextProgressAdapter"
 import { SystemTimerAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemTimerAdapter"
 import type { TimerPort } from "@session-manager/domain/ports/outbound/TimerPort"
+import type { IdentifiersPort } from "@session-manager/domain/ports/outbound/IdentifiersPort"
+import { OpencodeIdentifiersAdapter } from "@session-manager/infrastructure/adapters/outbound/system/OpencodeIdentifiersAdapter"
 import { MagicContextVersionsUseCase } from "@session-manager/application/MagicContextVersionsUseCase"
 import { MAGIC_CONTEXT_PACKAGE } from "@session-manager/domain/services/Jsonc"
 import { OpencodeMagicContextConfigAdapter } from "@session-manager/infrastructure/adapters/outbound/magic-context/OpencodeMagicContextConfigAdapter"
@@ -100,6 +104,8 @@ export interface ContainerOverrides {
   readonly space?: RequiredSpacePolicy
   /** Waiting between looks at a running rebuild; tests wait no real time. */
   readonly timer?: TimerPort
+  /** New OpenCode ids (forks); tests pass fixed ones. */
+  readonly identifiers?: IdentifiersPort
 }
 
 export interface Cli {
@@ -190,8 +196,11 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     rewriterFor,
   })
   const syncContext = new SyncMagicContextUseCase({ builder: contextBuilder, guard, locks, swap: swapper, fileSystem, runtime })
+  const opencodeServer = new HttpOpencodeServerAdapter(joinPath(environment.XDG_STATE_HOME || joinPath(runtime.homeDirectory(), ".local", "state"), "opencode", "service.json"), 30_000)
+  const forkSession = new ForkSessionUseCase(opencodeServer)
+  const forkCli = new ForkCliAdapter({ fork: forkSession, output })
   const rebuild = new RebuildContextUseCase({
-    server: new HttpOpencodeServerAdapter(joinPath(environment.XDG_STATE_HOME || joinPath(runtime.homeDirectory(), ".local", "state"), "opencode", "service.json"), 30_000),
+    server: opencodeServer,
     progress: new BunMagicContextProgressAdapter(contextSyncStore),
     runtime,
     timer: overrides.timer ?? new SystemTimerAdapter(),
@@ -218,6 +227,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     fileSystem,
     runtime,
     rewriterFor,
+    ids: overrides.identifiers ?? new OpencodeIdentifiersAdapter(runtime),
   })
   const syncCli = new SyncCliAdapter({
     sync: syncSessions,
@@ -251,6 +261,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     apply: new ApplyQueueUseCase(syncSessions, profiles),
     verify: verifyProfile,
     rebuild,
+    fork: forkSession,
     versions: new MagicContextVersionsUseCase(
       new OpencodeMagicContextConfigAdapter(
         joinPath(environment.XDG_CONFIG_HOME || joinPath(runtime.homeDirectory(), ".config"), "opencode"),
@@ -267,5 +278,5 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
   const help = { run: (argv: readonly string[]) => helpCli.run(argv, "help") }
   const version = { run: (argv: readonly string[]) => helpCli.run(argv, "version") }
 
-  return new CliRouter(compactCli, { sync: syncCli, verify: verifyCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
+  return new CliRouter(compactCli, { sync: syncCli, fork: forkCli, verify: verifyCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
 }

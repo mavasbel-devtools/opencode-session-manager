@@ -20,6 +20,17 @@ export function isPrefer(value: string): value is Prefer {
   return value === "further" || value === "keep" || value === "replace"
 }
 
+/**
+ * For sessions whose two histories differ after a shared beginning: `skip` leaves both as they are;
+ * `fork` writes the source's version into the target as a new session, an OpenCode fork of the
+ * target's own version at the last message both share.
+ */
+export type Diverged = "skip" | "fork"
+
+export function isDiverged(value: string): value is Diverged {
+  return value === "skip" || value === "fork"
+}
+
 export interface SessionSyncInput {
   readonly source: SyncSide
   readonly target: SyncSide
@@ -34,6 +45,10 @@ export interface SessionSyncInput {
   readonly dryRun: boolean
   /** Refuse the whole sync when Magic Context is working on a requested session (default: skip it). */
   readonly strict?: boolean
+  /** What to do with diverged sessions (default `skip`). */
+  readonly diverged?: Diverged
+  /** `diverged` for single sessions (by root session id), over the one above. */
+  readonly divergedFor?: Readonly<Record<string, Diverged>>
 }
 
 /**
@@ -41,20 +56,21 @@ export interface SessionSyncInput {
  * - copy: the target does not have it;
  * - replace: the target's history is a beginning of the source's;
  * - keep: the target's history is the source's, or continues it;
+ * - fork: the histories diverged and the source's version is written as a fork of the target's;
  * - skip: nothing is copied (see the reason).
  */
-export type SessionAction = "copy" | "replace" | "keep" | "skip"
+export type SessionAction = "copy" | "replace" | "keep" | "fork" | "skip"
 
-export type SessionSkipReason = "not-on-source" | "diverged" | "hidden-run"
+export type SessionSkipReason = "not-on-source" | "diverged" | "hidden-run" | "nothing-shared"
 
 /** The relation of the two histories, or `missing` when the target does not have the session. */
 export type SessionRelation = HistoryRelation | "missing"
 
-/** The OpenCode action for a session, from how its two histories relate. */
-export function actionFor(relation: SessionRelation): SessionAction {
+/** The OpenCode action for a session, from how its two histories relate and what diverged ones get. */
+export function actionFor(relation: SessionRelation, diverged: Diverged = "skip"): SessionAction {
   if (relation === "missing") return "copy"
   if (relation === "source-ahead") return "replace"
-  if (relation === "diverged") return "skip"
+  if (relation === "diverged") return diverged
   return "keep"
 }
 
@@ -67,8 +83,10 @@ export interface SessionSyncOutcome {
   readonly relation: SessionRelation | null
   readonly action: SessionAction
   readonly reason: SessionSkipReason | null
-  /** The session and its sub-agent sessions written to the target. */
+  /** The session and its sub-agent sessions written to the target (a fork: the fork alone). */
   readonly sessions_written: number
+  /** The new session a `fork` wrote on the target, or null. */
+  readonly fork_id: string | null
   readonly rows_written: number
   readonly source_directory: string | null
   readonly target_directory: string | null
@@ -111,14 +129,16 @@ export interface SessionSyncReport {
 
 export const SESSION_SKIP_TEXT: Readonly<Record<SessionSkipReason, string>> = {
   "not-on-source": "the session is not in the source's OpenCode store",
-  diverged: "the two histories differ after a shared beginning; nothing is copied",
+  diverged: "the two histories differ after a shared beginning; nothing is copied (--diverged fork keeps both)",
   "hidden-run": "a session a plugin ran for its own work (Magic Context's historian or dreamer); --all leaves it out, --session takes it",
+  "nothing-shared": "the two histories differ from their first message, so there is no point to fork from; nothing is copied",
 }
 
 const SESSION_SKIP_SHORT: Readonly<Record<SessionSkipReason, string>> = {
   "not-on-source": "not on the source",
   diverged: "diverged",
   "hidden-run": "plugin run",
+  "nothing-shared": "nothing shared",
 }
 
 /** What happened to a session's Magic Context state, in a few words (null: not part of the sync). */
@@ -136,11 +156,14 @@ export function sessionSyncLines(report: SessionSyncReport): string[] {
   const skipped = new Map<string, number>()
   for (const session of report.sessions) if (session.reason !== null) skipped.set(SESSION_SKIP_SHORT[session.reason], (skipped.get(SESSION_SKIP_SHORT[session.reason]) ?? 0) + 1)
   return [
-    `${report.dry_run ? "Dry run" : "Applied"}: ${count("copy")} copied, ${count("replace")} replaced, ${count("keep")} kept, ${count("skip")} skipped → ${report.target_opencode_db}`,
+    `${report.dry_run ? "Dry run" : "Applied"}: ${count("copy")} copied, ${count("replace")} replaced, ${count("keep")} kept, ${count("fork") === 0 ? "" : `${count("fork")} forked, `}${count("skip")} skipped → ${report.target_opencode_db}`,
     ...(report.target_context_db === null
       ? []
       : [`Magic Context: state copied for ${copied.length} of ${contexts.length} sessions (${sum("compartments")} summaries · ${sum("tags")} tags · ${sum("memories_copied")} memories)`]),
     ...projectLines(report),
+    ...report.sessions
+      .filter((session) => session.fork_id !== null)
+      .map((session) => `Forked ${session.id} → ${session.fork_id}: Magic Context gives it ${session.id}'s state on its first prompt`),
     ...(skipped.size === 0 ? [] : [`Skipped: ${[...skipped].map(([reason, total]) => `${total} ${reason}`).join(", ")}`]),
     report.rollback === null ? "The target stores were not changed." : `Originals kept; undo: ${report.rollback}`,
   ]

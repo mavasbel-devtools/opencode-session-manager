@@ -93,6 +93,15 @@ Every table gets one rule, from Magic Context's source, recorded in
 ### 6. Fork
 - Same side or across, whole or up to a message; new ids, Magic Context state
   translated; plugin `/fork-with-context`.
+- Changed 2026-10-12, on evidence: Magic Context 0.47.0 gives an OpenCode 2 fork
+  its parent's state itself (`fork-inheritance`, `seedV2ForkFromParent`, on the
+  fork's first model request), so the tool translates no Magic Context state and
+  the plugin `/fork-with-context` is dropped (OpenCode's own `/fork` plus that
+  inheritance covers it). Built instead: `fork` / the browser's `F` (OpenCode's
+  own fork through the running server) and `sync --diverged skip|fork` / the
+  queue's `f` (the source's version written as an OpenCode fork of the target's,
+  in OpenCode 2.0.26's `projectFork` layout, checked row for row against
+  OpenCode's own fork in a sandbox).
 
 ### 7. Magic Context 0.45.0 → 0.46.1 (last)
 - First: the tool supports format 95 (fixture from 0.46.1, `context copy`

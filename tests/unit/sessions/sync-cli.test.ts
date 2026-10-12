@@ -62,12 +62,22 @@ describe("SyncCliAdapter", () => {
         { from: "/x", to: "/y" },
       ],
       prefer: "further",
+      diverged: "skip",
       context: "all",
       dryRun: true,
       strict: false,
     })
     expect(events).toEqual(["open from /a", "open to /b", "close from", "close to"])
     expect(JSON.parse(output.text())).toMatchObject({ dry_run: true })
+  })
+
+  it("forks diverged sessions with --diverged fork, and refuses another value", () => {
+    const forking = cli()
+    expect(forking.adapter.run(["--from", "/a", "--to", "/b", "--all", "--diverged", "fork"])).toBe(0)
+    expect(forking.syncs[0]).toMatchObject({ diverged: "fork" })
+    const wrong = cli()
+    expect(wrong.adapter.run(["--from", "/a", "--to", "/b", "--all", "--diverged", "merge"])).toBe(2)
+    expect(wrong.syncs).toEqual([])
   })
 
   it("syncs named sessions with the chosen preference", () => {

@@ -166,6 +166,14 @@ describe("BrowseCliAdapter", () => {
           return { server: "http://s", context_db: input.contextDb, command: input.command, sessions: [], ok: true }
         },
       },
+      fork: {
+        fork: async (input) => {
+          events.push(`fork ${input.sessionId} ${input.before} ${input.server}`)
+          if (input.sessionId === "ses_refused") throw new Error("the OpenCode server refused to fork ses_refused: 404: gone")
+          if (input.sessionId === "ses_plain") throw "plain"
+          return { server: "http://s", parent_id: input.sessionId, fork_id: `${input.sessionId}_fork`, title: "T (fork #1)", boundary: null, directory: "/w" }
+        },
+      },
       versions: {
         local: () => ({ pinned: "0.47.0", loaded: "0.47.0", latest: null }),
         withLatest: async (local) => {
@@ -181,7 +189,9 @@ describe("BrowseCliAdapter", () => {
         events.push(`release ${release.versions.latest} ${release.newer}`)
         for (const [side, ids] of rebuilds) {
           const progress: string[] = []
-          const outcome = await controls.rebuild({ command: "recomp", side, ids }, (text) => progress.push(text))
+          const command = ids[0]?.startsWith("fork:") === true ? "fork" : "recomp"
+          const named = command === "fork" ? ids.map((id) => id.slice(5)) : ids
+          const outcome = await controls.rebuild({ command, side, ids: named }, (text) => progress.push(text))
           events.push(`rebuilt ${outcome.result.join(" | ")} ${progress.join(" | ")} ${outcome.left !== undefined || outcome.right !== undefined}`)
         }
         if (initial.right !== null) {
@@ -244,10 +254,12 @@ describe("BrowseCliAdapter", () => {
       ["right", ["ses_b"]],
       ["left", ["ses_boom"]],
       ["left", ["ses_text"]],
+      ["left", ["fork:ses_a", "fork:ses_refused", "fork:ses_plain"]],
+      ["right", ["fork:ses_b"]],
     ], { XDG_DATA_HOME: "/data/left" })
     expect(await runs.adapter.run(["--right", "/r", "--offline"])).toBe(0)
     const live = "/data/left"
-    expect(runs.events.filter((event) => event.startsWith("rebuil") || event.startsWith("verify left") || event.startsWith("open left"))).toEqual([
+    expect(runs.events.filter((event) => event.startsWith("rebuil") || event.startsWith("fork ") || event.startsWith("verify left") || event.startsWith("open left"))).toEqual([
       `open left ${live}/opencode/opencode.db ${live}/cortexkit/magic-context/context.db`,
       "verify left /data/left/opencode/opencode.db all 300",
       `rebuild recomp /data/left/cortexkit/magic-context/context.db ses_a true`,
@@ -259,6 +271,13 @@ describe("BrowseCliAdapter", () => {
       "rebuilt Not started: no running OpenCode server found (looked for /state/service.json); start OpenCode, or name it with --server <url> ses_boom: running · 1 summaries to message 2 · 1 s false",
       `rebuild recomp /data/left/cortexkit/magic-context/context.db ses_text true`,
       "rebuilt Not started: plain ses_text: running · 1 summaries to message 2 · 1 s false",
+      "fork ses_a null null",
+      "fork ses_refused null null",
+      "fork ses_plain null null",
+      `open left /data/left/opencode/opencode.db /data/left/cortexkit/magic-context/context.db`,
+      "verify left /data/left/opencode/opencode.db all 300",
+      "rebuilt Forked ses_a → ses_a_fork through http://s | \"T (fork #1)\" in /w | Not forked: the OpenCode server refused to fork ses_refused: 404: gone | Not forked: plain | Magic Context gives each fork its parent's state when the first prompt is sent in it. forking ses_a… | forking ses_refused… | forking ses_plain… true",
+      "rebuilt A fork runs through this machine's OpenCode: only for the side showing /data/left.  false",
     ])
   })
 

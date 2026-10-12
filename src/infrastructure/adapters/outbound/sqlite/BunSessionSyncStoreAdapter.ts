@@ -1,9 +1,12 @@
-import { asc, eq, getTableColumns, getTableName, inArray, like, or, type SQL } from "drizzle-orm"
+import { and, asc, eq, getTableColumns, getTableName, gt, inArray, like, lte, or, type SQL } from "drizzle-orm"
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import { UnknownStoreSchemaError } from "@session-manager/domain/errors/UnknownStoreSchemaError"
+import { forkTitle, isSettled } from "@session-manager/domain/model/Fork"
 import type { ProjectRecord } from "@session-manager/domain/model/Session"
 import type { StoreHealth } from "@session-manager/domain/ports/outbound/MagicContextSyncStorePort"
 import type {
+  ForkPlan,
+  ForkResult,
   ProjectPlan,
   SessionCopyPlan,
   SessionCopyResult,
@@ -21,6 +24,7 @@ import {
   migration,
   project,
   session,
+  sessionMessage,
   sessionV2,
   TABLES,
 } from "@session-manager/infrastructure/adapters/outbound/sqlite/schema/opencode"
@@ -116,6 +120,119 @@ export class BunSessionSyncStoreAdapter implements SessionSyncStorePort {
       source.close()
     }
   }
+
+  forkSessions(sourceDb: string, targetDb: string, plans: readonly ForkPlan[]): readonly ForkResult[] {
+    if (plans.length === 0) return []
+    const source = openStore(sourceDb, "read")
+    try {
+      return withStore(targetDb, "write", (target) => {
+        assertKnown(source)
+        assertKnown(target)
+        return target.transaction((orm) => plans.map((plan) => fork(source, target, orm, plan)))
+      })
+    } finally {
+      source.close()
+    }
+  }
+}
+
+/**
+ * One fork, as OpenCode 2.0.26's `projectFork` writes one (the session row, the copied messages,
+ * the reserved event sequence, the instruction baseline), with the source's later messages after
+ * the parent's through the boundary.
+ */
+function fork(source: Store, target: Store, orm: Orm, plan: ForkPlan): ForkResult {
+  const parent = orm.select(target.selection(sessionV2)).from(sessionV2).where(eq(sessionV2.id, plan.parentId)).get() as Row | undefined
+  if (parent === undefined) throw new Error(`fork parent session not found: ${plan.parentId}`)
+  const boundary = orm
+    .select({ seq: sessionMessage.seq })
+    .from(sessionMessage)
+    .where(and(eq(sessionMessage.session_id, plan.parentId), eq(sessionMessage.id, plan.boundaryMessageId)))
+    .get()
+  if (boundary === undefined) throw new Error(`fork boundary message not found: ${plan.boundaryMessageId}`)
+  const settled = (rows: Row[]) => rows.filter((row) => isSettled(String(row["type"]), String(row["data"])))
+  const messages = (store: Store, id: string, range: SQL) =>
+    settled(store.orm.select(store.selection(sessionMessage)).from(sessionMessage).where(and(eq(sessionMessage.session_id, id), range)).orderBy(asc(sessionMessage.seq)).all() as Row[])
+  const inherited = messages(target, plan.parentId, lte(sessionMessage.seq, boundary.seq as bigint))
+  let residual = 0
+  const rewrite = (row: Row): Row => {
+    const result = rewriteRow(row, plan.rewriter)
+    residual += result.residual
+    return result.row
+  }
+  const appended = messages(source, plan.sourceId, gt(sessionMessage.seq, boundary.seq as bigint)).map(rewrite)
+
+  const now = BigInt(plan.now)
+  target.insert(orm, sessionV2, {
+    id: plan.forkId,
+    parent_id: null,
+    fork_session_id: plan.parentId,
+    fork_boundary: JSON.stringify({ type: "through", messageID: plan.boundaryMessageId }),
+    project_id: parent["project_id"],
+    workspace_id: parent["workspace_id"],
+    slug: plan.slug,
+    directory: parent["directory"],
+    path: parent["path"],
+    title: forkTitle(parent["title"] === null ? null : String(parent["title"])),
+    agent: parent["agent"],
+    model: parent["model"],
+    metadata: parent["metadata"],
+    permission: parent["permission"],
+    version: parent["version"],
+    cost: 0,
+    tokens_input: 0n,
+    tokens_output: 0n,
+    tokens_reasoning: 0n,
+    tokens_cache_read: 0n,
+    tokens_cache_write: 0n,
+    time_created: now,
+    time_updated: now,
+  })
+  const written = [...inherited, ...appended]
+  for (const row of written) target.insert(orm, sessionMessage, { ...row, id: `${plan.messageBase}_${row["seq"]}`, session_id: plan.forkId })
+  const last = written.at(-1)
+  if (last !== undefined && target.has(eventSequence)) target.insert(orm, eventSequence, { aggregate_id: plan.forkId, seq: last["seq"] })
+
+  // The instruction baseline: the source's (the fork continues its later messages), as a new epoch.
+  const state = target.has(instructionState) && source.has(instructionState)
+    ? (source.orm.select(source.selection(instructionState)).from(instructionState).where(eq(instructionState.session_id, plan.sourceId)).get() as Row | undefined)
+    : undefined
+  if (state !== undefined) {
+    const values = rewrite(state)["current_values"]
+    target.insert(orm, instructionState, { session_id: plan.forkId, epoch_start: 0n, through_seq: 0n, initial_values: values, current_values: values })
+  }
+  const entries =
+    target.has(instructionEntry) && source.has(instructionEntry)
+      ? (source.orm.select(source.selection(instructionEntry)).from(instructionEntry).where(and(eq(instructionEntry.session_id, plan.sourceId), eq(instructionEntry.removed, 0n))).all() as Row[])
+      : []
+  for (const entry of entries) target.insert(orm, instructionEntry, { ...rewrite(entry), session_id: plan.forkId, time_created: now, time_updated: now })
+  if (target.has(instructionBlob) && source.has(instructionBlob)) {
+    const hashes = new Set<string>()
+    for (const table of [instructionState, instructionEntry].filter((candidate) => target.has(candidate)))
+      for (const row of orm.select(target.selection(table)).from(table).where(eq(table.session_id, plan.forkId)).all() as Row[])
+        for (const cell of Object.values(row)) if (typeof cell === "string") for (const hash of cell.match(HASH) ?? []) hashes.add(hash)
+    if (hashes.size > 0)
+      for (const row of source.orm.select(source.selection(instructionBlob)).from(instructionBlob).where(inArray(instructionBlob.hash, [...hashes])).all() as Row[])
+        target.insert(orm, instructionBlob, row, { ignore: true })
+  }
+  return { fork_id: plan.forkId, parent_id: plan.parentId, inherited_messages: inherited.length, appended_messages: appended.length, residual_windows_paths: residual }
+}
+
+/** A row's text cells rewritten (keys and hashes left as they are), and how many still hold Windows paths. */
+function rewriteRow(source: Row, rewriter: TextRewriter | null): { row: Row; residual: number } {
+  if (rewriter === null) return { row: { ...source }, residual: 0 }
+  const row: Row = {}
+  let residual = 0
+  for (const [column, cell] of Object.entries(source)) {
+    if (typeof cell !== "string" || isKey(column)) {
+      row[column] = cell
+      continue
+    }
+    const text = rewriter.rewrite(cell)
+    row[column] = text
+    if (rewriter.residual(text)) residual++
+  }
+  return { row, residual }
 }
 
 /** Refuses a store holding data the OpenCode schema does not describe. */
@@ -219,18 +336,8 @@ class FamilyCopy {
   }
 
   private rewritten(source: Row): Row {
-    const rewriter: TextRewriter | null = this.plan.rewriter
-    if (rewriter === null) return { ...source }
-    const row: Row = {}
-    for (const [column, cell] of Object.entries(source)) {
-      if (typeof cell !== "string" || isKey(column)) {
-        row[column] = cell
-        continue
-      }
-      const text = rewriter.rewrite(cell)
-      row[column] = text
-      if (rewriter.residual(text)) this.residual++
-    }
+    const { row, residual } = rewriteRow(source, this.plan.rewriter)
+    this.residual += residual
     return row
   }
 }

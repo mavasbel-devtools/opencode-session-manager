@@ -95,6 +95,7 @@ describe("RebuildContextUseCase", () => {
           sent.push(`${server.url} ${server.password} ${id} ${name} "${text}"`)
           return answers[id] ?? { ok: true }
         },
+        fork: async () => ({ ok: false, status: null, detail: "not used" }),
       },
       progress: {
         snapshot: (contextDb, id, since) => {

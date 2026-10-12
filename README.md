@@ -83,8 +83,13 @@ The program:
 
 - `sync` writes POSIX paths only: a Windows profile can be a source, not a target.
 - Two sessions whose histories differ after a shared beginning (`diverged`) are
-  skipped; forking one of them into a new session is a later step
-  (`docs/plans/2026-10-08-23-15-complete-sync-and-robustness.md`).
+  never merged: they are skipped, or with `--diverged fork` (the browser's `f`)
+  the source's version is written as a new session, an OpenCode fork of the
+  target's. Two histories that differ from their first message share nothing to
+  fork from and are skipped (`nothing-shared`).
+- A fork's Magic Context state is not copied: Magic Context (0.47 on) gives a
+  fork its parent's state itself, when the first prompt is sent in the fork. An
+  older Magic Context leaves the fork without state until it summarises it.
 - Two profiles whose OpenCode stores are at different OpenCode migrations are
   refused: start the same OpenCode version on both once, then sync.
 - A project Magic Context's own module manages (its Rust authority) is never
@@ -151,10 +156,11 @@ opencode-session-manager preflight [--db <path>]
 # Through the running OpenCode (Magic Context's own commands; spends tokens)
 opencode-session-manager context wrapup|recomp --session <id>... [--data <dataHome>] [--keep <messages>] \
   [--server <url>] [--no-wait] [--timeout <minutes>] [--json]
+opencode-session-manager fork --session <id> [--before <messageId>] [--server <url>] [--json]
 
 # Write (to copies, swapped in by renames): OpenCode must be closed
 opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... \
-  (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--strict] [--dry-run]
+  (--session <id>... | --all) [--prefer further|keep|replace] [--diverged skip|fork] [--context all|sessions] [--strict] [--dry-run]
 opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) \
   [--prefer keep|further|replace | --replace] [--context all|sessions] [--strict] [--dry-run]
 opencode-session-manager rehearse [--db <path>] [--keep]
@@ -238,7 +244,9 @@ marked sessions (or the selected one) of the focused side, which must be this
 machine's own profile: the first press says what would run, the same key again
 runs it, any other key cancels. Each look at the store shows in the footer; the
 outcome replaces it, the side is read again (summaries, health), and the
-outcome's lines are printed once the browser has closed.
+outcome's lines are printed once the browser has closed. `F` forks the same way
+([`fork`](#forking-a-session-fork-and-sync---diverged-fork), no tokens): each
+fork appears once the side is read again.
 
 Each side's **health** is checked by [`verify`](#checking-a-profile-verify) when it is opened and
 again after an apply changed it (read-only, so it is safe while OpenCode runs).
@@ -269,7 +277,9 @@ as [`sync`](#session-sync) does it (a sub-agent session queues its root). `Q`
 opens the queue; each entry shows its size, its Magic Context preference and what
 the sync does with it — before a check, `new: copy` or `both: d to check`; after
 one, `copy`, `replace (target behind)`, `same: context only`, `same: nothing` or
-`diverged: skipped` (diverged sessions are never merged). Keys there: `d` checks
+`diverged: skipped (f)` or, with `f`, `diverged: fork` (diverged sessions are
+never merged; `f` writes the source's version as a fork of the target's, `F`
+sets it for every entry). Keys there: `d` checks
 the queue on copies (a dry run, which fills in what each entry does), `a` applies
 it, `r` cycles the entry's preference for sessions whose history is the same on
 both sides (`further`: the side whose summaries reach further, the default;
@@ -304,7 +314,7 @@ Sessions are matched by id and their histories compared by message id:
 | missing | copied | copied |
 | a beginning of the source's history | replaced | copied |
 | the same history, or one that continues it | kept | by `--prefer`: `further` (default) takes the side whose summaries reach further, `keep` keeps the target's, `replace` takes the source's |
-| a different history after a shared beginning | kept, the session is reported `diverged` | kept |
+| a different history after a shared beginning | kept, the session is reported `diverged`; with `--diverged fork` the source's version is added as a fork of it | kept (a fork gets its parent's from Magic Context itself) |
 
 Paths are rewritten by `--map <from>=<to>` rules: `C:\Users\Me=/home/me` maps a
 Windows profile (every form [the rewriter](#how-paths-are-rewritten) knows),
@@ -403,6 +413,37 @@ original kept in `context-sync-backup-<timestamp>/` beside it:
 Applying refuses while any process holds the target store open (OpenCode with
 Magic Context does): close OpenCode and run `opencode service stop` first.
 `--dry-run` builds and checks the copy without touching the target.
+
+### Forking a session: `fork` and `sync --diverged fork`
+
+A fork is a new session that starts from another one: OpenCode 2 writes it as a
+session row pointing at its parent (`fork_session_id`) and the last message it
+took (`fork_boundary`, `through` that message or `before` it), copies of the
+parent's settled messages up to there (not a reply still streaming, nor a shell
+command or compaction still running) under new ids `msg_<base>_<seq>` with the
+same `seq`, type, times and body, the parent's title with ` (fork #n)`, no cost
+or tokens, its event sequence reserved at the last copied `seq`, and the parent's
+instruction values as its baseline (OpenCode 2.0.26's `projectFork`).
+
+- `fork --session <id> [--before <messageId>]` (and the browser's `F` on this
+  machine's profile) asks the running OpenCode for its own fork
+  (`POST /api/session/<id>/fork`, the server `service.json` records or
+  `--server`). Writes nothing itself; needs OpenCode running; OpenCode refuses a
+  session whose folder no longer exists (404).
+- `sync --diverged fork` (the queue's `f`) writes the source's version of a
+  diverged session into the target as a fork of the target's own version at the
+  last message both share: the target's settled messages through it, then the
+  source's after it (paths rewritten), in exactly that layout, with OpenCode
+  closed, on copies, swapped in like any sync.
+
+The offline fork was checked against OpenCode's own: in a sandboxed `opencode
+serve` on a copy of a real store, both forks of the same session match row for
+row but their ids, slug and creation time, and OpenCode reads the offline fork,
+lists its messages and forks it again (the live test `fork.test.ts`).
+
+Neither copies Magic Context state: Magic Context (0.47 on) gives a fork its
+parent's state itself (its fork inheritance), the first time a prompt is sent in
+the fork, pairing the fork's messages with the parent's by `seq`, type and time.
 
 ### Rebuilding Magic Context: `context wrapup` and `context recomp`
 
@@ -523,6 +564,11 @@ flowchart LR
     ROUTER --> BC[BrowseCliAdapter]
     ROUTER --> YC[SyncCliAdapter]
     ROUTER --> VC[VerifyCliAdapter]
+    ROUTER --> FC[ForkCliAdapter]
+    FC --> FK[ForkSessionUseCase]
+    BC -->|F| FK
+    FK --> SRV
+    SY --> IDS[IdentifiersPort -> OpencodeIdentifiersAdapter]
     VC --> OP
     VC --> VF
     YC --> OP
@@ -638,6 +684,7 @@ live tier needs `node` (for the pseudo-terminal).
 | `OPENCODE_V2_EXECUTABLE` | live tier | the OpenCode 2 executable (else `~/.opencode/bin/opencode`, `~/.local/bin/opencode.exe` on Windows, else `PATH`) |
 | `OPENCODE_BIN` | live `sync` test | the `opencode` that lists the synced copy (default `opencode` on `PATH`) |
 | `OPENCODE_SM_LIVE_OLD_CONTEXT` | live `context copy` test | an older `context.db` to upgrade with the installed Magic Context |
+| `OPENCODE_SM_LIVE_FORK_SESSION` | live `fork` test | the session forked in the sandbox (default: the smallest with 5–80 messages whose folder exists) |
 | `OPENCODE_SM_LIVE_REBUILD_SESSION` | live `context recomp` test | a session of this machine to rebuild with `/ctx-recomp` through the running OpenCode (spends historian tokens); skipped without it |
 | `OPENCODE_SM_LIVE_OTHER_PROFILE` | live `sync` and `context sync` tests | another profile's data home to sync into a copy of this machine's; skipped without it |
 | `OPENCODE_TEST_HOME`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_SERVER_PASSWORD` | `tests/support/live/isolated-host.ts` | set for the isolated OpenCode the live tier starts: its home, no self-update, a fixed server password |

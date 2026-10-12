@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { InvalidMapRuleError } from "@session-manager/domain/errors/InvalidMapRuleError"
 import { OpenCodeFormatMismatchError } from "@session-manager/domain/errors/OpenCodeFormatMismatchError"
-import { actionFor, isPrefer } from "@session-manager/domain/model/SessionSync"
+import { actionFor, isDiverged, isPrefer } from "@session-manager/domain/model/SessionSync"
 import { mappingFromRules, NO_WINDOWS_PROFILE, parseMapRule } from "@session-manager/domain/services/MapRules"
 import { PathRewriter } from "@session-manager/domain/services/PathRewriter"
 import { parseOptions } from "@session-manager/infrastructure/adapters/inbound/cli/arguments"
@@ -84,6 +84,8 @@ describe("session sync rules", () => {
       "keep",
     ])
     expect(["further", "keep", "replace", "both"].map(isPrefer)).toEqual([true, true, true, false])
+    expect(["missing", "source-ahead", "diverged", "same"].map((relation) => actionFor(relation as never, "fork"))).toEqual(["copy", "replace", "fork", "keep"])
+    expect(["skip", "fork", "merge"].map(isDiverged)).toEqual([true, true, false])
   })
 
   it("explains a format mismatch", () => {

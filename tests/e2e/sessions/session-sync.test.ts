@@ -7,6 +7,7 @@ import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testin
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 import { showBrowser } from "@session-manager/infrastructure/adapters/inbound/manager-tui/OpenTuiBrowser"
 import { buildContainer } from "@session-manager/main/cli-container"
+import { SYNC_USAGE } from "@session-manager/infrastructure/adapters/inbound/cli/SyncCliAdapter"
 import { captureConsole, captureConsoleError } from "@test/support/maintenance/console"
 import { fileSha } from "@test/support/maintenance/database"
 import { makeRepository, query, sha1 } from "@test/support/maintenance/repositories"
@@ -93,7 +94,7 @@ function makeProfiles(options: { sourceMigrations?: readonly string[]; targetCon
       { id: "ses_same", directory: "C:/Users/Me/plain" },
       { id: "ses_same2", directory: "C:/Users/Me/plain" },
       { id: "ses_busy", directory: "C:/Users/Me/plain" },
-      { id: "ses_div", directory: "C:/Users/Me/plain", entries: ["ses_div-m0", "x"] },
+      { id: "ses_div", directory: "C:/Users/Me/plain", entries: ["ses_div-m0", "x", "x-shell", "x-compaction", "x-reply", "x-raw"] },
       { id: "ses_hidden", directory: "C:/Users/Me", metadata: '{"magic_context":"hidden-run","role":"historian"}' },
       { id: "ses_badmeta", directory: "C:/Users/Me/plain", metadata: "{hidden-run" },
       { id: "ses_v1only", directory: "C:/Users/Me/plain", v1Only: true },
@@ -102,7 +103,13 @@ function makeProfiles(options: { sourceMigrations?: readonly string[]; targetCon
       { id: "ses_deep", directory: "C:/Users/Me/moved/deep/x" },
     ],
     // The form OpenCode stores for a path below the root project, inside nested JSON.
-    extraSql: `update session_message set data = '{"title":"Users\\\\Me\\\\plain\\\\a.md"}' where id = 'ses_plain-m1'`,
+    // The diverged session's later messages: a finished shell command, a compaction still running
+    // (a fork leaves it out, as OpenCode does), a finished reply and a shell row whose body is not JSON.
+    extraSql: `update session_message set data = '{"title":"Users\\\\Me\\\\plain\\\\a.md"}' where id = 'ses_plain-m1';
+      update session_message set type = 'shell', data = '{"status":"exited"}' where id = 'x-shell';
+      update session_message set type = 'compaction', data = '{"status":"running"}' where id = 'x-compaction';
+      update session_message set type = 'assistant', data = '{"time":{"created":1,"completed":2}}' where id = 'x-reply';
+      update session_message set type = 'shell', data = 'not json' where id = 'x-raw'`,
     ...(options.sourceMigrations === undefined ? {} : { migrations: options.sourceMigrations }),
   })
   makeOpenCode2Store(opencodeOf("linux"), {
@@ -229,6 +236,33 @@ describe("sync (real stores, the wired container)", () => {
     expect(run.json.rollback).toBe(`opencode-session-manager rollback ${backupOf()} --db ${opencodeOf("linux")}`)
   })
 
+  it("forks a diverged session with --diverged fork: the target keeps its own and gains the source's as an OpenCode fork; rollback removes it", async () => {
+    const { home } = makeProfiles()
+    const before = fileSha(opencodeOf("linux"))
+    const skipped = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_div", "--dry-run"])
+    expect(skipped.json.sessions[0]).toMatchObject({ id: "ses_div", action: "skip", reason: "diverged", fork_id: null })
+    const run = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_div", "--diverged", "fork"])
+    expect(run.code).toBe(0)
+    const outcome = run.json.sessions[0]
+    expect(outcome).toMatchObject({ id: "ses_div", relation: "diverged", action: "fork", reason: null, sessions_written: 1, rows_written: 5, project_source: "target", context: null })
+    expect(outcome.fork_id).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+    const fork = outcome.fork_id as string
+    expect(query(opencodeOf("linux"), `select fork_session_id, fork_boundary, title, directory from session_v2 where id = '${fork}'`)).toEqual([
+      { fork_session_id: "ses_div", fork_boundary: '{"type":"through","messageID":"ses_div-m0"}', title: "ses_div (fork #1)", directory: join(home, "plain") },
+    ])
+    const messages = query(opencodeOf("linux"), `select id, seq, data from session_message where session_id = '${fork}' order by seq`) as { id: string; seq: number; data: string }[]
+    expect(messages.map((row) => row.id.replace(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}_/, "<base>_"))).toEqual(["<base>_0", "<base>_1", "<base>_2", "<base>_4", "<base>_5"])
+    // The source's later message, its Windows folder rewritten for this machine.
+    expect(messages[1]!.data).toContain(join(home, "plain"))
+    expect(messages[1]!.data).not.toContain("C:/Users/Me")
+    // The target's own version is untouched.
+    expect(query(opencodeOf("linux"), "select id from session_message where session_id = 'ses_div' order by seq")).toEqual([{ id: "ses_div-m0" }, { id: "y" }])
+    expect(query(opencodeOf("linux"), "pragma integrity_check")).toEqual([{ integrity_check: "ok" }])
+    expect(run.json.rollback).toBe(`opencode-session-manager rollback ${backupOf()} --db ${opencodeOf("linux")}`)
+    expect((await cli(["rollback", backupOf(), "--db", opencodeOf("linux")])).code).toBe(0)
+    expect(fileSha(opencodeOf("linux"))).toBe(before)
+  })
+
   it("refuses a held target, different OpenCode formats, rules it cannot apply and bad arguments", async () => {
     makeProfiles({ sourceMigrations: [...MIGRATIONS, "20261001000000_newer"] })
     const newer = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all"])
@@ -253,10 +287,7 @@ describe("sync (real stores, the wired container)", () => {
     expect(rules.json.sessions.find((session: { id: string }) => session.id === "ses_plain").target_directory).toBe("/srv/plain")
     expect(rules.json.sessions.find((session: { id: string }) => session.id === "ses_new").target_directory).toBe("/srv/repo")
     const usage = await cli(["sync", "--from", at("win")])
-    expect([usage.code, usage.text]).toEqual([
-      2,
-      "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--strict] [--dry-run]",
-    ])
+    expect([usage.code, usage.text]).toEqual([2, SYNC_USAGE])
   })
 
   it("carries everything Magic Context holds: history runs, the whole project, user memories; leaves a managed project alone; refuses unknown data", async () => {
@@ -423,6 +454,14 @@ describe("the browser applies its queue of whole sessions (real stores, OpenTUI'
     expect(checked).toContain("Queue · 13 session syncs · 8 new on the target · 1 diverged")
     for (const text of ["further diverged: skipped", "further same: context only", "further replace (target behind)"]) expect(checked).toContain(text)
     expect([fileSha(opencodeOf("linux")), fileSha(contextOf("linux"))]).toEqual(before)
+    // F: fork every diverged history instead of skipping it; checked on copies, then back to skipping.
+    input.pressKey("F", { shift: true })
+    expect(await waitForText(setup, "both: d (fork diverged)")).toBeTruthy()
+    input.pressKey("d")
+    expect(await waitForText(setup, "← Dry run: 8 copied, 1 replaced, 3 kept, 1 forked, 0 skipped", 60000)).toContain("diverged: fork")
+    expect([fileSha(opencodeOf("linux")), fileSha(contextOf("linux"))]).toEqual(before)
+    input.pressKey("F", { shift: true })
+    await waitForText(setup, "both: d to check")
     // ses_same: keep this side's Magic Context state instead of the one that reaches further.
     for (let row = 0; row < 5; row++) input.pressArrow("down")
     input.pressKey("r")

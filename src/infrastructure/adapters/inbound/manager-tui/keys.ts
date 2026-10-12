@@ -48,6 +48,7 @@ const TYPED: Readonly<Record<string, Command>> = {
   Q: { type: "view", view: "queue" },
   W: { type: "rebuild-ask", command: "wrapup" },
   R: { type: "rebuild-ask", command: "recomp" },
+  F: { type: "rebuild-ask", command: "fork" },
 }
 
 const QUEUE: Readonly<Record<string, Command>> = {
@@ -56,6 +57,7 @@ const QUEUE: Readonly<Record<string, Command>> = {
   down: { type: "queue-move", delta: 1 },
   j: { type: "queue-move", delta: 1 },
   r: { type: "prefer" },
+  f: { type: "diverged" },
   t: { type: "scope" },
   x: { type: "unqueue" },
   delete: { type: "unqueue" },
@@ -68,6 +70,7 @@ const QUEUE: Readonly<Record<string, Command>> = {
 
 const QUEUE_TYPED: Readonly<Record<string, Command>> = {
   R: { type: "prefer", all: true },
+  F: { type: "diverged", all: true },
   Q: { type: "view", view: "list" },
 }
 

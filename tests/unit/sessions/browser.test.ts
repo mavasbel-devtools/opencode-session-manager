@@ -301,8 +301,15 @@ describe("Browser queue", () => {
   it("turns the queue into requests per direction, and takes each entry's result from a run", () => {
     const state = run(paired(), { type: "mark-all" }, { type: "enqueue", direction: "to-right" }, { type: "view" }, { type: "queue-move", delta: 1 }, { type: "prefer" })
     const toLeft = run(state, { type: "view" }, { type: "home" }, { type: "move", delta: 1 }, { type: "enqueue", direction: "to-left" })
-    expect(requestsFor(toLeft.queue, "to-right")).toEqual({ ids: ["ses_a", "ses_b", "ses_d"], preferFor: { ses_a: "keep" } })
-    expect(requestsFor(toLeft.queue, "to-left")).toEqual({ ids: ["ses_c"], preferFor: {} })
+    expect(requestsFor(toLeft.queue, "to-right")).toEqual({ ids: ["ses_a", "ses_b", "ses_d"], preferFor: { ses_a: "keep" }, divergedFor: {} })
+    expect(requestsFor(toLeft.queue, "to-left")).toEqual({ ids: ["ses_c"], preferFor: {}, divergedFor: {} })
+    // f toggles fork for the entry under the cursor (F: every entry), and forgets the last check.
+    const forked = run(state, { type: "diverged" })
+    expect([forked.queue.map((entry) => entry.diverged), requestsFor(forked.queue, "to-right").divergedFor]).toEqual([["skip", "fork", "skip", "skip"], { ses_a: "fork" }])
+    expect(run(forked, { type: "diverged" }).queue[1]!.diverged).toBe("skip")
+    expect(run(forked, { type: "diverged", all: true }).queue.map((entry) => entry.diverged)).toEqual(["skip", "skip", "skip", "skip"])
+    expect(run(state, { type: "diverged", all: true }).queue.map((entry) => entry.diverged)).toEqual(["fork", "fork", "fork", "fork"])
+    expect(run({ ...state, queue: [] }, { type: "diverged" }).queue).toEqual([])
     const diverged = { action: "skip" as const, relation: "diverged" as const, reason: "diverged" as const, context: null }
     const result = reduce(state, { type: "applied", result: ["Dry run: …"], changed: false, planned: { ses_c: diverged } })
     expect([result.queue[0]!.planned, result.queue[1]!.planned, queueSummary(result.queue).diverged]).toEqual([diverged, null, 1])
@@ -333,6 +340,11 @@ describe("Browser rebuild requests", () => {
     const marked = run(paired(), { type: "mark-all" }, { type: "focus", side: "right" }, { type: "rebuild-ask", command: "recomp" })
     expect(marked.confirm).toEqual({ command: "recomp", side: "right", ids: ["ses_c", "ses_a", "ses_b", "ses_e"] })
     expect(marked.notice).toStartWith("R again: /ctx-recomp (rebuild every summary) on 4 sessions of the right")
+    const fork = run(two(), { type: "move", delta: 1 }, { type: "rebuild-ask", command: "fork" })
+    expect([fork.confirm, fork.notice]).toEqual([
+      { command: "fork", side: "left", ids: ["ses_a"] },
+      "F again: fork 1 session of the left through the running OpenCode; Magic Context gives each fork its parent's state on its first prompt. Any other key cancels.",
+    ])
     const nothing = run(two(), { type: "filter-input", text: "zz" }, { type: "rebuild-ask", command: "wrapup" })
     expect([nothing.confirm, nothing.notice]).toEqual([null, "Nothing selected on the left."])
   })

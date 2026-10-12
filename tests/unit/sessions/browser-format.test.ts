@@ -69,7 +69,7 @@ describe("browser text", () => {
     expect(detailTitle(run(both, { type: "view" }))).toBe(" Details ")
     expect(detailTitle(createBrowser(opened("left", []), null, 3))).toBe(" Details ")
     const source = session({ id: "ses_a", directory: "/w", updated: T, context: stats })
-    const entry: QueueEntry = { id: "ses_a", title: "A", direction: "to-right", source, target: null, prefer: "further", planned: null }
+    const entry: QueueEntry = { id: "ses_a", title: "A", direction: "to-right", source, target: null, prefer: "further", diverged: "skip", planned: null }
     expect(queueTitle({ ...both, queue: [entry] })).toBe(" Queue · 1 session sync · 1 new on the target · Magic Context: sessions and their projects ")
     const diverged = { ...entry, target: source, planned: { action: "skip" as const, relation: "diverged" as const, reason: "diverged" as const, context: null } }
     expect(queueTitle({ ...both, queue: [diverged, diverged], scope: "sessions" })).toBe(" Queue · 2 session syncs · 0 new on the target · 2 diverged · Magic Context: sessions only ")
@@ -77,7 +77,7 @@ describe("browser text", () => {
 
   it("paints a queue entry with its direction, size, preference and what the sync does", () => {
     const source = session({ id: "ses_a", directory: "/w", updated: T, context: stats })
-    const entry: QueueEntry = { id: "ses_a", title: "Alpha", direction: "to-right", source, target: null, prefer: "further", planned: null }
+    const entry: QueueEntry = { id: "ses_a", title: "Alpha", direction: "to-right", source, target: null, prefer: "further", diverged: "skip", planned: null }
     expect(queueText(entry, 80)).toBe(`${fit("→ Alpha", 28)}     3m S12 T 3456  further ${fit("new: copy", 24)}`)
     expect(queueText({ ...entry, direction: "to-left", title: null }, 80)).toContain("← (untitled)")
     expect(queueText(entry, 20)).toBe(fit("→ Alpha", 20))
@@ -94,7 +94,7 @@ describe("browser text", () => {
       plannedText(plan("keep", null, "Magic Context kept (target further)")),
       plannedText(plan("skip", "diverged")),
       plannedText(plan("skip", "hidden-run")),
-    ]).toEqual(["both: d to check", "copy", "replace (target behind)", "same: context only", "same: nothing", "diverged: skipped", "skipped (hidden-run)"])
+    ]).toEqual(["both: d to check", "copy", "replace (target behind)", "same: context only", "same: nothing", "diverged: skipped (f)", "skipped (hidden-run)"])
   })
 
   it("details a folder, a session, a pair, a queue entry and nothing", () => {
@@ -136,7 +136,7 @@ describe("browser text", () => {
     const queued = (entry: Partial<QueueEntry>): BrowserState => ({
       ...one,
       view: "queue",
-      queue: [{ id: "ses_q", title: "Q", direction: "to-right", source, target: null, prefer: "further", planned: null, ...entry }],
+      queue: [{ id: "ses_q", title: "Q", direction: "to-right", source, target: null, prefer: "further", diverged: "skip", planned: null, ...entry }],
     })
     expect(detailLines({ ...one, view: "queue" }, undefined)).toEqual(["The queue is empty: mark sessions (Space) and queue syncs with > or <."])
     expect(detailLines({ ...one, view: "queue", lastResult: ["Applied: 1", "two"] }, undefined)).toEqual(["Applied: 1", "two"])
@@ -147,6 +147,7 @@ describe("browser text", () => {
       "left: 3 messages · 12 summaries, 3456 tags · updated 2026-10-08 09:30",
       "right: —",
       "Not checked yet (d). Same history on both sides → Magic Context state from the side whose summaries reach further (r changes)",
+      "If the histories diverged: both are left as they are (f: fork instead)",
     ])
     const toLeft = detailLines(
       queued({ direction: "to-left", title: null, target: session({ id: "ses_q", directory: "/w", updated: T }), prefer: "keep", planned: { action: "keep", relation: "same", reason: null, context: "Magic Context copied" } }),
@@ -158,18 +159,26 @@ describe("browser text", () => {
       "right: 3 messages · 12 summaries, 3456 tags · updated 2026-10-08 09:30",
       "left: 3 messages · no Magic Context · updated 2026-10-08 09:30",
       "same: context only · histories: same · Magic Context copied",
+      "If the histories diverged: both are left as they are (f: fork instead)",
     ])
     expect(detailLines(queued({ prefer: "replace" }), undefined)[4]).toContain("from the source's (r changes)")
     expect(detailLines(queued({ planned: { action: "copy", relation: null, reason: null, context: null } }), undefined)[4]).toBe("copy")
+    const forking = queued({ diverged: "fork", target: session({ id: "ses_q", directory: "/w", updated: T }) })
+    expect(detailLines(forking, undefined).slice(4)).toEqual([
+      "Not checked yet (d). Same history on both sides → Magic Context state from the side whose summaries reach further (r changes)",
+      "If the histories diverged: the left's version becomes a fork of the right's session there (f: skip instead)",
+    ])
+    expect(plannedText(forking.queue[0]!)).toBe("both: d (fork diverged)")
+    expect(plannedText({ ...forking.queue[0]!, planned: { action: "fork", relation: "diverged", reason: null, context: null } })).toBe("diverged: fork")
   })
 
   it("explains the keys in the footer for each view, with the notice and the filter", () => {
     const one = createBrowser(opened("left", []), null, 3)
     const two = createBrowser(opened("left", []), opened("right", []), 3)
-    expect(footerText(one)).toBe("↑↓ move · PgUp/PgDn · Enter fold · Space mark · W/R wrapup/rebuild · / filter · q quit")
-    expect(footerText(two)).toBe("↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · W/R wrapup/rebuild · Tab pane · p pair · / filter · q quit")
+    expect(footerText(one)).toBe("↑↓ move · PgUp/PgDn · Enter fold · Space mark · W/R/F wrapup/rebuild/fork · / filter · q quit")
+    expect(footerText(two)).toBe("↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · W/R/F wrapup/rebuild/fork · Tab pane · p pair · / filter · q quit")
     expect(footerText(run(two, { type: "layout" }))).toContain("· p panes ·")
-    expect(footerText(run(two, { type: "view" }))).toBe("d dry run · a apply · r/R Magic Context preference (one/all) · t scope · x remove · c clear · Esc back · q quit")
+    expect(footerText(run(two, { type: "view" }))).toBe("d dry run · a apply · r/R Magic Context preference (one/all) · f/F fork diverged (one/all) · t scope · x remove · c clear · Esc back · q quit")
     expect(footerText({ ...two, notice: "Done." })).toStartWith("Done.   ↑↓ ·")
     const typing = run(one, { type: "filter-start" }, { type: "filter-input", text: "ab" })
     expect(footerText(typing)).toBe("filter: ab▏  Enter keep · Esc clear")
@@ -216,6 +225,11 @@ describe("browser keys", () => {
     expect(commandFor(key("w", { shift: true, sequence: "W" }), asked)).toEqual({ type: "rebuild", request })
     expect(commandFor(key("r", { shift: true, sequence: "R" }), asked)).toEqual({ type: "rebuild-ask", command: "recomp" })
     expect(commandFor(key("j"), asked)).toEqual({ type: "move", delta: 1 })
+    expect(commandFor(key("f", { shift: true, sequence: "F" }), browsing)).toEqual({ type: "rebuild-ask", command: "fork" })
+    const forking = { ...browsing, confirm: { command: "fork" as const, side: "left" as const, ids: ["ses_a"] } }
+    expect(commandFor(key("F", { sequence: "F" }), forking)).toEqual({ type: "rebuild", request: forking.confirm })
+    const queue = { ...browsing, view: "queue" as const }
+    expect([commandFor(key("f"), queue), commandFor(key("f", { shift: true, sequence: "F" }), queue)]).toEqual([{ type: "diverged" }, { type: "diverged", all: true }])
   })
 
   it("edits the queue in the queue view", () => {

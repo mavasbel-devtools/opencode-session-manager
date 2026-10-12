@@ -27,6 +27,17 @@ export type CommandAnswer =
   | { readonly ok: true }
   | { readonly ok: false; readonly status: number | null; readonly detail: string }
 
+/** The session a fork made, as the server describes it. */
+export interface ForkedSession {
+  readonly id: string
+  readonly title: string | null
+  readonly boundary: { readonly type: "through" | "before"; readonly messageID: string } | null
+  readonly directory: string | null
+}
+
+/** What the server said to a fork. */
+export type ForkAnswer = { readonly ok: true; readonly session: ForkedSession } | { readonly ok: false; readonly status: number | null; readonly detail: string }
+
 /** One historian run Magic Context recorded. */
 export interface HistorianRun {
   readonly kind: string

@@ -39,6 +39,37 @@ export interface SessionCopyResult {
   readonly residual_windows_paths: number
 }
 
+/**
+ * The source's version of a session written into the target as an OpenCode fork of the target's own
+ * version, at the last message both share: the target's settled messages through it, then the
+ * source's settled messages after it, all under the fork's ids (OpenCode's `projectFork` layout).
+ */
+export interface ForkPlan {
+  /** The session in the source store whose later messages the fork takes. */
+  readonly sourceId: string
+  /** The target session the fork branches from. */
+  readonly parentId: string
+  readonly forkId: string
+  /** `msg_…`: the fork's messages are `<messageBase>_<seq>`. */
+  readonly messageBase: string
+  readonly slug: string
+  /** The last message (an id of the parent's) both histories share: the fork's `through` boundary. */
+  readonly boundaryMessageId: string
+  /** Rewrites the source's copied text (null: unchanged). */
+  readonly rewriter: TextRewriter | null
+  /** Epoch milliseconds: the fork's creation time. */
+  readonly now: number
+}
+
+export interface ForkResult {
+  readonly fork_id: string
+  readonly parent_id: string
+  /** The parent's messages through the boundary, and the source's after it. */
+  readonly inherited_messages: number
+  readonly appended_messages: number
+  readonly residual_windows_paths: number
+}
+
 /** What the target holds for one session after a copy. */
 export interface StoredSessionRow {
   readonly projectId: string
@@ -60,6 +91,8 @@ export interface SessionSyncStorePort {
   hiddenRuns(dbPath: string): readonly string[]
   /** Replaces each family's rows in `targetDb` with the source's, in one transaction. */
   copySessions(sourceDb: string, targetDb: string, plans: readonly SessionCopyPlan[]): readonly SessionCopyResult[]
+  /** Writes each fork into `targetDb`, in one transaction (see `ForkPlan`). */
+  forkSessions(sourceDb: string, targetDb: string, plans: readonly ForkPlan[]): readonly ForkResult[]
   /** The session row as stored (v2 first), or null. */
   storedSession(dbPath: string, sessionId: string): StoredSessionRow | null
   health(dbPath: string): StoreHealth

@@ -26,7 +26,8 @@ import type { MaintenanceFileSystemPort } from "@session-manager/domain/ports/ou
 import type { ProjectIdentityPort } from "@session-manager/domain/ports/outbound/ProjectIdentityPort"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 import type { SessionStorePort } from "@session-manager/domain/ports/outbound/SessionStorePort"
-import type { ProjectPlan, SessionCopyPlan, SessionRowPlan, SessionSyncStorePort } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
+import type { ForkPlan, ProjectPlan, SessionCopyPlan, SessionRowPlan, SessionSyncStorePort } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
+import type { IdentifiersPort } from "@session-manager/domain/ports/outbound/IdentifiersPort"
 import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
 import { mappingFromRules, NO_WINDOWS_PROFILE } from "@session-manager/domain/services/MapRules"
 import type { TextRewriter } from "@session-manager/domain/services/PathRewriter"
@@ -44,6 +45,8 @@ export interface SyncSessionsDependencies {
   readonly fileSystem: MaintenanceFileSystemPort
   readonly runtime: RuntimePort
   readonly rewriterFor: (mapping: PathMapping) => TextRewriter
+  /** New ids for forks of diverged sessions. */
+  readonly ids: IdentifiersPort
 }
 
 /** The stores a sync reads: the readable copies when a store cannot be read in place. */
@@ -59,6 +62,7 @@ interface FamilyPlan {
   readonly outcome: Omit<SessionSyncOutcome, "context" | "rows_written" | "residual_windows_paths">
   readonly ids: readonly string[]
   readonly copy: SessionCopyPlan | null
+  readonly fork: ForkPlan | null
   readonly mapping: PathMapping | null
 }
 
@@ -72,7 +76,8 @@ interface FamilyPlan {
  * one backup folder that a single `rollback` restores. A session the target lacks is copied; one
  * whose target history is a beginning of the source's is replaced; one the target has as is, or
  * further along, keeps its OpenCode rows (its Magic Context state follows `prefer`); diverged
- * histories are skipped.
+ * histories are skipped, or with `diverged: fork` the source's version becomes an OpenCode fork of
+ * the target's at the last shared message (Magic Context gives the fork its parent's state itself).
  */
 export class SyncSessionsUseCase implements SyncSessionsPort {
   private readonly deps: SyncSessionsDependencies
@@ -115,14 +120,17 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
 
       const families = this.plan(input, workSource, workTarget)
       const copies = families.flatMap((family) => (family.copy === null ? [] : [family.copy]))
+      const forks = families.flatMap((family) => (family.fork === null ? [] : [family.fork]))
       const results = new Map(store.copySessions(workSource, workTarget, copies).map((result) => [result.root, result]))
+      const forked = new Map(store.forkSessions(workSource, workTarget, forks).map((result) => [result.parent_id, result]))
       const health = store.health(workTarget)
-      const sessionsOk = copies.every((copy) =>
-        copy.sessions.every((session) => {
-          const stored = store.storedSession(workTarget, session.id)
-          return stored !== null && stored.projectExists && stored.directory === session.directory && !(copy.rewriter?.residual(session.directory) ?? false)
-        }),
-      )
+      const sessionsOk =
+        copies.every((copy) =>
+          copy.sessions.every((session) => {
+            const stored = store.storedSession(workTarget, session.id)
+            return stored !== null && stored.projectExists && stored.directory === session.directory && !(copy.rewriter?.residual(session.directory) ?? false)
+          }),
+        ) && forks.every((planned) => store.storedSession(workTarget, planned.forkId)?.projectExists === true)
 
       const context = withContext
         ? this.deps.contexts.build({
@@ -147,14 +155,15 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
       const contextById = new Map((context?.sessions ?? []).map((outcome) => [outcome.id, outcome]))
       const sessions = families.map((family): SessionSyncOutcome => {
         const result = results.get(family.outcome.id)
+        const fork = forked.get(family.outcome.id)
         return {
           ...family.outcome,
-          rows_written: result?.rows ?? 0,
-          residual_windows_paths: result?.residual_windows_paths ?? 0,
+          rows_written: result?.rows ?? (fork === undefined ? 0 : fork.inherited_messages + fork.appended_messages),
+          residual_windows_paths: result?.residual_windows_paths ?? fork?.residual_windows_paths ?? 0,
           context: contextById.get(family.outcome.id) ?? null,
         }
       })
-      const changed = { opencode: copies.length > 0, context: context?.changed ?? false }
+      const changed = { opencode: copies.length > 0 || forks.length > 0, context: context?.changed ?? false }
       const backupDir = input.dryRun || (!changed.opencode && !changed.context) ? null : this.replace(input, { opencode: changed.opencode ? workTarget : null, context: changed.context ? context!.workTarget : null })
       const databases = [...(changed.opencode ? [input.target.opencodeDb] : []), ...(changed.context ? [input.target.contextDb] : [])]
       return {
@@ -204,25 +213,59 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
 
     return roots.map((root): FamilyPlan => {
       const from = sourceSessions.get(root)
-      const blank = { id: root, sessions_written: 0, project_id: null, project_source: null, target_directory: null }
+      const blank = { id: root, sessions_written: 0, project_id: null, project_source: null, target_directory: null, fork_id: null }
+      const none = { copy: null, fork: null }
       if (from === undefined)
-        return { outcome: { ...blank, title: null, relation: null, action: "skip", reason: "not-on-source", source_directory: null }, ids: [], copy: null, mapping: null }
+        return { outcome: { ...blank, title: null, relation: null, action: "skip", reason: "not-on-source", source_directory: null }, ids: [], ...none, mapping: null }
       if (hidden.has(root))
-        return { outcome: { ...blank, title: from.title, relation: null, action: "skip", reason: "hidden-run", source_directory: from.directory }, ids: [], copy: null, mapping: null }
+        return { outcome: { ...blank, title: from.title, relation: null, action: "skip", reason: "hidden-run", source_directory: from.directory }, ids: [], ...none, mapping: null }
       const to = targetSessions.get(root)
-      const relation: SessionRelation =
-        to === undefined ? "missing" : relationOf(sessions.messageIds(workSource, root, from.generation), sessions.messageIds(workTarget, root, to.generation))
-      const action = actionFor(relation)
+      const sourceIds = sessions.messageIds(workSource, root, from.generation)
+      const targetIds = to === undefined ? [] : sessions.messageIds(workTarget, root, to.generation)
+      const relation: SessionRelation = to === undefined ? "missing" : relationOf(sourceIds, targetIds)
+      let action = actionFor(relation, input.divergedFor?.[root] ?? input.diverged ?? "skip")
+      // A fork needs OpenCode 2 sessions on both sides and at least one shared message to branch at.
+      const shared = sharedLength(sourceIds, targetIds)
+      const forkable = from.generation === "v2" && to?.generation === "v2" && shared > 0
+      const unforkable = action === "fork" && !forkable
+      if (unforkable) action = "skip"
       const ids = familyOf(root)
       const mapped = (directory: string) => baseRewriter?.rewrite(directory) ?? directory
       // A session the target already has keeps its folder there: the text follows it.
       const mapping = to === undefined || mapped(from.directory) === to.directory ? base : withRelocation(base, mapped(from.directory), to.directory, runtime.homeDirectory())
       const head = { id: root, title: from.title, relation, action, source_directory: from.directory }
-      if (action === "skip" || action === "keep")
+      if (action === "fork") {
+        const forkId = this.deps.ids.sessionId()
         return {
-          outcome: { ...head, reason: action === "skip" ? "diverged" : null, sessions_written: 0, target_directory: to?.directory ?? null, project_id: to?.projectId ?? null, project_source: null },
+          outcome: { ...head, reason: null, sessions_written: 1, target_directory: to!.directory, project_id: to!.projectId, project_source: "target", fork_id: forkId },
           ids,
           copy: null,
+          fork: {
+            sourceId: root,
+            parentId: root,
+            forkId,
+            messageBase: this.deps.ids.messageBase(),
+            slug: this.deps.ids.slug(),
+            boundaryMessageId: targetIds[shared - 1]!,
+            rewriter: mapping === null ? null : this.deps.rewriterFor(mapping),
+            now,
+          },
+          mapping,
+        }
+      }
+      if (action === "skip" || action === "keep")
+        return {
+          outcome: {
+            ...head,
+            reason: action === "keep" ? null : unforkable && shared === 0 ? "nothing-shared" : "diverged",
+            sessions_written: 0,
+            target_directory: to?.directory ?? null,
+            project_id: to?.projectId ?? null,
+            project_source: null,
+            fork_id: null,
+          },
+          ids,
+          ...none,
           mapping,
         }
 
@@ -258,9 +301,11 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
           target_directory: first.directory,
           project_id: first.projectId,
           project_source: first.source,
+          fork_id: null,
         },
         ids,
         copy: { root, sessions: rows.map(({ source: _source, ...row }) => row), projects: [...projects.values()], rewriter, now },
+        fork: null,
         mapping,
       }
     })
@@ -298,6 +343,13 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
   }
 }
 
+/** How many messages the two histories share from their beginning. */
+function sharedLength(source: readonly string[], target: readonly string[]): number {
+  let index = 0
+  while (index < source.length && index < target.length && source[index] === target[index]) index++
+  return index
+}
+
 /** One entry per id, the OpenCode 2 row winning over the OpenCode 1 row of the same session. */
 function byId(list: readonly StoredSession[]): Map<string, StoredSession> {
   const map = new Map<string, StoredSession>()
@@ -325,7 +377,8 @@ function contextRequests(families: readonly FamilyPlan[], prefer: Prefer, prefer
   const resolution: Record<Prefer, Resolution> = { further: "further", keep: "skip", replace: "replace" }
   return families.flatMap((family) => {
     const action = family.outcome.action
-    if (action === "skip") return []
+    // A fork's Magic Context state is its parent's, given by Magic Context itself on its first prompt.
+    if (action === "skip" || action === "fork") return []
     const chosen: Resolution = action === "keep" ? resolution[preferFor[family.outcome.id] ?? prefer] : "replace"
     return family.ids.map((id) => ({ id, resolution: chosen }))
   })

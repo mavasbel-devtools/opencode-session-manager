@@ -136,8 +136,9 @@ export function queueTitle(state: BrowserState): string {
 /** What a queued sync does: the dry run's answer once there is one, else what the two catalogs suggest. */
 export function plannedText(entry: QueueEntry): string {
   const planned = entry.planned
-  if (planned === null) return entry.target === null ? "new: copy" : "both: d to check"
-  if (planned.action === "skip") return planned.reason === "diverged" ? "diverged: skipped" : `skipped (${planned.reason})`
+  if (planned === null) return entry.target === null ? "new: copy" : entry.diverged === "fork" ? "both: d (fork diverged)" : "both: d to check"
+  if (planned.action === "fork") return "diverged: fork"
+  if (planned.action === "skip") return planned.reason === "diverged" ? "diverged: skipped (f)" : `skipped (${planned.reason})`
   if (planned.action === "keep") return planned.context === "Magic Context copied" ? "same: context only" : "same: nothing"
   return planned.action === "copy" ? "copy" : "replace (target behind)"
 }
@@ -204,6 +205,9 @@ function queueDetail(entry: QueueEntry | undefined): string[] {
     planned === null
       ? `Not checked yet (d). Same history on both sides → Magic Context state from ${PREFER_TEXT[entry.prefer]} (r changes)`
       : `${plannedText(entry)}${planned.relation === null ? "" : ` · histories: ${planned.relation}`}${planned.context === null ? "" : ` · ${planned.context}`}`,
+    entry.diverged === "fork"
+      ? `If the histories diverged: the ${from}'s version becomes a fork of the ${to}'s session there (f: skip instead)`
+      : `If the histories diverged: both are left as they are (f: fork instead)`,
   ]
 }
 
@@ -241,11 +245,11 @@ function sessionDetail(row: SessionRow): string[] {
 export function footerText(state: BrowserState): string {
   if (state.editingFilter) return `filter: ${state.filter}▏  Enter keep · Esc clear`
   const notice = state.notice === null ? "" : `${state.notice}   `
-  if (state.view === "queue") return `${notice}d dry run · a apply · r/R Magic Context preference (one/all) · t scope · x remove · c clear · Esc back · q quit`
+  if (state.view === "queue") return `${notice}d dry run · a apply · r/R Magic Context preference (one/all) · f/F fork diverged (one/all) · t scope · x remove · c clear · Esc back · q quit`
   const filter = state.filter === "" ? "" : `filter "${state.filter}" · `
-  if (state.right === null) return `${notice}${filter}↑↓ move · PgUp/PgDn · Enter fold · Space mark · W/R wrapup/rebuild · / filter · q quit`
+  if (state.right === null) return `${notice}${filter}↑↓ move · PgUp/PgDn · Enter fold · Space mark · W/R/F wrapup/rebuild/fork · / filter · q quit`
   const layout = state.layout === "panes" ? "Tab pane · p pair" : "p panes"
-  return `${notice}${filter}↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · W/R wrapup/rebuild · ${layout} · / filter · q quit`
+  return `${notice}${filter}↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · W/R/F wrapup/rebuild/fork · ${layout} · / filter · q quit`
 }
 
 /** The header line: the Magic Context this machine runs and what npm has. */

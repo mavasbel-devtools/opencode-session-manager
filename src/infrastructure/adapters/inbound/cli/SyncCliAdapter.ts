@@ -1,7 +1,7 @@
 import type { OpenedProfile } from "@session-manager/domain/model/Browser"
 import { isContextScope, syncSideOf } from "@session-manager/domain/model/MagicContextSync"
 import { profileAt } from "@session-manager/domain/model/Profile"
-import { isPrefer } from "@session-manager/domain/model/SessionSync"
+import { isDiverged, isPrefer } from "@session-manager/domain/model/SessionSync"
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
 import type { SyncSessionsPort } from "@session-manager/domain/ports/inbound/SyncSessionsPort"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
@@ -9,7 +9,7 @@ import { parseMapRule } from "@session-manager/domain/services/MapRules"
 import { parseOptions } from "@session-manager/infrastructure/adapters/inbound/cli/arguments"
 
 export const SYNC_USAGE =
-  "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--strict] [--dry-run]"
+  "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--diverged skip|fork] [--context all|sessions] [--strict] [--dry-run]"
 
 export interface SyncCliOptions {
   readonly sync: SyncSessionsPort
@@ -22,7 +22,8 @@ export interface SyncCliOptions {
  * Context state — from one profile to another, with paths rewritten by `--map` rules (by default
  * the Windows profile the sessions live in maps to this home). `--all` takes every root session of
  * the source. `--prefer` decides Magic Context state for sessions both sides already have (default
- * `further`). `--strict` refuses the whole sync when Magic Context is working on a requested session
+ * `further`). `--diverged fork` writes the source's version of a diverged session as a fork of the
+ * target's (default `skip`). `--strict` refuses the whole sync when Magic Context is working on a requested session
  * (by default that session is skipped). Prints the JSON report.
  */
 export class SyncCliAdapter {
@@ -33,14 +34,15 @@ export class SyncCliAdapter {
   }
 
   run(argv: readonly string[]): number {
-    const values = parseOptions(argv, ["--from", "--to", "--session", "--map", "--prefer", "--context"], ["--all", "--dry-run", "--strict"])
+    const values = parseOptions(argv, ["--from", "--to", "--session", "--map", "--prefer", "--context", "--diverged"], ["--all", "--dry-run", "--strict"])
     const from = values?.single.get("--from")
     const to = values?.single.get("--to")
     const ids = values?.many.get("--session") ?? []
     const all = values?.flags.has("--all") === true
     const prefer = values?.single.get("--prefer") ?? "further"
+    const diverged = values?.single.get("--diverged") ?? "skip"
     const context = values?.single.get("--context") ?? "all"
-    if (values === null || from === undefined || to === undefined || (ids.length === 0) === !all || !isPrefer(prefer) || !isContextScope(context)) {
+    if (values === null || from === undefined || to === undefined || (ids.length === 0) === !all || !isPrefer(prefer) || !isDiverged(diverged) || !isContextScope(context)) {
       this.options.output.line(SYNC_USAGE)
       return 2
     }
@@ -58,6 +60,7 @@ export class SyncCliAdapter {
         sessions: all ? "all" : ids,
         maps,
         prefer,
+        diverged,
         context,
         dryRun: values.flags.has("--dry-run"),
         strict: values.flags.has("--strict"),

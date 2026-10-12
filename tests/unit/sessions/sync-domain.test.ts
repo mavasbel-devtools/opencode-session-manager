@@ -17,6 +17,7 @@ const entry = (id: string, direction: QueueEntry["direction"], prefer: QueueEntr
   source: session({ id, directory: "/w", updated: 1, context: {} }),
   target: null,
   prefer,
+  diverged: "skip",
   planned: null,
 })
 
@@ -27,6 +28,7 @@ const outcome = (id: string, action: SessionSyncOutcome["action"], extra: Partia
   action,
   reason: action === "skip" ? "diverged" : null,
   sessions_written: 0,
+  fork_id: null,
   rows_written: 0,
   source_directory: null,
   target_directory: null,
@@ -164,11 +166,14 @@ describe("whole-session sync text", () => {
       outcome("c", "keep", { context: kept }),
       outcome("d", "skip"),
       outcome("e", "skip", { reason: "hidden-run", relation: null }),
+      outcome("f", "fork", { relation: "diverged", fork_id: "ses_f" }),
+      outcome("g", "skip", { reason: "nothing-shared", relation: "diverged" }),
     ]
     expect(sessionSyncLines(sessionReport({ dry_run: true, sessions }))).toEqual([
-      "Dry run: 1 copied, 1 replaced, 1 kept, 2 skipped → /t/opencode.db",
+      "Dry run: 1 copied, 1 replaced, 1 kept, 1 forked, 3 skipped → /t/opencode.db",
       "Magic Context: state copied for 2 of 3 sessions (2 summaries · 5 tags · 1 memories)",
-      "Skipped: 1 diverged, 1 plugin run",
+      "Forked f → ses_f: Magic Context gives it f's state on its first prompt",
+      "Skipped: 1 diverged, 1 plugin run, 1 nothing shared",
       "The target stores were not changed.",
     ])
     expect(sessionSyncLines(sessionReport({ target_context_db: null, rollback: "opencode-session-manager rollback /b --db /t/opencode.db" }))).toEqual([

@@ -17,7 +17,7 @@ code is wrong until one of them is deliberately changed.
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | deployed at (v1) | `<plugins>/session-manager.js`, `<plugins>/session-manager.tui.js` | v1.18.32 forbids `server` and `tui` in one module |
 | build outputs | `dist/v2/{server,tui}.js`, `dist/v1/session-manager{,.tui}.js` | the entrypoints the hosts load |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--dry-run]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--dry-run]`, `tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies Magic Context syncs) |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
@@ -122,6 +122,11 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
     interrupted; sessions run one at a time; the browser offers them only on
     the side showing this machine's own profile (not a snapshot), and only on a
     second press of the same key.
+15. **Forks follow OpenCode's own layout** (`projectFork`, 2.0.26), checked row
+    for row against OpenCode's fork in the live test: the server's fork through
+    `fork`/`F`, or the offline fork `sync --diverged fork` writes (on copies, like
+    any sync). Neither copies Magic Context state: Magic Context 0.47 inherits a
+    fork's state from its parent itself on the fork's first prompt.
 
 ### The report JSON is a contract
 
@@ -318,6 +323,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `WindowsMapping.ts` | sessions | the mapping a session's own folders imply (Windows profile → this home, plus a moved folder) |
 | `MapRules.ts` | sessions | `--map` rules → a `PathMapping` (`parseMapRule`, `mappingFromRules`, `NO_WINDOWS_PROFILE`) |
 | `Versions.ts` | sessions | `compareVersions` (dotted numeric versions) |
+| `Fork.ts` (model) | sessions | OpenCode 2.0.26's fork rules: `forkTitle`, `isSettled` (what a fork copies), `opencodeId` (OpenCode's id format), slug words, the `fork` report |
 | `Rebuild.ts` (model) | sessions | `/ctx-wrapup` / `/ctx-recomp` through the server: snapshots, `phaseOf`, statuses, report text, poll/grace/timeout defaults |
 | `Jsonc.ts` | sessions | `stripComments`, `pinnedMagicContext` (the spec `opencode.jsonc` pins), `MAGIC_CONTEXT_PACKAGE` |
 | `GitRemote.ts` | sessions | a remote URL in the form OpenCode hashes into a project id |
@@ -334,7 +340,8 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `MagicContextUnavailableError.ts`, `MagicContextUpgradeError.ts`,
 `ProfileUnreadableError.ts`, `SyncVerificationError.ts`,
 `InvalidMapRuleError.ts`, `OpenCodeFormatMismatchError.ts`,
-`UnknownStoreSchemaError.ts`, `BusySessionsError.ts` (sessions);
+`UnknownStoreSchemaError.ts`, `BusySessionsError.ts`, `ServerNotFoundError.ts`,
+`ServerRefusedError.ts` (sessions);
 `InvalidDirectoryError.ts`, `MissingSessionIdError.ts`,
 `SessionNotFoundError.ts` (plugin).
 
@@ -344,7 +351,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `PreflightPort.ts`, `RehearsePort.ts`, `RollbackPort.ts` (maintenance);
 `OpenProfilePort.ts`, `CatalogProfilePort.ts`, `CopyMagicContextPort.ts`,
 `SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
-`MagicContextVersionsPort.ts`, `RebuildContextPort.ts`
+`MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`,
 `MoveSessionPort.ts`, `TransferSessionPort.ts`, `BuildDirectoryOptionsPort.ts`
 (plugin).
@@ -356,7 +363,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextSyncStorePort.ts`, `SessionSyncStorePort.ts`, `MagicContextReleasePort.ts`,
 `MagicContextIdentityPort.ts`, `MagicContextConfigPort.ts`, `PublishedVersionPort.ts`, `OpencodeServerPort.ts`,
-`MagicContextProgressPort.ts`, `TimerPort.ts` (sessions); `SessionHostPort.ts`,
+`MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts` (sessions); `SessionHostPort.ts`,
 `SessionDbPort.ts`, `ProjectResolverPort.ts`, `FileSystemPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`,
 `SidebarViewPort.ts` (plugin).
@@ -382,6 +389,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `SyncMagicContextUseCase.ts` | sessions | `context sync`: the service's copy swapped in, with a backup |
 | `SyncSessionsUseCase.ts` | sessions | `sync`: whole sessions (OpenCode rows + Magic Context state) into working copies of both target stores, checked, swapped in together |
 | `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one whole-session sync per direction |
+| `ForkSessionUseCase.ts` | sessions | `fork` and the browser's `F`: OpenCode's own fork through the running server (writes nothing itself) |
 | `RebuildContextUseCase.ts` | sessions | `context wrapup|recomp` and the browser's `W`/`R`: one session at a time through the OpenCode server, followed in the store (read-only); refuses a session Magic Context already works on |
 | `MagicContextVersionsUseCase.ts` | sessions | the Magic Context OpenCode loads here and the newest on npm (the browser's header) |
 | `ResolveSessionIdToolUseCase.ts` | plugin | the `session-id` tool |
@@ -397,6 +405,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `cli/CliRouter.ts` | sends each command family to its adapter |
 | `cli/CompactCliAdapter.ts` | `preflight`, `rehearse`, `run`, `rollback` |
 | `cli/SyncCliAdapter.ts` | `sync` |
+| `cli/ForkCliAdapter.ts` | `fork` |
 | `cli/arguments.ts` | `parseOptions`: `--name value` options and flags |
 | `cli/SessionsCliAdapter.ts` | `sessions` |
 | `cli/VerifyCliAdapter.ts` | `verify` |
@@ -428,6 +437,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `magic-context/OpencodeMagicContextConfigAdapter.ts` | the spec `opencode.jsonc` pins and the copy OpenCode installed for it |
 | `opencode2/HttpOpencodeServerAdapter.ts` | the server `service.json` records, and its command endpoint (HTTP Basic `opencode`) |
 | `sqlite/BunMagicContextProgressAdapter.ts` | a session's Magic Context progress (summaries, reach, wrapup marker, lease, staged recomp rows, historian runs since a moment), read-only |
+| `system/OpencodeIdentifiersAdapter.ts` | new session ids, message bases and slugs in OpenCode's format (for offline forks) |
 | `system/SystemTimerAdapter.ts` | waiting between looks at a running rebuild (tests pass a timer that does not wait) |
 | `npm/NpmRegistryAdapter.ts` | a package's `latest` dist-tag on an npm registry (time-limited) |
 | `magic-context/MagicContextIdentityAdapter.ts` | Magic Context's project identity of a folder |

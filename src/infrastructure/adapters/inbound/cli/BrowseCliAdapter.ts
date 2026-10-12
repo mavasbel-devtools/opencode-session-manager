@@ -5,7 +5,9 @@ import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/Open
 import type { VerifyProfilePort } from "@session-manager/domain/ports/inbound/VerifyProfilePort"
 import type { MagicContextVersionsPort } from "@session-manager/domain/ports/inbound/MagicContextVersionsPort"
 import type { RebuildContextPort } from "@session-manager/domain/ports/inbound/RebuildContextPort"
-import { progressText, REBUILD_GRACE_MS, REBUILD_POLL_MS, REBUILD_TIMEOUT_MINUTES, rebuildLines } from "@session-manager/domain/model/Rebuild"
+import type { ForkSessionPort } from "@session-manager/domain/ports/inbound/ForkSessionPort"
+import { forkLines } from "@session-manager/domain/model/Fork"
+import { progressText, REBUILD_GRACE_MS, REBUILD_POLL_MS, REBUILD_TIMEOUT_MINUTES, rebuildLines, type RebuildCommand } from "@session-manager/domain/model/Rebuild"
 import { syncSideOf } from "@session-manager/domain/model/MagicContextSync"
 import { DEFAULT_BEHIND, healthBySession } from "@session-manager/domain/model/Verify"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
@@ -32,6 +34,8 @@ export interface BrowseCliOptions {
   readonly versions: MagicContextVersionsPort
   /** `/ctx-wrapup` and `/ctx-recomp` through the running OpenCode, on this machine's own profile only. */
   readonly rebuild: RebuildContextPort
+  /** Forks through the running OpenCode, on this machine's own profile only. */
+  readonly fork: ForkSessionPort
   /** Shows the browser and resolves when the user quits. */
   readonly show: (initial: BrowserState, controls: BrowserControls) => Promise<void>
 }
@@ -92,13 +96,33 @@ export class BrowseCliAdapter {
       const controls: BrowserControls = {
         rebuild: async (request, onProgress) => {
           const opened = shown[request.side]!
+          const what = request.command === "fork" ? "A fork" : `/ctx-${request.command}`
           if (opened.catalog.profile.dataHome !== live || opened.snapshot !== null)
-            return { result: [`/ctx-${request.command} runs through this machine's OpenCode: only for the side showing ${live}.`] }
+            return { result: [`${what} runs through this machine's OpenCode: only for the side showing ${live}.`] }
+          const reopen = (lines: readonly string[]) => {
+            const fresh = checked(profiles.open(opened.catalog.profile))
+            profiles.close(opened)
+            shown[request.side] = fresh
+            applied.push(...lines)
+            return { result: lines, [request.side]: fresh }
+          }
+          if (request.command === "fork") {
+            const lines: string[] = []
+            for (const id of request.ids) {
+              onProgress(`forking ${id}…`)
+              try {
+                lines.push(...forkLines(await this.options.fork.fork({ sessionId: id, before: null, server: null })).slice(0, 2))
+              } catch (error) {
+                lines.push(`Not forked: ${error instanceof Error ? error.message : String(error)}`)
+              }
+            }
+            return reopen([...lines, "Magic Context gives each fork its parent's state when the first prompt is sent in it."])
+          }
           try {
             const report = await this.options.rebuild.rebuild({
               contextDb: opened.catalog.profile.contextDb,
               sessions: request.ids,
-              command: request.command,
+              command: request.command as RebuildCommand,
               keep: null,
               server: null,
               wait: true,
@@ -107,12 +131,7 @@ export class BrowseCliAdapter {
               graceMs: REBUILD_GRACE_MS,
               onProgress: (progress) => onProgress(progressText(progress)),
             })
-            const fresh = checked(profiles.open(opened.catalog.profile))
-            profiles.close(opened)
-            shown[request.side] = fresh
-            const lines = rebuildLines(report)
-            applied.push(...lines)
-            return { result: lines, [request.side]: fresh }
+            return reopen(rebuildLines(report))
           } catch (error) {
             return { result: [`Not started: ${error instanceof Error ? error.message : String(error)}`] }
           }

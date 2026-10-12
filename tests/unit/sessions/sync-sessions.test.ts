@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { GuardService } from "@session-manager/application/GuardService"
+import type { ForkPlan } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
 import type { ContextBuild, ContextBuildInput } from "@session-manager/application/MagicContextSyncService"
 import { SwapService } from "@session-manager/application/SwapService"
 import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
@@ -56,6 +57,8 @@ interface World {
   readonly holder?: string | null
   readonly free?: number
   readonly failRenameFrom?: string
+  /** What the target holds for a fork (default: present with its project). */
+  readonly forkStored?: StoredSessionRow | null
 }
 
 const stored = (id: string, spec: SessionSpec): StoredSession => ({
@@ -88,6 +91,7 @@ function setup(world: World = {}) {
   holders.holder = world.holder ?? null
   const lock = new FakeStoreLock()
   const plans: SessionCopyPlan[] = []
+  const forks: ForkPlan[] = []
   const builds: ContextBuildInput[] = []
   const mappings: PathMapping[] = []
   const side = (path: string) => (path === SOURCE ? (world.source ?? {}) : (world.target ?? {}))
@@ -106,7 +110,12 @@ function setup(world: World = {}) {
         plans.push(...list)
         return list.map((plan) => ({ root: plan.root, sessions: plan.sessions.length, rows: 10 * plan.sessions.length, residual_windows_paths: 0 }))
       },
+      forkSessions: (_source, _target, list) => {
+        forks.push(...list)
+        return list.map((plan) => ({ fork_id: plan.forkId, parent_id: plan.parentId, inherited_messages: 2, appended_messages: 1, residual_windows_paths: 0 }))
+      },
       storedSession: (_path, id) => {
+        if (forks.some((plan) => plan.forkId === id)) return world.forkStored === undefined ? { projectId: "p", directory: "/d", projectExists: true } : world.forkStored
         const plan = plans.flatMap((entry) => entry.sessions).find((session) => session.id === id)!
         return world.stored === undefined ? { projectId: plan.projectId, directory: plan.directory, projectExists: true } : world.stored(plan)
       },
@@ -139,6 +148,7 @@ function setup(world: World = {}) {
     swap: new SwapService(files),
     fileSystem: files,
     runtime,
+    ids: { sessionId: () => "ses_fork", messageBase: () => "msg_base", slug: () => "calm-otter" },
     rewriterFor: (mapping) => {
       mappings.push(mapping)
       return {
@@ -151,7 +161,7 @@ function setup(world: World = {}) {
       }
     },
   })
-  return { useCase, files, plans, builds, mappings, sqlite, lock }
+  return { useCase, files, plans, forks, builds, mappings, sqlite, lock }
 }
 
 const input = (extra: Partial<SessionSyncInput> = {}): SessionSyncInput => ({
@@ -255,6 +265,52 @@ describe("SyncSessionsUseCase", () => {
     for (const name of ["opencode.db", "opencode.db-wal", "context.db"]) expect(files.has(`${backup}/${name}`)).toBe(true)
     expect(files.has("/t/opencode.db") && files.has("/t/context.db")).toBe(true)
     expect(files.has(WORK)).toBe(false)
+  })
+
+  it("forks diverged sessions when asked (all, or one by one), at the last shared message, and leaves Magic Context to the fork", () => {
+    const world = {
+      source: {
+        ses_div: { directory: "C:/Users/Me/same", ids: ["a", "b", "x"] },
+        ses_kept: { directory: "C:/Users/Me/same", ids: ["a", "x"] },
+        ses_fresh: { directory: "C:/Users/Me/same", ids: ["z"] },
+        ses_old: { directory: "C:/Users/Me/same", ids: ["a", "x"], generation: "v1" as const },
+      },
+      target: {
+        ses_div: { directory: "/home/me/moved", ids: ["a", "b", "y"], project: "p_here" },
+        ses_kept: { directory: "/home/me/same", ids: ["a", "y"] },
+        ses_fresh: { directory: "/home/me/same", ids: ["w"] },
+        ses_old: { directory: "/home/me/same", ids: ["a", "y"], generation: "v1" as const },
+      },
+    }
+    const { useCase, forks, plans, builds, files } = setup(world)
+    const report = useCase.sync(input({ diverged: "fork", divergedFor: { ses_kept: "skip" } }))
+    expect(report.sessions.map((session) => [session.id, session.action, session.reason, session.sessions_written, session.rows_written, session.fork_id, session.project_source])).toEqual([
+      ["ses_div", "fork", null, 1, 3, "ses_fork", "target"],
+      ["ses_kept", "skip", "diverged", 0, 0, null, null],
+      ["ses_fresh", "skip", "nothing-shared", 0, 0, null, null],
+      ["ses_old", "skip", "diverged", 0, 0, null, null],
+    ])
+    expect(forks.map(({ rewriter, ...plan }) => [plan, rewriter!.rewrite("C:/Users/Me/same/f")])).toEqual([
+      [
+        { sourceId: "ses_div", parentId: "ses_div", forkId: "ses_fork", messageBase: "msg_base", slug: "calm-otter", boundaryMessageId: "b", now: 2 },
+        "/home/me/moved/f",
+      ],
+    ])
+    expect(plans).toEqual([])
+    // A fork's Magic Context state comes from its parent, by Magic Context itself.
+    expect(builds[0]!.sessions).toEqual([])
+    expect(report.sessions[0]!.context).toBeNull()
+    expect(report.backup_dir).not.toBeNull()
+    expect(files.exists("/t/opencode.db")).toBe(true)
+  })
+
+  it("refuses a fork the target does not hold afterwards", () => {
+    const { useCase } = setup({
+      source: { ses_div: { directory: "/w", ids: ["a", "x"] } },
+      target: { ses_div: { directory: "/w", ids: ["a", "y"] } },
+      forkStored: null,
+    })
+    expect(() => useCase.sync(input({ diverged: "fork" }))).toThrow(SyncVerificationError)
   })
 
   it("takes named sessions, keeps the target's folder for a session it has, and moves POSIX folders by rule", () => {

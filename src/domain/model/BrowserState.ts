@@ -3,7 +3,7 @@ import type { MagicContextVersions } from "@session-manager/domain/model/MagicCo
 import type { RebuildCommand } from "@session-manager/domain/model/Rebuild"
 import type { CatalogedSession, ProfileCatalog } from "@session-manager/domain/model/SessionCatalog"
 import type { SessionHealth } from "@session-manager/domain/model/Verify"
-import type { Prefer, SessionAction, SessionRelation, SessionSkipReason } from "@session-manager/domain/model/SessionSync"
+import type { Diverged, Prefer, SessionAction, SessionRelation, SessionSkipReason } from "@session-manager/domain/model/SessionSync"
 
 /**
  * The session browser's state, as plain data: two profiles, how they are laid out, where each
@@ -78,6 +78,8 @@ export interface QueueEntry {
   readonly target: CatalogedSession | null
   /** Whose Magic Context state wins when both sides hold the same history. */
   readonly prefer: Prefer
+  /** When the two histories diverged: leave both, or write the source's as a fork on the target. */
+  readonly diverged: Diverged
   /** Null until a dry run or an apply. */
   readonly planned: PlannedSync | null
 }
@@ -109,9 +111,12 @@ export interface BrowserState {
   readonly confirm: RebuildRequest | null
 }
 
-/** `/ctx-wrapup` or `/ctx-recomp` on sessions of one side, through the OpenCode server running it. */
+/** What a key runs through the OpenCode server on this machine's profile: a rebuild, or a fork. */
+export type LiveCommand = RebuildCommand | "fork"
+
+/** `/ctx-wrapup`, `/ctx-recomp` or a fork, on sessions of one side, through the OpenCode server running it. */
 export interface RebuildRequest {
-  readonly command: RebuildCommand
+  readonly command: LiveCommand
   readonly side: Side
   readonly ids: readonly string[]
 }
@@ -148,7 +153,8 @@ export type BrowserAction =
   | { readonly type: "resize"; readonly listHeight: number }
   | { readonly type: "notice"; readonly text: string }
   | { readonly type: "release"; readonly release: MagicContextReleaseState }
-  | { readonly type: "rebuild-ask"; readonly command: RebuildCommand }
+  | { readonly type: "rebuild-ask"; readonly command: LiveCommand }
+  | { readonly type: "diverged"; readonly all?: boolean }
   | {
       readonly type: "applied"
       readonly result: readonly string[]

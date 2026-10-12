@@ -48,7 +48,27 @@ function openCode() {
     port: 0,
     async fetch(request) {
       if (request.headers.get("authorization") !== `Basic ${Buffer.from("opencode:secret").toString("base64")}`) return new Response("Unauthorized", { status: 401 })
-      const id = new URL(request.url).pathname.split("/")[3]!
+      const [, , , id, route] = new URL(request.url).pathname.split("/") as [string, string, string, string, string]
+      if (route === "fork") {
+        // As OpenCode does: a new session in the parent's folder, the parent's title with (fork #1).
+        const body = (await request.json()) as { before?: string }
+        commands.push(`${id} fork ${body.before ?? "-"}`)
+        if (id === "ses_gone") return Response.json({ _tag: "SessionNotFoundError", message: `Session not found: ${id}` }, { status: 404 })
+        const db = new Database(at("data", "opencode", "opencode.db"))
+        try {
+          const parent = db.query("select title, directory, project_id from session_v2 where id = ?").get(id) as { title: string; directory: string; project_id: string }
+          db.query("insert into session_v2 (id, project_id, directory, title, fork_session_id, time_created, time_updated) values (?, ?, ?, ?, ?, 30, 30)").run(
+            `${id}_fork`,
+            parent.project_id,
+            parent.directory,
+            `${parent.title} (fork #1)`,
+            id,
+          )
+        } finally {
+          db.close()
+        }
+        return Response.json({ data: { id: `${id}_fork`, title: "Behind (fork #1)", fork: { sessionID: id, boundary: { type: "through", messageID: "ses_a-m2" } }, location: { directory: at("home", "work") } } })
+      }
       const body = (await request.json()) as { name: string; text: string }
       commands.push(`${id} ${body.name} "${body.text}"`)
       if (id === "ses_gone") return Response.json({ _tag: "LocationNotFoundError", message: `Location not found: ${at("home", "gone")}` }, { status: 404 })
@@ -204,6 +224,68 @@ describe("the browser's W and R (wired container, real stores, an HTTP stand-in 
       expect(code).toBe(0)
       expect(commands).toEqual(['ses_a ctx-recomp ""'])
     } finally {
+      server.stop(true)
+    }
+  })
+
+  it("forks with F on this machine's profile, and shows the fork once the side is read again", async () => {
+    profile()
+    const { server, commands } = openCode()
+    let setup: TestRendererSetup | undefined
+    try {
+      const cli = await buildContainer(environment(), {
+        runtime: runtime(),
+        timer: noWait,
+        show: showBrowser(async () => {
+          setup = await createTestRenderer({ width: 160, height: 30 })
+          return setup.renderer
+        }),
+      })
+      const out = captureConsole()
+      let code: number
+      try {
+        const running = cli.run(["tui"])
+        while (setup === undefined) await new Promise((resolve) => setTimeout(resolve, 10))
+        await waitForText(setup, "Behind")
+        setup.mockInput.pressArrow("down")
+        setup.mockInput.pressKey("F", { shift: true })
+        await waitForText(setup, "F again: fork 1 session of the left")
+        setup.mockInput.pressKey("F", { shift: true })
+        expect(await waitForText(setup, "Forked ses_a → ses_a_fork")).toBeTruthy()
+        expect(await waitForText(setup, "Behind (fork #1)")).toContain("left · 3 sessions")
+        setup.mockInput.pressKey("q")
+        code = await running
+      } finally {
+        out.restore()
+      }
+      expect(code).toBe(0)
+      expect(commands).toEqual(["ses_a fork -"])
+    } finally {
+      server.stop(true)
+    }
+  })
+})
+
+describe("fork through the running OpenCode (wired container, an HTTP stand-in for OpenCode)", () => {
+  it("forks a session, before a message or whole, and reports a refusal", async () => {
+    profile()
+    const { server, commands } = openCode()
+    const out = captureConsole()
+    try {
+      const cli = await buildContainer(environment(), { runtime: runtime() })
+      expect(await cli.run(["fork", "--session", "ses_a", "--before", "ses_a-m2"])).toBe(0)
+      expect(out.lines).toEqual([
+        `Forked ses_a → ses_a_fork (through ses_a-m2) through ${server.url.origin}`,
+        `"Behind (fork #1)" in ${at("home", "work")}`,
+        "Magic Context gives the fork its parent's state when the first prompt is sent in it.",
+      ])
+      await expect(cli.run(["fork", "--session", "ses_gone", "--json"])).rejects.toThrow("the OpenCode server refused to fork ses_gone: 404: Session not found: ses_gone")
+      out.lines.length = 0
+      expect(await cli.run(["fork"])).toBe(2)
+      expect(out.lines[0]).toStartWith("usage: opencode-session-manager fork --session <id>")
+      expect(commands).toEqual(["ses_a fork ses_a-m2", "ses_gone fork -"])
+    } finally {
+      out.restore()
       server.stop(true)
     }
   })

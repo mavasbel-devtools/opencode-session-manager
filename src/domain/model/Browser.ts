@@ -1,4 +1,4 @@
-import { cyclePrefer, enqueue, moveInQueue, toggleScope, unqueue, withPlans } from "@session-manager/domain/model/BrowserQueue"
+import { cyclePrefer, enqueue, moveInQueue, toggleDiverged, toggleScope, unqueue, withPlans } from "@session-manager/domain/model/BrowserQueue"
 import {
   activeList,
   idsOf,
@@ -11,7 +11,7 @@ import {
   withPosition,
 } from "@session-manager/domain/model/BrowserRows"
 import type { BrowserAction, BrowserState, ListId, ListPosition, MagicContextReleaseState, OpenedProfile, Side } from "@session-manager/domain/model/BrowserState"
-import type { RebuildCommand } from "@session-manager/domain/model/Rebuild"
+import type { LiveCommand } from "@session-manager/domain/model/BrowserState"
 
 export * from "@session-manager/domain/model/BrowserState"
 export { activeList, paneOf, rowsOf, selectedRow } from "@session-manager/domain/model/BrowserRows"
@@ -94,6 +94,8 @@ function step(state: BrowserState, action: BrowserAction): BrowserState {
       return moveInQueue(state, action.delta)
     case "prefer":
       return cyclePrefer(state, action.all === true)
+    case "diverged":
+      return toggleDiverged(state, action.all === true)
     case "scope":
       return toggleScope(state)
     case "unqueue":
@@ -124,20 +126,19 @@ function step(state: BrowserState, action: BrowserAction): BrowserState {
 }
 
 /** The first press of W or R: what would run, on which sessions of the focused side; the same key again runs it. */
-function askRebuild(state: BrowserState, command: RebuildCommand): BrowserState {
+function askRebuild(state: BrowserState, command: LiveCommand): BrowserState {
   const ids = state.marked.length > 0 ? state.marked : idsOf(state, activeList(state), selectedRow(state))
   const side = state.focus
   const pane = side === "left" ? state.left : state.right!
   const here = new Set(pane.catalog.sessions.map((session) => session.id))
   const present = ids.filter((id) => here.has(id))
   if (present.length === 0) return { ...state, notice: `Nothing selected on the ${side}.` }
-  const key = command === "wrapup" ? "W" : "R"
-  const what = command === "wrapup" ? "/ctx-wrapup (summarise what lags)" : "/ctx-recomp (rebuild every summary)"
-  return {
-    ...state,
-    confirm: { command, side, ids: present },
-    notice: `${key} again: ${what} on ${present.length} ${present.length === 1 ? "session" : "sessions"} of the ${side}, through the running OpenCode; it spends historian tokens. Any other key cancels.`,
-  }
+  const count = `${present.length} ${present.length === 1 ? "session" : "sessions"} of the ${side}`
+  const notice =
+    command === "fork"
+      ? `F again: fork ${count} through the running OpenCode; Magic Context gives each fork its parent's state on its first prompt. Any other key cancels.`
+      : `${command === "wrapup" ? "W" : "R"} again: ${command === "wrapup" ? "/ctx-wrapup (summarise what lags)" : "/ctx-recomp (rebuild every summary)"} on ${count}, through the running OpenCode; it spends historian tokens. Any other key cancels.`
+  return { ...state, confirm: { command, side, ids: present }, notice }
 }
 
 /** The result of an apply: sides read again replace the ones shown, and a change empties the queue. */

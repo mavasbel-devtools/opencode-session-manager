@@ -90,7 +90,7 @@ export function BrowserView(props: BrowserViewProps) {
   const rebuild = async (request: RebuildRequest) => {
     if (busy) return
     busy = true
-    dispatch({ type: "notice", text: `/ctx-${request.command} on ${request.ids.length} sessions: starting…` })
+    dispatch({ type: "notice", text: `${request.command === "fork" ? "fork" : `/ctx-${request.command}`} on ${request.ids.length} sessions: starting…` })
     const outcome = await props.controls.rebuild(request, (text) => dispatch({ type: "notice", text }))
     const { left, right } = outcome
     dispatch({ type: "applied", result: outcome.result, changed: false, ...(left === undefined ? {} : { left }), ...(right === undefined ? {} : { right }) })

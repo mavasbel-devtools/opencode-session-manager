@@ -1,7 +1,7 @@
 import { activeList, idsOf, paneOf, selectedRow, sessionsById } from "@session-manager/domain/model/BrowserRows"
 import type { BrowserState, Direction, PlannedSync, QueueEntry } from "@session-manager/domain/model/BrowserState"
 import type { CatalogedSession } from "@session-manager/domain/model/SessionCatalog"
-import type { Prefer } from "@session-manager/domain/model/SessionSync"
+import type { Diverged, Prefer } from "@session-manager/domain/model/SessionSync"
 
 /**
  * The action queue: whole-session syncs to the other side — the OpenCode session with its sub-agent
@@ -40,7 +40,7 @@ export function enqueue(state: BrowserState, direction: Direction): BrowserState
   let queue = [...state.queue]
   for (const id of roots) {
     const source = from.get(id)!
-    const entry: QueueEntry = { id, title: source.title, direction, source, target: to.get(id) ?? null, prefer: "further", planned: null }
+    const entry: QueueEntry = { id, title: source.title, direction, source, target: to.get(id) ?? null, prefer: "further", diverged: "skip", planned: null }
     queue = [...queue.filter((existing) => existing.id !== id), entry]
   }
   const arrow = direction === "to-right" ? "→" : "←"
@@ -55,6 +55,15 @@ export function cyclePrefer(state: BrowserState, all: boolean): BrowserState {
   if (current === undefined) return state
   const next = NEXT_PREFER[current.prefer]
   const queue = state.queue.map((entry) => (all || entry === current ? { ...entry, prefer: next, planned: null } : entry))
+  return { ...state, queue }
+}
+
+/** Toggles skip / fork for a diverged history, for the entry under the cursor or (`all`) every entry by the cursor's next value. */
+export function toggleDiverged(state: BrowserState, all: boolean): BrowserState {
+  const current = state.queue[state.queueCursor]
+  if (current === undefined) return state
+  const next: Diverged = current.diverged === "skip" ? "fork" : "skip"
+  const queue = state.queue.map((entry) => (all || entry === current ? { ...entry, diverged: next, planned: null } : entry))
   return { ...state, queue }
 }
 
@@ -97,10 +106,17 @@ function clampQueue(cursor: number, length: number): number {
   return Math.min(Math.max(0, cursor), Math.max(0, length - 1))
 }
 
-/** The sessions queued in one direction, with the entries whose preference differs from `further`. */
-export function requestsFor(queue: readonly QueueEntry[], direction: Direction): { readonly ids: string[]; readonly preferFor: Record<string, Prefer> } {
+/** The sessions queued in one direction, with the entries whose preference differs from `further` and those that fork a diverged history. */
+export function requestsFor(
+  queue: readonly QueueEntry[],
+  direction: Direction,
+): { readonly ids: string[]; readonly preferFor: Record<string, Prefer>; readonly divergedFor: Record<string, Diverged> } {
   const entries = queue.filter((entry) => entry.direction === direction)
-  return { ids: entries.map((entry) => entry.id), preferFor: Object.fromEntries(entries.filter((entry) => entry.prefer !== "further").map((entry) => [entry.id, entry.prefer])) }
+  return {
+    ids: entries.map((entry) => entry.id),
+    preferFor: Object.fromEntries(entries.filter((entry) => entry.prefer !== "further").map((entry) => [entry.id, entry.prefer])),
+    divergedFor: Object.fromEntries(entries.filter((entry) => entry.diverged === "fork").map((entry) => [entry.id, entry.diverged])),
+  }
 }
 
 /** The queue with each entry's result from a run. */

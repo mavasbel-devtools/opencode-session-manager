@@ -30,7 +30,7 @@ export class ApplyQueueUseCase implements ApplyQueuePort {
     const result: string[] = []
     const planned: Record<string, PlannedSync> = {}
     for (const direction of DIRECTIONS) {
-      const { ids, preferFor } = requestsFor(input.queue, direction)
+      const { ids, preferFor, divergedFor } = requestsFor(input.queue, direction)
       if (ids.length === 0) continue
       const [from, to] = direction === "to-right" ? (["left", "right"] as const) : (["right", "left"] as const)
       try {
@@ -41,6 +41,7 @@ export class ApplyQueueUseCase implements ApplyQueuePort {
           maps: input.maps,
           prefer: "further",
           preferFor,
+          divergedFor,
           context: input.scope,
           dryRun: input.dryRun,
         })
