@@ -1,0 +1,47 @@
+# Session ses_ee74ff8d6ffeI7u74RZBGprjCd — opencode-session-manager
+
+The progress record of the OpenCode session that builds this repository (global rule: a session's
+state lives in `docs/sessions/<session id>.md`). Plan: `docs/plans/2026-10-08-23-15-complete-sync-and-robustness.md`.
+Branch `session-sync`, pushed to the private `mavasbel/opencode-session-manager` on 2026-10-12;
+`main` there is still `468daa8`.
+
+## Done
+
+| Phase | What | Commits |
+|---|---|---|
+| merge | opencode-db-manager merged in with its history; Bun; one CLI | 9461262, 468daa8, 2f981bb |
+| read-only | `sessions`, `context copy`, two-pane `tui`, `install:cli` | ed683e0, 69e1333, 48409b2, 0423ccc, 76938ac |
+| Magic Context sync | `context sync`, the queue's apply | 0867c3a |
+| 1 docs | README/AGENTS pass, docs lint | e8af252 |
+| 2 whole-session sync | `sync` (OpenCode rows + Magic Context state), `migrate` removed | aa0f5c3, 828e426 |
+| D.1 | Magic Context format 95 (0.47.0) | 55224f8 |
+| A robustness | store locks, `--strict`, rollback holds only its own stores, `verify`, repeat/failure tests | 6a84151, b4c5bd7 |
+| B TUI | queue = whole-session sync; health per session; Magic Context version header; `context wrapup\|recomp` and `W`/`R` | de9d128, ee90081, 12d29bd, 66c11d9 |
+| C fork | `fork` and `F` through the running OpenCode; `sync --diverged fork` and the queue's `f`/`F` | e62bcbf |
+| E (part) | one OpenCode git identity for both project resolvers, fixed to OpenCode's rules | 5a3af58 |
+
+Gates at 5a3af58: typecheck, docs lint, unit 403 and e2e 95 tests at 100 % lines and functions per
+file, component 9, live 37 (+1 opt-in rebuild that spends tokens).
+
+## Decisions (with their evidence)
+
+- Diverged sessions are never merged: skipped by default, or forked on request (user, 2026-10-09).
+- No Magic Context state is copied into forks: Magic Context 0.47.0 inherits it itself
+  (`seedV2ForkFromParent` on the fork's first model request); the planned plugin
+  `/fork-with-context` is dropped (2026-10-12).
+- The offline fork writes OpenCode 2.0.26's `projectFork` layout; the live test compares it row for
+  row with OpenCode's own fork in a sandboxed `opencode serve` (2026-10-12).
+- Project ids follow OpenCode's own code: `origin` only, `URL.parse` normalization, sorted root
+  commits (2.0.24 source and 2.0.26 binary, 2026-10-12).
+
+## Open
+
+- Needs the Windows machine: a refresh script, and syncing the real Windows profile (its OpenCode
+  store is at migration `20260923013825_project_time_active`, this machine's at
+  `20261007190000_azure_cli_external_credential`; `sync` refuses different migrations).
+- 82 sessions point at `~/Documents/Work/ITAM/Cursos/{relational-dbs,non-relational-dbs}`, emptied
+  on 2026-10-12; the repositories are now `~/Dev/repos/ITAM/2026-02-*`. `sync --map` can move them
+  (the user's decision).
+- Magic Context 0.48.0 is published; `opencode-magic-context-patches` is checked against it
+  (74267b1 there). Updating is the user's decision.
+- Merging `session-sync` into `main` on GitHub (the user's decision).
