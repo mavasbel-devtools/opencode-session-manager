@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
-import { createBrowser, reduce, type BrowserAction, type BrowserState, type QueueEntry } from "@session-manager/domain/model/Browser"
+import { createBrowser, reduce, rowsOf, selectedRow, type BrowserAction, type BrowserState, type QueueEntry } from "@session-manager/domain/model/Browser"
+import { healthBySession, worse, type Finding, type VerifiedSession, type VerifyReport } from "@session-manager/domain/model/Verify"
 import {
   detailLines,
   detailTitle,
@@ -7,8 +8,11 @@ import {
   footerText,
   LEGEND,
   PAIR_LEGEND,
+  healthLine,
+  HEALTH_MARKS,
   pairedTitle,
   plannedText,
+  rowSeverity,
   paneTitle,
   queueText,
   queueTitle,
@@ -105,6 +109,7 @@ describe("browser text", () => {
       "/w",
       "created 1970-01-01 00:00 · updated 2026-10-08 09:30 · 3 messages",
       "Magic Context: 1 summaries · 2 tags (last §-) · 0 notes · 0 memories created · no project",
+      "Health: not checked",
     ])
     const plain = detailLines(one, { kind: "session", session: session({ id: "ses_y", directory: "/w", updated: T, title: null, context: { project: "git:abc" } }), match: null, marked: false })
     expect([plain[0], plain[1]]).toEqual(["(untitled)", "ses_y · v2 · project proj"])
@@ -119,6 +124,8 @@ describe("browser text", () => {
       "ses_p · newer on the right",
       "left : /w · updated 2026-10-08 09:30 · 3 messages · 1 summaries, 2 tags",
       "right: C:/w · updated 2026-10-08 09:30 · 3 messages · no Magic Context",
+      "left  Health: not checked",
+      "right Health: not checked",
     ])
     const onlyRight = detailLines(one, { kind: "pair", id: "ses_p", left: null, right: { ...right, title: null }, match: "right-only", marked: false })
     expect([onlyRight[0], onlyRight[1], onlyRight[2]]).toEqual(["(untitled)", "ses_p · only on the right", "left : —"])
@@ -230,5 +237,106 @@ describe("browser keys", () => {
     expect(commandFor(key("a", { ctrl: true, sequence: "a" }), typing)).toBeNull()
     expect(commandFor(key("c", { ctrl: true }), typing)).toEqual({ type: "quit" })
     expect(commandFor(key("x", { sequence: "\u0001" }), typing)).toBeNull()
+  })
+})
+
+describe("session health in the browser", () => {
+  const verified = (id: string, extra: Partial<VerifiedSession> = {}): VerifiedSession => ({
+    id,
+    title: id,
+    directory: "/w",
+    messages: 40,
+    summaries: 3,
+    unsummarized: 12,
+    last_context_percentage: 42.25,
+    wrapup: "none",
+    ...extra,
+  })
+  const found = (kind: Finding["kind"], id: string, severity: Finding["severity"]): Finding => ({ kind, session_id: id, severity, detail: `${kind} detail` })
+  const report = (sessions: VerifiedSession[], findings: Finding[]): VerifyReport => ({
+    opencode_db: "/o",
+    context_db: "/c",
+    magic_context_format: 95,
+    checks: { opencode: { integrity_ok: true, foreign_keys_ok: true }, context: { integrity_ok: true, foreign_keys_ok: true } },
+    sessions_checked: sessions.length,
+    sessions,
+    findings,
+    counts: { error: 0, warning: 0, info: 0 },
+    ok: true,
+  })
+
+  it("files a verify report by session, keeping each one's most serious finding", () => {
+    const health = healthBySession(
+      report(
+        [verified("a"), verified("b"), verified("c")],
+        [found("summaries-behind", "a", "warning"), found("over-limit", "a", "error"), found("near-limit", "a", "warning"), found("wrapup-running", "b", "info"), found("store-integrity", null as unknown as string, "error"), found("session-not-found", "zz", "warning")],
+      ),
+    )
+    expect(Object.keys(health)).toEqual(["a", "b", "c"])
+    expect([health["a"]!.worst, health["a"]!.findings.length, health["b"]!.worst, health["c"]!.worst]).toEqual(["error", 3, "info", null])
+    expect([worse(null, null), worse("info", null), worse(null, "warning"), worse("error", "warning"), worse("warning", "error")]).toEqual([null, "info", "warning", "error", "error"])
+  })
+
+  it("marks a list row by its most serious finding, on both sides in the paired list", () => {
+    const left = opened("left", [session({ id: "ses_a", directory: "/w", updated: T, title: "A" }), session({ id: "ses_b", directory: "/w", updated: T, title: "B" })])
+    const right = opened("right", [session({ id: "ses_a", directory: "/w", updated: T, title: "A" })])
+    const leftHealth = healthBySession(report([verified("ses_a"), verified("ses_b")], [found("summaries-behind", "ses_a", "warning")]))
+    const rightHealth = healthBySession(report([verified("ses_a")], [found("over-limit", "ses_a", "error")]))
+    const state = createBrowser({ ...left, health: leftHealth }, { ...right, health: rightHealth }, 10)
+    const rows = (list: "left" | "right" | "paired") => {
+      const shown = list === "paired" ? run(state, { type: "layout" }) : state
+      return rowsOf(shown, list).map((row) => rowSeverity(shown, list, row))
+    }
+    expect(rows("left")).toEqual([null, "warning", null])
+    expect(rows("right")).toEqual([null, "error"])
+    expect(rows("paired")).toEqual([null, "error", null])
+    const sessionRow = rowsOf(state, "left")[1]!
+    expect(rowText(sessionRow, 60, "warning")).toStartWith(` ${HEALTH_MARKS.warning}= A`)
+    expect(rowText(sessionRow, 60, null)).toStartWith("  = A")
+    expect(rowText(rowsOf(run(state, { type: "layout" }), "paired")[1]!, 90, "error")).toStartWith(" != A")
+    expect(paneTitle(state.left)).toContain("· health 0! 1~ ·")
+    expect(paneTitle(state.right!)).toContain("· health 1! 0~ ·")
+  })
+
+  it("says how far a session's summaries reach, how large its last prompt was, and what was found", () => {
+    expect(healthLine(undefined)).toBe("Health: not checked")
+    expect(healthLine(null)).toBe("Health: nothing known")
+    expect(healthLine({ session: null, findings: [], worst: null })).toBe("Health: nothing known")
+    expect(healthLine({ session: verified("a"), findings: [], worst: null })).toBe(
+      "Health: 12 of 40 messages after the newest of 3 summaries · last prompt 42.3 % of the window · ok",
+    )
+    expect(
+      healthLine({
+        session: verified("a", { summaries: 0, unsummarized: 40, last_context_percentage: null, wrapup: "running" }),
+        findings: [found("summaries-behind", "a", "warning"), found("wrapup-running", "a", "info"), found("over-limit", "a", "error")],
+        worst: "error",
+      }),
+    ).toBe("Health: no summaries for its 40 messages · wrapup running · ~ summaries-behind, i wrapup-running, ! over-limit")
+    expect(healthLine({ session: verified("a", { unsummarized: null, wrapup: "left-behind" }), findings: [], worst: null })).toBe(
+      "Health: 3 summaries, ending past its history · last prompt 42.3 % of the window · wrapup interrupted · ok",
+    )
+    expect(healthLine({ session: verified("a", { wrapup: null }), findings: [], worst: null })).toEndWith("window · ok")
+    expect(healthLine({ session: verified("a", { summaries: 0, unsummarized: null, last_context_percentage: null, wrapup: null }), findings: [], worst: null })).toBe(
+      "Health: no Magic Context state for its 40 messages · ok",
+    )
+  })
+
+  it("details a session's health and its most serious finding, and each side's in the paired list", () => {
+    const left = opened("left", [session({ id: "ses_a", directory: "/w", updated: T, title: "A" })])
+    const right = opened("right", [session({ id: "ses_a", directory: "/w", updated: T, title: "A" }), session({ id: "ses_r", directory: "/w", updated: T, title: "R" })])
+    const health = healthBySession(report([verified("ses_a")], [found("summaries-behind", "ses_a", "warning"), found("near-limit", "ses_a", "warning")]))
+    const state = createBrowser({ ...left, health }, { ...right, health: {} }, 10)
+    const lines = detailLines(state, selectedRow(run(state, { type: "move", delta: 1 })))
+    expect(lines.slice(-2)).toEqual([
+      "Health: 12 of 40 messages after the newest of 3 summaries · last prompt 42.3 % of the window · ~ summaries-behind, ~ near-limit",
+      "  summaries-behind: summaries-behind detail",
+    ])
+    const onRight = run(state, { type: "focus", side: "right" }, { type: "move", delta: 1 })
+    expect(detailLines(onRight, selectedRow(onRight)).at(-1)).toBe("Health: nothing known")
+    const paired = run(state, { type: "layout" }, { type: "move", delta: 1 })
+    expect(detailLines(paired, selectedRow(paired)).slice(-2)).toEqual([
+      "left  Health: 12 of 40 messages after the newest of 3 summaries · last prompt 42.3 % of the window · ~ summaries-behind, ~ near-limit",
+      "right Health: nothing known",
+    ])
   })
 })

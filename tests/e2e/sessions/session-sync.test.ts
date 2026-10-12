@@ -396,6 +396,21 @@ describe("the browser applies its queue of whole sessions (real stores, OpenTUI'
     await waitForText(setup, "ses_scp")
     input.pressKey("p")
     await waitForText(setup, "paired by session id")
+    // Health from verify: ses_rep's stored project is not the one OpenCode derives for its folder here.
+    input.pressKey("/")
+    await input.typeText("ses_rep")
+    input.pressEnter()
+    input.pressKey("j")
+    const health = await waitForText(setup, "~ project-mismatch")
+    expect(health).toContain(" ~= ses_rep")
+    expect(health).toContain("left  Health: no Magic Context state for its 1 messages · ~ project-mismatch")
+    // Side by side, the details give the finding in its own words.
+    input.pressKey("p")
+    expect(await waitForText(setup, "  project-mismatch: stored project p_moved, OpenCode derives")).toContain("ses_rep · v2 · project p_moved")
+    input.pressKey("p")
+    await waitForText(setup, "paired by session id")
+    input.pressEscape()
+    await waitForText(setup, "ses_scp")
     input.pressKey("*")
     input.pressKey("<")
     // 14 sessions shown; the sub-agent session queues its root once.

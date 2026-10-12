@@ -20,13 +20,14 @@ import {
   paneTitle,
   queueText,
   queueTitle,
+  rowSeverity,
   rowText,
 } from "@session-manager/infrastructure/adapters/inbound/manager-tui/format"
 import type { BrowserControls } from "@session-manager/infrastructure/adapters/inbound/manager-tui/controls"
 import { commandFor } from "@session-manager/infrastructure/adapters/inbound/manager-tui/keys"
 
 /** Rows the layout spends outside the lists: the detail panel (with its border) and the footer. */
-export const DETAIL_HEIGHT = 7
+export const DETAIL_HEIGHT = 9
 const FOOTER_HEIGHT = 1
 const PANE_BORDER = 2
 const SCROLL_STEP = 3
@@ -151,7 +152,7 @@ function List(props: ListProps) {
               backgroundColor={selected() ? (focused() ? COLORS.cursor : COLORS.cursorBlurred) : "transparent"}
               onMouseDown={() => props.dispatch({ type: "select", list: props.list, index })}
             >
-              <text fg={row().kind === "group" ? COLORS.folder : row().marked === true ? COLORS.marked : COLORS.text}>{rowText(row(), props.width)}</text>
+              <text fg={row().kind === "group" ? COLORS.folder : row().marked === true ? COLORS.marked : COLORS.text}>{rowText(row(), props.width, rowSeverity(props.state, props.list, row()))}</text>
             </box>
           )
         }}

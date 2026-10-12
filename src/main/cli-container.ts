@@ -205,24 +205,33 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     output,
   })
 
+  const verifyProfile = new VerifyProfileUseCase({
+    sessions: sessionStore,
+    opencodeStore: sessionSyncStore,
+    contexts: magicContextStore,
+    contextStore: contextSyncStore,
+    identity,
+    contextIdentity,
+    fileSystem,
+    runtime,
+  })
   const verifyCli = new VerifyCliAdapter({
-    verify: new VerifyProfileUseCase({
-      sessions: sessionStore,
-      opencodeStore: sessionSyncStore,
-      contexts: magicContextStore,
-      contextStore: contextSyncStore,
-      identity,
-      contextIdentity,
-      fileSystem,
-      runtime,
-    }),
+    verify: verifyProfile,
     profiles,
     output,
     runtime,
     environment,
   })
 
-  const browseCli = new BrowseCliAdapter({ profiles, output, runtime, environment, apply: new ApplyQueueUseCase(syncSessions, profiles), show: overrides.show ?? showBrowser(terminalRenderer) })
+  const browseCli = new BrowseCliAdapter({
+    profiles,
+    output,
+    runtime,
+    environment,
+    apply: new ApplyQueueUseCase(syncSessions, profiles),
+    verify: verifyProfile,
+    show: overrides.show ?? showBrowser(terminalRenderer),
+  })
 
   const helpCli = new HelpCliAdapter(output, packageJson.version)
   const help = { run: (argv: readonly string[]) => helpCli.run(argv, "help") }

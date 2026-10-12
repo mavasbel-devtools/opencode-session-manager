@@ -234,6 +234,10 @@ with its Magic Context preference and the last run's result) and
 `src/infrastructure/adapters/inbound/manager-tui/` turns keys into
 actions (`keys.ts`), state into text (`format.ts`) and paints it
 (`OpenTuiBrowser.tsx`, the only file there that imports OpenTUI at run time).
+Health: `BrowseCliAdapter` runs `VerifyProfileUseCase` on each side it opens or
+the apply read again, and attaches `healthBySession(report)` (`Verify.ts`) to the
+`OpenedProfile`; `format.ts` turns it into the list's health column
+(`rowSeverity`, `HEALTH_MARKS`), the pane totals and the details' health line.
 Applying is asked of the program around the view through `BrowserControls`
 (`controls.ts`), wired by `BrowseCliAdapter` to `ApplyQueueUseCase`, which runs
 one `SyncSessionsUseCase` per direction that has entries (left to right first,

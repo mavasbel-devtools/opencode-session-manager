@@ -1,5 +1,6 @@
 import type { ContextScope } from "@session-manager/domain/model/MagicContextSync"
 import type { CatalogedSession, ProfileCatalog } from "@session-manager/domain/model/SessionCatalog"
+import type { SessionHealth } from "@session-manager/domain/model/Verify"
 import type { Prefer, SessionAction, SessionRelation, SessionSkipReason } from "@session-manager/domain/model/SessionSync"
 
 /**
@@ -52,11 +53,7 @@ export interface ListPosition {
   readonly offset: number
 }
 
-export interface PaneState extends ListPosition {
-  readonly catalog: ProfileCatalog
-  /** Where the catalog was read from when the profile could not be read in place. */
-  readonly snapshot: string | null
-}
+export interface PaneState extends ListPosition, OpenedProfile {}
 
 export type Direction = "to-right" | "to-left"
 
@@ -145,5 +142,8 @@ export type BrowserAction =
 
 export interface OpenedProfile {
   readonly catalog: ProfileCatalog
+  /** Where the catalog was read from when the profile could not be read in place. */
   readonly snapshot: string | null
+  /** Each session's health (`verify`), by session id; absent when it was not checked. */
+  readonly health?: Readonly<Record<string, SessionHealth>>
 }

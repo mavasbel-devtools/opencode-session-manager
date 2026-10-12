@@ -140,12 +140,29 @@ describe("BrowseCliAdapter", () => {
             : { result: ["done"], changed: true, planned: {}, right: opened("right", [], { snapshot: "/fresh" }) }
         },
       },
+      verify: {
+        verify: (input) => {
+          events.push(`verify ${input.opencodeDb.split("/")[2]} ${input.readableOpencodeDb ?? input.opencodeDb} ${input.sessions} ${input.behind}`)
+          return {
+            opencode_db: input.opencodeDb,
+            context_db: null,
+            magic_context_format: null,
+            checks: { opencode: { integrity_ok: true, foreign_keys_ok: true }, context: null },
+            sessions_checked: 0,
+            sessions: [],
+            findings: [],
+            counts: { error: 0, warning: 0, info: 0 },
+            ok: true,
+          }
+        },
+      },
       show: async (initial, controls) => {
         shown.push(initial)
         events.push("shown")
         if (initial.right !== null) {
           events.push(controls.apply([], true, "all").result[0]!)
-          events.push(controls.apply([], false, "sessions").result[0]!)
+          const applied = controls.apply([], false, "sessions")
+          events.push(applied.result[0]!, `checked again: ${applied.right?.health !== undefined}`)
           events.push(controls.apply([], true, "all").result[0]!)
         }
       },
@@ -158,21 +175,28 @@ describe("BrowseCliAdapter", () => {
     expect(await one.adapter.run([])).toBe(0)
     expect(one.events).toEqual([
       "open left /home/me/.local/share/opencode/opencode.db /home/me/.local/share/cortexkit/magic-context/context.db",
+      "verify left /data/left/opencode/opencode.db all 300",
       "shown",
       "close left",
     ])
-    expect(one.shown[0]).toEqual(createBrowser(opened("left", []), null, 1))
+    // Each side is shown with its health, checked by verify when it is opened.
+    expect(one.shown[0]).toEqual(createBrowser({ ...opened("left", []), health: {} }, null, 1))
     const two = cli()
     expect(await two.adapter.run(["--right", "/r", "--map", "C:\\Users\\Me=/home/me", "--left", "/l"])).toBe(0)
     const rule = '[{"from":"C:\\\\Users\\\\Me","to":"/home/me"}]'
     expect(two.events).toEqual([
       "open left /l/opencode/opencode.db /l/cortexkit/magic-context/context.db",
+      "verify left /data/left/opencode/opencode.db all 300",
       "open right /r/opencode/opencode.db /r/cortexkit/magic-context/context.db",
+      "verify right /data/right/opencode/opencode.db all 300",
       "shown",
       `apply left right 0 all ${rule}`,
       "checked",
       `apply left right 0 sessions ${rule}`,
+      // The side the apply read again is checked again (its snapshot is what verify reads).
+      "verify right /fresh/opencode/opencode.db all 300",
       "done",
+      "checked again: true",
       `apply left right 0 all ${rule}`,
       "checked",
       "close left",
@@ -182,7 +206,7 @@ describe("BrowseCliAdapter", () => {
     expect(two.output.lines).toEqual(["done"])
     const files = cli()
     expect(await files.adapter.run(["--left-db", "/a/x.db", "--right-db", "/b/y.db", "--right-context", "/b/c.db"])).toBe(0)
-    expect(files.events.slice(0, 2)).toEqual(["open left /a/x.db ", "open right /b/y.db /b/c.db"])
+    expect(files.events.filter((event) => event.startsWith("open"))).toEqual(["open left /a/x.db ", "open right /b/y.db /b/c.db"])
   })
 
   it("refuses a map rule it cannot read, before opening anything", async () => {
@@ -194,7 +218,7 @@ describe("BrowseCliAdapter", () => {
   it("closes what it opened when a profile fails, and prints the usage for unknown arguments", async () => {
     const broken = cli(true)
     await expect(broken.adapter.run(["--right", "/r"])).rejects.toThrow("right is broken")
-    expect(broken.events.map((event) => event.split(" ").slice(0, 2).join(" "))).toEqual(["open left", "open right", "close left"])
+    expect(broken.events.map((event) => event.split(" ").slice(0, 2).join(" "))).toEqual(["open left", "verify left", "open right", "close left"])
     for (const argv of [
       ["--left"],
       ["--left", "--right"],

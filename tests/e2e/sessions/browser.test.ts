@@ -195,8 +195,11 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
     const running = cli.run(["tui", "--left-db", db, "--left-context", context])
     while (setup === undefined) await new Promise((resolve) => setTimeout(resolve, 10))
     const shown = await setup.waitForFrame((text) => text.includes("From a file"))
-    expect(shown).toContain(`left · 1 sessions · Magic Context format 94 · ${join(directory, "files")}`)
+    // verify ran when the side was opened, and found nothing wrong.
+    expect(shown).toContain(`left · 1 sessions · Magic Context format 94 · health 0! 0~ · ${join(directory, "files")}`)
     expect(shown).toContain("S 3")
+    setup.mockInput.pressKey("j")
+    expect(await setup.waitForFrame((text) => text.includes("Health:"))).toContain("Health: 1 of 1 messages after the newest of 3 summaries · ok")
     setup.mockInput.pressKey("p")
     expect(await setup.waitForFrame((text) => text.includes("Open a second profile with --right to pair sessions."))).toBeTruthy()
     setup.mockInput.pressKey("q")

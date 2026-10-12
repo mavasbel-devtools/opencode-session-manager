@@ -2,6 +2,9 @@ import { createBrowser, type BrowserState, type OpenedProfile } from "@session-m
 import { defaultDataHome, profileAt, profileOfFiles, type Profile } from "@session-manager/domain/model/Profile"
 import type { ApplyQueuePort } from "@session-manager/domain/ports/inbound/ApplyQueuePort"
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
+import type { VerifyProfilePort } from "@session-manager/domain/ports/inbound/VerifyProfilePort"
+import { syncSideOf } from "@session-manager/domain/model/MagicContextSync"
+import { DEFAULT_BEHIND, healthBySession } from "@session-manager/domain/model/Verify"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
 import type { MapRule } from "@session-manager/domain/model/SessionSync"
 import { parseMapRule } from "@session-manager/domain/services/MapRules"
@@ -20,6 +23,8 @@ export interface BrowseCliOptions {
   readonly runtime: RuntimePort
   readonly environment: CliEnvironment
   readonly apply: ApplyQueuePort
+  /** Each side's health, shown per session: checked when a side is opened or read again. */
+  readonly verify: VerifyProfilePort
   /** Shows the browser and resolves when the user quits. */
   readonly show: (initial: BrowserState, controls: BrowserControls) => Promise<void>
 }
@@ -62,12 +67,25 @@ export class BrowseCliAdapter {
     if (leftProfile === undefined || rightProfile === undefined) return this.usage()
     const shown: { left?: OpenedProfile; right?: OpenedProfile } = {}
     const applied: string[] = []
+    const checked = (opened: OpenedProfile): OpenedProfile => ({
+      ...opened,
+      health: healthBySession(this.options.verify.verify({ ...syncSideOf(opened), sessions: "all", behind: DEFAULT_BEHIND }, opened.catalog)),
+    })
     try {
       shown.left = profiles.open(leftProfile as Profile)
-      if (rightProfile !== null) shown.right = profiles.open(rightProfile)
+      shown.left = checked(shown.left)
+      if (rightProfile !== null) {
+        shown.right = profiles.open(rightProfile)
+        shown.right = checked(shown.right)
+      }
       const controls: BrowserControls = {
         apply: (queue, dryRun, scope) => {
-          const outcome = this.options.apply.apply({ queue, left: shown.left!, right: shown.right!, dryRun, maps, scope })
+          const result = this.options.apply.apply({ queue, left: shown.left!, right: shown.right!, dryRun, maps, scope })
+          const outcome = {
+            ...result,
+            ...(result.left === undefined ? {} : { left: checked(result.left) }),
+            ...(result.right === undefined ? {} : { right: checked(result.right) }),
+          }
           // A side read again replaces the one shown; the use case closed the old one.
           Object.assign(shown, outcome.left === undefined ? {} : { left: outcome.left }, outcome.right === undefined ? {} : { right: outcome.right })
           if (outcome.changed) applied.push(...outcome.result)

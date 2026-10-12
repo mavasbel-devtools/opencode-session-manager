@@ -214,6 +214,17 @@ defaults to this machine's profile, the right is optional. `--map <from>=<to>`
 by folder, newest first, each with its message count and Magic Context
 summaries (`S`) and tags (`T`); a detail panel describes the selected row.
 
+Each side's **health** is checked by [`verify`](#checking-a-profile-verify) when it is opened and
+again after an apply changed it (read-only, so it is safe while OpenCode runs).
+The list shows a session's most serious finding just after its mark: `!` an error
+(for example its last prompt was over the model's window), `~` a warning (its
+summaries lag, a summary points at a missing message, an interrupted wrapup, a
+project id that is not the one derived for its folder), blank otherwise; the
+pane title counts the sessions with each (`health 2! 5~`). The details add a
+health line — how many of its messages come after its newest summary, its last
+prompt's share of the window, a running or interrupted wrapup, and every finding
+— and, side by side, the most serious finding in its own words.
+
 With two sides, sessions are **matched by session id**:
 
 - side by side (`Tab` switches panes), each session is marked against its

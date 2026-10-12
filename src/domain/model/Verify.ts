@@ -144,3 +144,32 @@ export function verifyLines(report: VerifyReport): string[] {
     `${report.ok ? "OK" : "PROBLEMS"}: ${error} errors, ${warning} warnings, ${info} notes`,
   ]
 }
+
+/** One session's health in a profile: its verified progress and what was found about it. */
+export interface SessionHealth {
+  readonly session: VerifiedSession | null
+  readonly findings: readonly Finding[]
+  /** The most serious finding, or null when there is none. */
+  readonly worst: FindingSeverity | null
+}
+
+const RANK: Readonly<Record<FindingSeverity, number>> = { info: 0, warning: 1, error: 2 }
+
+/** The more serious of two severities (null: nothing found). */
+export function worse(a: FindingSeverity | null, b: FindingSeverity | null): FindingSeverity | null {
+  if (a === null) return b
+  if (b === null) return a
+  return RANK[b] > RANK[a] ? b : a
+}
+
+/** A verify report by session id; findings about the stores themselves are left to the report. */
+export function healthBySession(report: VerifyReport): Record<string, SessionHealth> {
+  const health: Record<string, SessionHealth> = {}
+  for (const session of report.sessions) health[session.id] = { session, findings: [], worst: null }
+  for (const entry of report.findings) {
+    if (entry.session_id === null || !Object.hasOwn(health, entry.session_id)) continue
+    const current = health[entry.session_id]!
+    health[entry.session_id] = { ...current, findings: [...current.findings, entry], worst: worse(current.worst, entry.severity) }
+  }
+  return health
+}

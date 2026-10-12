@@ -60,7 +60,7 @@ describe("BrowserView", () => {
     expect(lines.filter((line) => line.includes("+ Left")).length).toBe(listHeightFor(30) - 3)
     expect(lines.some((line) => line.includes("Folder /w/a"))).toBe(true)
     expect(lines[29]).toContain("Tab pane · p pair")
-    expect(lines[22]).toContain("Details · + only here")
+    expect(lines[30 - 1 - DETAIL_HEIGHT]).toContain("Details · + only here")
   })
 
   it("moves, switches panes, filters and quits from the keyboard", async () => {
