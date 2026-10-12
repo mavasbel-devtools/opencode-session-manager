@@ -2,8 +2,9 @@
 
 The progress record of the OpenCode session that builds this repository (global rule: a session's
 state lives in `docs/sessions/<session id>.md`). Plan: `docs/plans/2026-10-08-23-15-complete-sync-and-robustness.md`.
-Branch `session-sync`, pushed to the private `mavasbel/opencode-session-manager` on 2026-10-12;
-`main` there is still `468daa8`.
+Work is committed directly to `main` of the private `mavasbel/opencode-session-manager` (one
+user, one building session; decided 2026-10-12). The former branch `session-sync` was
+fast-forwarded into `main` (`a68b4d1`) and deleted.
 
 ## Done
 
@@ -36,7 +37,7 @@ file, component 9, live 37 (+1 opt-in rebuild that spends tokens).
 
 ## Open
 
-- Needs the Windows machine: a refresh script, and syncing the real Windows profile (its OpenCode
+- Deferred by the user (2026-10-12), needs the Windows machine: a refresh script, and syncing the real Windows profile (its OpenCode
   store is at migration `20260923013825_project_time_active`, this machine's at
   `20261007190000_azure_cli_external_credential`; `sync` refuses different migrations).
 - 82 sessions point at `~/Documents/Work/ITAM/Cursos/{relational-dbs,non-relational-dbs}`, emptied
@@ -44,4 +45,3 @@ file, component 9, live 37 (+1 opt-in rebuild that spends tokens).
   (the user's decision).
 - Magic Context 0.48.0 is published; `opencode-magic-context-patches` is checked against it
   (74267b1 there). Updating is the user's decision.
-- Merging `session-sync` into `main` on GitHub (the user's decision).
