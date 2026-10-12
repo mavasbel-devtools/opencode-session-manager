@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync } from "node:fs"
 import { dirname } from "node:path"
 import type { Harness } from "@session-manager/domain/model/MagicContextSync"
 import { normalizedHash } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextSyncStoreAdapter"
+import { runScript } from "@test/support/sessions/sql-script"
 
 /** Every table, index and trigger of a Magic Context 0.45.0 store (format 94), read from a real one. */
 export const SCHEMA_94 = readFileSync(new URL("./magic-context-94.sql", import.meta.url), "utf8")
@@ -65,7 +66,7 @@ export function makeSyncContextStore(file: string, spec: SyncStoreSpec): void {
         db.exec(`drop trigger if exists "${trigger.name}"`)
       db.exec(`drop table ${table}`)
     }
-    if (spec.extraSql !== undefined) db.exec(spec.extraSql)
+    if (spec.extraSql !== undefined) runScript(db, spec.extraSql)
   } finally {
     db.close()
   }

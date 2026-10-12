@@ -138,6 +138,7 @@ opencode-session-manager --help | --version
 # Read-only: safe while OpenCode runs
 opencode-session-manager tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …]
 opencode-session-manager sessions [--data <dataHome>] [--json]
+opencode-session-manager verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]
 opencode-session-manager context copy --from <context.db> --to <file>
 opencode-session-manager preflight [--db <path>]
 
@@ -180,6 +181,27 @@ copy is removed when the command finishes.
 `sessions` lists a profile's sessions, newest first, with each one's entry count
 and what Magic Context holds for it (history summaries, tags, notes, the
 memories it created); `--json` prints the catalog.
+
+### Checking a profile: `verify`
+
+`verify` reads one profile (safe while OpenCode runs) and reports what it finds,
+as text or `--json`; it exits 1 when there is an error-level finding.
+
+| Finding | Severity | Meaning |
+|---|---|---|
+| `store-integrity`, `store-foreign-keys` | error | a store fails SQLite's `integrity_check` or `foreign_key_check` |
+| `over-limit` | error | the session's last prompt was larger than the model's window (every turn fails until `/ctx-wrapup`) |
+| `near-limit` | warning | the last prompt used 90 % or more of the window |
+| `summaries-behind` | warning | more than `--behind` (default 300) messages after the newest summary, or that many without any |
+| `stale-summaries` | warning | summaries point at messages the session's history no longer holds (for example OpenCode 1-era state) |
+| `wrapup-left-behind` / `wrapup-running` | warning / note | a wrapup marker whose time ran out (an interrupted wrapup), or one in progress |
+| `project-mismatch` | warning | the stored project id is not the one OpenCode derives for the folder now (OpenCode 2.0.26 still lists the session by folder) |
+| `context-project-mismatch` | warning | Magic Context's project for the session is not the one it derives for the folder, so that project's memories are not given to it |
+| `orphan-context-state` | warning | Magic Context summaries, tags or notes for a session the OpenCode store does not have (memories are the project's and are not counted) |
+| `session-not-found` | warning | a `--session` the profile does not have |
+
+Message counts are OpenCode's: Magic Context leaves a few marker messages out of
+its own numbering, so its counts can be slightly lower.
 
 ### The session browser
 

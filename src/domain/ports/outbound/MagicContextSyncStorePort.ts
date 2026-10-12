@@ -1,3 +1,4 @@
+import type { SessionVitals } from "@session-manager/domain/model/Verify"
 import type { Harness, ProjectMergeResult, SessionCopy } from "@session-manager/domain/model/MagicContextSync"
 import type { TextRewriter } from "@session-manager/domain/services/PathRewriter"
 
@@ -83,4 +84,6 @@ export interface MagicContextSyncStorePort {
    * progress, or a history lease that has not expired.
    */
   busy(contextDb: string, sessionId: string, now: number): boolean
+  /** Magic Context's record of the session's progress at `now`: newest summary end, wrapup marker, last prompt size. */
+  vitals(contextDb: string, sessionId: string, now: number): SessionVitals
 }

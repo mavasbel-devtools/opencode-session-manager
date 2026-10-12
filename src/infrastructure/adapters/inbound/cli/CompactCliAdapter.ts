@@ -20,7 +20,7 @@ export interface CliEnvironment {
 }
 
 export const USAGE =
-  "usage: opencode-session-manager <preflight|rehearse|run|rollback <backupDir>|sync …|sessions …|context …|tui …> [--db <path>]... [--keep]"
+  "usage: opencode-session-manager <preflight|rehearse|run|rollback <backupDir>|sync …|verify …|sessions …|context …|tui …> [--db <path>]... [--keep]"
 
 export interface CliArguments {
   readonly mode: string | undefined

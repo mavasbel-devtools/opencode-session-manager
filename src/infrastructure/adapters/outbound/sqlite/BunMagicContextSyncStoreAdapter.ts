@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, getTableColumns, getTableName, inArray, max,
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import { UnknownStoreSchemaError } from "@session-manager/domain/errors/UnknownStoreSchemaError"
 import type { Harness, ProjectMergeResult } from "@session-manager/domain/model/MagicContextSync"
+import type { SessionVitals } from "@session-manager/domain/model/Verify"
 import type {
   CopyOptions,
   CopyOutcome,
@@ -167,6 +168,40 @@ export class BunMagicContextSyncStoreAdapter implements MagicContextSyncStorePor
       if (!store.has(sessionMeta, ["session_id", "wrapup_in_progress_state"])) return false
       const rows = store.orm.select({ state: sessionMeta.wrapup_in_progress_state }).from(sessionMeta).where(eq(sessionMeta.session_id, sessionId)).all()
       return rows.some((row) => wrapupRunning(row.state, now))
+    })
+  }
+
+  vitals(contextDb: string, sessionId: string, now: number): SessionVitals {
+    return withStore(contextDb, "read", (store) => {
+      // The OpenCode 2 label's rows first (a session moved from OpenCode 1 keeps its older rows too).
+      const v2First = <T extends { harness: string | null }>(rows: T[]) => [...rows.filter((row) => row.harness === "opencode2"), ...rows.filter((row) => row.harness !== "opencode2")]
+      const summaries = store.has(compartments, ["session_id", "harness", "sequence", "end_message_id"])
+        ? store.orm
+            .select({ harness: compartments.harness, end: compartments.end_message_id })
+            .from(compartments)
+            .where(eq(compartments.session_id, sessionId))
+            .orderBy(desc(compartments.sequence))
+            .all()
+        : []
+      const newest = v2First(summaries)[0]
+      const metaColumns = ["session_id", "harness", "wrapup_in_progress_state", "last_context_percentage", "last_input_tokens"]
+      const meta = store.has(sessionMeta, metaColumns)
+        ? v2First(
+            store.orm
+              .select({ harness: sessionMeta.harness, state: sessionMeta.wrapup_in_progress_state, percent: sessionMeta.last_context_percentage, tokens: sessionMeta.last_input_tokens })
+              .from(sessionMeta)
+              .where(eq(sessionMeta.session_id, sessionId))
+              .all(),
+          )
+        : []
+      const marked = meta.find((row) => row.state !== null && row.state !== "")
+      const recorded = meta.find((row) => row.percent !== null && Number(row.percent) > 0)
+      return {
+        lastSummarizedMessageId: newest?.end || null,
+        wrapup: marked === undefined ? "none" : wrapupRunning(marked.state, now) ? "running" : "left-behind",
+        lastContextPercentage: recorded === undefined ? null : Number(recorded.percent),
+        lastInputTokens: recorded === undefined || recorded.tokens === null ? null : Number(recorded.tokens),
+      }
     })
   }
 

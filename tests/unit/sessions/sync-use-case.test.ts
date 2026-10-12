@@ -114,6 +114,7 @@ function setup(world: World = {}) {
       stateOf: (_path, id) => world.after?.[id] ?? { compartments: 1, tags: 2, notes: 0, anchors: ["m1"] },
       health: () => world.health ?? { integrity_ok: true, foreign_keys_ok: true },
       busy: (_path, id) => world.busy?.includes(id) ?? false,
+      vitals: () => ({ lastSummarizedMessageId: null, wrapup: "none", lastContextPercentage: null, lastInputTokens: null }),
     },
     identity: { identityOf: (directory) => world.identities?.[directory] ?? null },
     copier: {

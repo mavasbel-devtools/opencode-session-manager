@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite"
 import { mkdirSync, readFileSync } from "node:fs"
 import { dirname } from "node:path"
+import { runScript } from "@test/support/sessions/sql-script"
 
 /** OpenCode 2.0.24's store schema, every table and index as OpenCode creates them. */
 export const SCHEMA_2_0_24 = readFileSync(new URL("./opencode-2.0.24.sql", import.meta.url), "utf8")
@@ -57,7 +58,7 @@ export function makeOpenCode2Store(file: string, spec: OpenCodeStoreSpec): void 
         )
       for (const session of spec.sessions ?? []) addSession(db, session)
     })()
-    if (spec.extraSql !== undefined) db.exec(spec.extraSql)
+    if (spec.extraSql !== undefined) runScript(db, spec.extraSql)
   } finally {
     db.close()
   }

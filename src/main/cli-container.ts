@@ -3,6 +3,8 @@ import type { BrowserControls } from "@session-manager/infrastructure/adapters/i
 import { MagicContextSyncService } from "@session-manager/application/MagicContextSyncService"
 import { SyncMagicContextUseCase } from "@session-manager/application/SyncMagicContextUseCase"
 import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
+import { VerifyProfileUseCase } from "@session-manager/application/VerifyProfileUseCase"
+import { VerifyCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/VerifyCliAdapter"
 import type { SessionSyncStorePort } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
 import { SyncCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/SyncCliAdapter"
 import { BunSessionSyncStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSessionSyncStoreAdapter"
@@ -163,12 +165,15 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
       runtime.temporaryDirectory(),
     )
   const copier = new CopyMagicContextUseCase(sqlite, magicContextStore, magicContextRelease, fileSystem)
+  const contextSyncStore = overrides.magicContextSyncStore ?? new BunMagicContextSyncStoreAdapter()
+  const contextIdentity = overrides.magicContextIdentity ?? new MagicContextIdentityAdapter()
+  const sessionSyncStore = overrides.sessionSyncStore ?? new BunSessionSyncStoreAdapter()
   const contextBuilder = new MagicContextSyncService({
     sqlite,
     sessions: sessionStore,
     contexts: magicContextStore,
-    syncStore: overrides.magicContextSyncStore ?? new BunMagicContextSyncStoreAdapter(),
-    identity: overrides.magicContextIdentity ?? new MagicContextIdentityAdapter(),
+    syncStore: contextSyncStore,
+    identity: contextIdentity,
     copier,
     runtime,
     rewriterFor,
@@ -185,7 +190,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     sync: new SyncSessionsUseCase({
       sqlite,
       sessions: sessionStore,
-      store: overrides.sessionSyncStore ?? new BunSessionSyncStoreAdapter(),
+      store: sessionSyncStore,
       identity,
       contexts: contextBuilder,
       guard,
@@ -199,11 +204,28 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     output,
   })
 
+  const verifyCli = new VerifyCliAdapter({
+    verify: new VerifyProfileUseCase({
+      sessions: sessionStore,
+      opencodeStore: sessionSyncStore,
+      contexts: magicContextStore,
+      contextStore: contextSyncStore,
+      identity,
+      contextIdentity,
+      fileSystem,
+      runtime,
+    }),
+    profiles,
+    output,
+    runtime,
+    environment,
+  })
+
   const browseCli = new BrowseCliAdapter({ profiles, output, runtime, environment, apply: new ApplyQueueUseCase(syncContext, profiles), show: overrides.show ?? showBrowser(terminalRenderer) })
 
   const helpCli = new HelpCliAdapter(output, packageJson.version)
   const help = { run: (argv: readonly string[]) => helpCli.run(argv, "help") }
   const version = { run: (argv: readonly string[]) => helpCli.run(argv, "version") }
 
-  return new CliRouter(compactCli, { sync: syncCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
+  return new CliRouter(compactCli, { sync: syncCli, verify: verifyCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
 }

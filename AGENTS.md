@@ -279,6 +279,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `MagicContextRelease.ts` | sessions | the installed Magic Context release, an upgrade's outcome, the `context copy` report |
 | `PathMapping.ts` | sessions | path mapping (a Windows profile → a home, folder relocations), `GLOBAL_PROJECT`, the project OpenCode derives for a folder |
 | `SessionSync.ts` | sessions | session sync input, map rules, `--prefer`, the action per history relation (`actionFor`), the report |
+| `Verify.ts` | sessions | `verify`: finding kinds and their severity, a session's Magic Context vitals, the report and its text (`verifyLines`) |
 | `Build.ts` | maintenance | the six checks of a compacted copy |
 | `Database.ts` | maintenance | page statistics, schema, header and per-table fingerprints of a database |
 | `DatabasePaths.ts` | all | `baseName`, `dirName`, `joinPath` for either separator, so inner layers never import `node:path` |
@@ -319,7 +320,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 **`src/domain/ports/inbound`** — one per use case: `CompactPort.ts`,
 `PreflightPort.ts`, `RehearsePort.ts`, `RollbackPort.ts` (maintenance);
 `OpenProfilePort.ts`, `CatalogProfilePort.ts`, `CopyMagicContextPort.ts`,
-`SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`
+`SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`,
 `MoveSessionPort.ts`, `TransferSessionPort.ts`, `BuildDirectoryOptionsPort.ts`
 (plugin).
@@ -350,6 +351,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `DatabaseSizesService.ts` | maintenance | sizes of a database and its sidecars |
 | `OpenProfileUseCase.ts` | sessions | open a profile read-only, from a snapshot when needed, and close it |
 | `CatalogProfileUseCase.ts` | sessions | join a profile's sessions with their Magic Context counts |
+| `VerifyProfileUseCase.ts` | sessions | `verify`, read-only: both stores' integrity and foreign keys; per session the project OpenCode and Magic Context derive, summaries pointing outside the history, how far summaries lag, the last prompt's size, wrapup markers; Magic Context state of sessions OpenCode lacks |
 | `CopyMagicContextUseCase.ts` | sessions | copy a store and upgrade the copy with the installed Magic Context |
 | `MagicContextSyncService.ts` | sessions | build and check a working copy of a target Magic Context store holding sessions' state and, for scope `all`, their projects' state |
 | `SyncMagicContextUseCase.ts` | sessions | `context sync`: the service's copy swapped in, with a backup |
@@ -370,6 +372,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `cli/SyncCliAdapter.ts` | `sync` |
 | `cli/arguments.ts` | `parseOptions`: `--name value` options and flags |
 | `cli/SessionsCliAdapter.ts` | `sessions` |
+| `cli/VerifyCliAdapter.ts` | `verify` |
 | `cli/ContextCliAdapter.ts` | `context copy`, `context sync` |
 | `cli/BrowseCliAdapter.ts` | `tui`: opens the profiles, shows the browser, wires its controls |
 | `cli/HelpCliAdapter.ts` | `--help`, `--version` |
@@ -483,6 +486,7 @@ in-process real-host tier and "live" is the real external process.
 | `sessions/magic-context-95.sql` | the same for a real Magic Context 0.47.0 store (format 95: format 94 plus `temporal_decisions` and `git_commit_fts_rowid_map`, and changed indexes); `schema/magic-context.ts` is generated from it |
 | `sessions/magic-context-package.ts` | a stand-in Magic Context package (declared seam) |
 | `sessions/catalogs.ts` | catalogued sessions and opened profiles for browser tests |
+| `sessions/sql-script.ts` | `runScript`, `statementsOf`: a fixture's extra SQL run one statement at a time (Bun 1.4's `exec` ignores errors of all but the last statement of a script) |
 | `sessions/frames.ts` | `waitForText`: waits in real time for text in OpenTUI's test renderer |
 | `sessions/terminal-streams.ts` | a silent terminal for OpenTUI's renderer |
 
