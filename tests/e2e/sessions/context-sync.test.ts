@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
 import { createHash } from "node:crypto"
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
@@ -230,6 +230,39 @@ describe("context sync (real stores, the wired container)", () => {
     expect(upgraded.json).toMatchObject({ format: 95, sessions: [{ id: "ses_win", status: "copied" }] })
   })
 
+  it("--strict refuses while Magic Context holds a requested session's lease; without it only that session is skipped", async () => {
+    makeProfiles({ targetExtraSql: "insert into compartment_state_lease values ('ses_win', 'historian', 1, 9999999999999, 1)" })
+    const before = fileSha(contextOf("linux"))
+    const strict = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_win", "--session", "ses_repo", "--strict"])
+    expect([strict.code, strict.errors[0], fileSha(contextOf("linux"))]).toEqual([
+      1,
+      "ERROR: --strict: Magic Context is working on ses_win (a wrapup, or a summary run holding its lease); nothing was written. Wait for it to finish, or sync without --strict to skip it",
+      before,
+    ])
+    const loose = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_win", "--session", "ses_repo"])
+    expect(loose.json.sessions.map((session: { id: string; reason: string | null }) => [session.id, session.reason])).toEqual([
+      ["ses_win", "busy"],
+      ["ses_repo", null],
+    ])
+  })
+
+  it("writes under the target store's lock, and clears a lock its owner left behind", async () => {
+    makeProfiles()
+    const lock = `${contextOf("linux")}.session-manager.lock`
+    writeFileSync(lock, JSON.stringify({ pid: process.ppid, command: "sync", since: "t" }))
+    const locked = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_win"])
+    expect([locked.code, locked.errors[0]]).toEqual([1, expect.stringContaining(`(pid ${process.ppid}, sync, since t)`)])
+    writeFileSync(lock, '{"pid": 12')
+    const damaged = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_win"])
+    expect([damaged.code, damaged.errors[0]]).toEqual([1, expect.stringContaining("(an unreadable lock); wait for it to finish, or remove")])
+    writeFileSync(lock, JSON.stringify({ pid: "not a number" }))
+    const foreign = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_win"])
+    expect([foreign.code, foreign.errors[0]]).toEqual([1, expect.stringContaining("(an unreadable lock)")])
+    writeFileSync(lock, JSON.stringify({ pid: 4_194_305, command: "sync", since: "t" }))
+    const run = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_win"])
+    expect([run.code, run.json.stale_locks_cleared, existsSync(lock)]).toEqual([0, [{ file: lock, pid: 4_194_305, command: "sync", since: "t" }], false])
+  })
+
   it("refuses a newer source, a missing store, a held target, a failed check, a failed write and a failed swap", async () => {
     makeProfiles({ sourceFormat: 95 })
     const newer = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--all"])
@@ -237,7 +270,7 @@ describe("context sync (real stores, the wired container)", () => {
     const missing = await cli(["context", "sync", "--from", at("nowhere"), "--to", at("linux"), "--all"])
     expect(missing.code).toBe(1)
     const usage = await cli(["context", "sync", "--from", at("win")])
-    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager context copy --from <context.db> --to <file>\n       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--context all|sessions] [--dry-run]"])
+    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager context copy --from <context.db> --to <file>\n       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--context all|sessions] [--strict] [--dry-run]"])
     removeTemporary(directory)
     directory = temporaryWorkspace("oc-context-sync-e2e-")
 

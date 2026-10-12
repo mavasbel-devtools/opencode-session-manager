@@ -94,7 +94,7 @@ describe("ContextCliAdapter", () => {
       sync: {
         sync: (input) => {
           syncs.push(input)
-          return { source_context_db: "s", target_context_db: "t", format: 94, dry_run: input.dryRun, scope: input.scope, sessions: [], projects: [], user_memories_copied: 0, checks: null, backup_dir: null }
+          return { source_context_db: "s", target_context_db: "t", format: 94, dry_run: input.dryRun, scope: input.scope, sessions: [], projects: [], user_memories_copied: 0, checks: null, backup_dir: null, stale_locks_cleared: [] }
         },
       },
       profiles: {
@@ -143,12 +143,16 @@ describe("ContextCliAdapter", () => {
       ],
       scope: "all",
       dryRun: true,
+      strict: false,
     })
     expect(named.events).toEqual(["open from /a", "open to /b", "close from", "close to"])
     expect(JSON.parse(named.output.text())).toMatchObject({ dry_run: true })
     const all = cli()
     expect(all.adapter.run(["sync", "--all", "--replace", "--from", "/a", "--to", "/b"])).toBe(0)
-    expect(all.syncs[0]).toMatchObject({ sessions: [{ id: "ses_a", resolution: "replace" }], dryRun: false })
+    expect(all.syncs[0]).toMatchObject({ sessions: [{ id: "ses_a", resolution: "replace" }], dryRun: false, strict: false })
+    const strict = cli()
+    expect(strict.adapter.run(["sync", "--all", "--strict", "--from", "/a", "--to", "/b"])).toBe(0)
+    expect(strict.syncs[0]).toMatchObject({ strict: true })
     const further = cli()
     expect(further.adapter.run(["sync", "--all", "--prefer", "further", "--from", "/a", "--to", "/b"])).toBe(0)
     expect(further.syncs[0]).toMatchObject({ sessions: [{ id: "ses_a", resolution: "further" }] })

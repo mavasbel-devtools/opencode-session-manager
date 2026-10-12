@@ -1,3 +1,4 @@
+import type { StaleLock } from "@session-manager/domain/model/StoreLock"
 import type { OpenedProfile } from "@session-manager/domain/model/BrowserState"
 import { profileAt } from "@session-manager/domain/model/Profile"
 import type { SessionGeneration } from "@session-manager/domain/model/SessionCatalog"
@@ -80,6 +81,8 @@ export interface SyncInput {
   readonly scope: ContextScope
   /** Build the copy and check it, but leave the target untouched. */
   readonly dryRun: boolean
+  /** Refuse the whole sync when Magic Context is working on a requested session (default: skip it). */
+  readonly strict?: boolean
 }
 
 /** What to copy for one session, as the store adapter receives it. */
@@ -169,6 +172,8 @@ export interface SyncReport {
   readonly checks: SyncChecks | null
   /** Where the target's original store was moved, or null when nothing was swapped. */
   readonly backup_dir: string | null
+  /** Locks left by processes that no longer exist, removed before the sync wrote anything. */
+  readonly stale_locks_cleared: readonly StaleLock[]
 }
 
 export const SKIP_TEXT: Readonly<Record<SkipReason, string>> = {

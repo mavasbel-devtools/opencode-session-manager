@@ -1,3 +1,4 @@
+import type { StaleLock } from "@session-manager/domain/model/StoreLock"
 import type { BuildAndVerifyResult } from "@session-manager/domain/model/Build"
 
 export interface CompactInput {
@@ -16,6 +17,8 @@ export interface CompactOutcome {
   readonly beforeBytes: number | null
   readonly afterBytes: number | null
   readonly postIntegrityOk: boolean
+  /** Locks left by processes that no longer exist, removed before the run. */
+  readonly staleLocksCleared: readonly StaleLock[]
 }
 
 export interface CompactPort {

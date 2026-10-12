@@ -25,6 +25,7 @@ function cli() {
           checks: { integrity_ok: true, foreign_keys_ok: true, sessions_ok: true, context: null },
           backup_dir: null,
           rollback: null,
+          stale_locks_cleared: [],
         }
       },
     },
@@ -63,6 +64,7 @@ describe("SyncCliAdapter", () => {
       prefer: "further",
       context: "all",
       dryRun: true,
+      strict: false,
     })
     expect(events).toEqual(["open from /a", "open to /b", "close from", "close to"])
     expect(JSON.parse(output.text())).toMatchObject({ dry_run: true })
@@ -72,6 +74,9 @@ describe("SyncCliAdapter", () => {
     const { adapter, syncs } = cli()
     expect(adapter.run(["--session", "ses_a", "--session", "ses_b", "--prefer", "keep", "--context", "sessions", "--from", "/a", "--to", "/b"])).toBe(0)
     expect(syncs[0]).toMatchObject({ sessions: ["ses_a", "ses_b"], prefer: "keep", context: "sessions", maps: [], dryRun: false })
+    const strict = cli()
+    expect(strict.adapter.run(["--all", "--from", "/a", "--to", "/b", "--strict"])).toBe(0)
+    expect(strict.syncs[0]).toMatchObject({ strict: true, dryRun: false })
   })
 
   it("closes what it opened when a profile fails, and refuses a bad rule", () => {

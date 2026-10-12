@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { createHash } from "node:crypto"
 import { Database } from "bun:sqlite"
-import { mkdirSync, readdirSync, realpathSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 import { buildContainer } from "@session-manager/main/cli-container"
@@ -252,7 +252,7 @@ describe("sync (real stores, the wired container)", () => {
     const usage = await cli(["sync", "--from", at("win")])
     expect([usage.code, usage.text]).toEqual([
       2,
-      "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--dry-run]",
+      "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--strict] [--dry-run]",
     ])
   })
 
@@ -337,5 +337,37 @@ describe("sync (real stores, the wired container)", () => {
     expect(readdirSync(backupOf())).toEqual(["context.db"])
     expect(readdirSync(at("linux", "opencode")).filter((name) => name.includes("incoming"))).toEqual([])
     expect(readdirSync(at("linux", "cortexkit", "magic-context")).filter((name) => name.includes("incoming"))).toEqual([])
+  })
+
+  it("--strict refuses the whole sync while Magic Context works on a requested session, writing nothing", async () => {
+    makeProfiles()
+    const before = { opencode: fileSha(opencodeOf("linux")), context: fileSha(contextOf("linux")) }
+    const strict = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all", "--strict"])
+    expect([strict.code, strict.errors]).toEqual([
+      1,
+      ["ERROR: --strict: Magic Context is working on ses_busy (a wrapup, or a summary run holding its lease); nothing was written. Wait for it to finish, or sync without --strict to skip it"],
+    ])
+    expect([fileSha(opencodeOf("linux")), fileSha(contextOf("linux"))]).toEqual([before.opencode, before.context])
+    const named = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--session", "ses_new", "--strict", "--dry-run"])
+    expect([named.code, named.json?.dry_run]).toEqual([0, true])
+  })
+
+  it("writes under both stores' locks: refuses while another writer holds one, and clears a lock its owner left behind", async () => {
+    makeProfiles()
+    const before = { opencode: fileSha(opencodeOf("linux")), context: fileSha(contextOf("linux")) }
+    const lock = `${contextOf("linux")}.session-manager.lock`
+    writeFileSync(lock, JSON.stringify({ pid: process.ppid, command: "context sync", since: "2026-10-11T00:00:00.000Z" }))
+    const locked = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all"])
+    expect([locked.code, locked.errors[0]]).toEqual([
+      1,
+      `ERROR: ${contextOf("linux")} is being written by another opencode-session-manager (pid ${process.ppid}, context sync, since 2026-10-11T00:00:00.000Z); wait for it to finish, or remove ${lock} if no such process runs`,
+    ])
+    expect([fileSha(opencodeOf("linux")), fileSha(contextOf("linux")), existsSync(`${opencodeOf("linux")}.session-manager.lock`)]).toEqual([before.opencode, before.context, false])
+    expect((await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all", "--dry-run"])).code).toBe(0)
+
+    writeFileSync(lock, JSON.stringify({ pid: 4_194_305, command: "sync", since: "2026-10-11T00:00:00.000Z" }))
+    const run = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all"])
+    expect([run.code, run.json.stale_locks_cleared]).toEqual([0, [{ file: lock, pid: 4_194_305, command: "sync", since: "2026-10-11T00:00:00.000Z" }]])
+    expect([existsSync(lock), existsSync(`${opencodeOf("linux")}.session-manager.lock`)]).toEqual([false, false])
   })
 })

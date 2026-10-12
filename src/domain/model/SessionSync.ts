@@ -1,3 +1,4 @@
+import type { StaleLock } from "@session-manager/domain/model/StoreLock"
 import type { ContextScope, HistoryRelation, ProjectMergeResult, SessionOutcome, SyncChecks, SyncSide } from "@session-manager/domain/model/MagicContextSync"
 
 /**
@@ -29,6 +30,8 @@ export interface SessionSyncInput {
   /** How much Magic Context state goes with each session. */
   readonly context: ContextScope
   readonly dryRun: boolean
+  /** Refuse the whole sync when Magic Context is working on a requested session (default: skip it). */
+  readonly strict?: boolean
 }
 
 /**
@@ -100,6 +103,8 @@ export interface SessionSyncReport {
   readonly backup_dir: string | null
   /** The command that puts both originals back, or null. */
   readonly rollback: string | null
+  /** Locks left by processes that no longer exist, removed before the sync wrote anything. */
+  readonly stale_locks_cleared: readonly StaleLock[]
 }
 
 export const SESSION_SKIP_TEXT: Readonly<Record<SessionSkipReason, string>> = {

@@ -14,6 +14,7 @@ import { ParityPolicy } from "@session-manager/domain/services/ParityPolicy"
 import { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
 import { FakeHolders } from "@test/support/maintenance/fakes/holders"
+import { FakeStoreLock, fakeLocks } from "@test/support/maintenance/fakes/locks"
 import { FakeOutput } from "@test/support/maintenance/fakes/output"
 import { FakeProcessList } from "@test/support/maintenance/fakes/processes"
 import { FakeReportSink } from "@test/support/maintenance/fakes/report-sink"
@@ -35,6 +36,8 @@ interface World {
   readonly guard: GuardService
   readonly swapper: SwapService
   readonly buildAndVerify: BuildAndVerifyService
+  readonly lock: FakeStoreLock
+  readonly locks: ReturnType<typeof fakeLocks>
 }
 
 function world(options: { readonly mismatched?: boolean } = {}): World {
@@ -52,7 +55,10 @@ function world(options: { readonly mismatched?: boolean } = {}): World {
   const sizes = new DatabaseSizesService(fileSystem)
   const holders = new FakeHolders()
   const guard = new GuardService(fileSystem, processes, holders)
+  const lock = new FakeStoreLock()
   return {
+    lock,
+    locks: fakeLocks(runtime, lock),
     fileSystem,
     sqlite,
     processes,
@@ -103,6 +109,7 @@ test("CompactUseCase swaps a verified copy in and keeps the originals in the bac
     w.fileSystem,
     w.reports,
     w.runtime,
+    w.locks,
   ).execute({ dbPath: DB, image: "no-such.exe" })
   assert.equal(outcome.swapped, true)
   assert.equal(outcome.backupDir, `C:/x/db-backup-${STAMP}`)
@@ -130,6 +137,7 @@ test("CompactUseCase aborts on a failed verification and leaves the originals al
     w.fileSystem,
     w.reports,
     w.runtime,
+    w.locks,
   ).execute({ dbPath: DB, image: "no-such.exe" })
   assert.equal(outcome.swapped, false)
   assert.equal(outcome.failedTarget, `${DB}.compact-${STAMP}`)
@@ -150,7 +158,7 @@ test("RollbackUseCase restores the originals and parks the current files", () =>
   w.fileSystem.add(DB, "compacted")
   w.fileSystem.add(`${DB}-shm`, "compacted-shm")
 
-  const outcome = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime).execute({
+  const outcome = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime, w.locks).execute({
     dbPath: DB,
     backupDir,
     image: "no-such.exe",
@@ -168,7 +176,7 @@ test("RollbackUseCase.executeAll restores several databases from one backup, or 
   const context = "C:/c/context.db"
   w.fileSystem.add(`${backupDir}/opencode.db`, "original")
   w.fileSystem.add(DB, "synced")
-  const useCase = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime)
+  const useCase = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime, w.locks)
   assert.throws(() => useCase.executeAll({ dbPaths: [DB, context], backupDir, image: "x" }), /no original database/)
   assert.equal(w.fileSystem.size(DB), "synced".length, "nothing was restored")
 
@@ -181,7 +189,7 @@ test("RollbackUseCase.executeAll restores several databases from one backup, or 
 
 test("RollbackUseCase refuses a missing backup and a running image", () => {
   const w = world()
-  const useCase = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime)
+  const useCase = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime, w.locks)
   assert.throws(() => useCase.execute({ dbPath: DB, backupDir: "C:/x/empty", image: "x" }), /no original database/)
 
   w.fileSystem.add("C:/x/db-backup-1/opencode.db", "original")
@@ -195,7 +203,7 @@ test("RollbackUseCase works when no current database exists and refuses a held o
   w.fileSystem.add(`${backupDir}/opencode.db`, "original")
   w.fileSystem.remove(DB)
   assert.deepEqual(
-    new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime).execute({ dbPath: DB, backupDir, image: "x" }).restored,
+    new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime, w.locks).execute({ dbPath: DB, backupDir, image: "x" }).restored,
     ["opencode.db"],
   )
 
@@ -203,9 +211,49 @@ test("RollbackUseCase works when no current database exists and refuses a held o
   w.fileSystem.add(DB, "held")
   w.holders.holder = "opencode 77"
   assert.throws(
-    () => new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime).execute({ dbPath: DB, backupDir, image: "x" }),
+    () => new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime, w.locks).execute({ dbPath: DB, backupDir, image: "x" }),
     /held open by another process \(opencode 77\)/,
   )
+})
+
+test("CompactUseCase runs under the database's lock and reports stale locks it cleared", () => {
+  const w = world()
+  w.lock.stale = [{ file: `${DB}.session-manager.lock`, pid: 4, command: "sync", since: "t" }]
+  const compact = () =>
+    new CompactUseCase(w.buildAndVerify, w.guard, w.swapper, w.sizes, new RequiredSpacePolicy(), w.sqlite, w.fileSystem, w.reports, w.runtime, w.locks)
+  const outcome = compact().execute({ dbPath: DB, image: "no-such.exe" })
+  assert.deepEqual([w.lock.taken, w.lock.releases, outcome.staleLocksCleared.map((lock) => lock.pid)], [[[DB]], 1, [4]])
+  w.lock.held.set(DB, { pid: 5, command: "rollback", since: "t" })
+  assert.throws(() => compact().execute({ dbPath: DB, image: "no-such.exe" }), /being written by another opencode-session-manager \(pid 5, rollback, since t\)/)
+})
+
+test("RollbackUseCase refuses a running OpenCode only for the stores it uses, and every store before restoring any", () => {
+  const w = world()
+  const backupDir = "C:/x/sync-backup-1"
+  const context = "C:/c/context.db"
+  w.fileSystem.add(`${backupDir}/opencode.db`, "original")
+  w.fileSystem.add(`${backupDir}/context.db`, "original context")
+  w.fileSystem.add(DB, "synced")
+  w.fileSystem.add(context, "synced context")
+  w.processes.running = [{ image: "opencode", pid: 9 }]
+  const useCase = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime, w.locks)
+  assert.throws(() => useCase.executeAll({ dbPaths: [context, DB], backupDir, image: "opencode", liveStores: [DB] }), /PIDs 9/)
+  assert.equal(w.fileSystem.size(context), "synced context".length, "the store checked first was not restored either")
+  const outcomes = useCase.executeAll({ dbPaths: [DB, context], backupDir, image: "opencode", liveStores: [] })
+  assert.deepEqual(outcomes.map((outcome) => outcome.restored), [["opencode.db"], ["context.db"]])
+  assert.deepEqual([w.lock.taken.at(-1), w.lock.held.size], [[DB, context], 0])
+})
+
+test("RollbackUseCase reports the stale locks of each restored store", () => {
+  const w = world()
+  const backupDir = "C:/x/db-backup-1"
+  w.fileSystem.add(`${backupDir}/opencode.db`, "original")
+  w.lock.stale = [
+    { file: `${DB}.session-manager.lock`, pid: 3, command: "sync", since: "t" },
+    { file: "C:/other.db.session-manager.lock", pid: 4, command: "sync", since: "t" },
+  ]
+  const outcome = new RollbackUseCase(w.fileSystem, w.processes, w.guard, w.runtime, w.locks).execute({ dbPath: DB, backupDir, image: "x" })
+  assert.deepEqual(outcome.staleLocksCleared.map((lock) => lock.pid), [3])
 })
 
 test("the FakeOutput keeps the CLI lines, for the adapter test to reuse", () => {

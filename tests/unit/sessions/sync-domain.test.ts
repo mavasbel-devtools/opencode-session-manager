@@ -29,6 +29,7 @@ const report = (extra: Partial<SyncReport> = {}): SyncReport => ({
   user_memories_copied: 0,
   checks: null,
   backup_dir: null,
+  stale_locks_cleared: [],
   ...extra,
 })
 

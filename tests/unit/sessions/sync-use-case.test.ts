@@ -3,10 +3,12 @@ import { GuardService } from "@session-manager/application/GuardService"
 import { SwapService } from "@session-manager/application/SwapService"
 import { MagicContextSyncService } from "@session-manager/application/MagicContextSyncService"
 import { SyncMagicContextUseCase } from "@session-manager/application/SyncMagicContextUseCase"
+import { BusySessionsError } from "@session-manager/domain/errors/BusySessionsError"
 import { DatabaseHeldError } from "@session-manager/domain/errors/DatabaseHeldError"
 import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNotFoundError"
 import { MagicContextFormatMismatchError } from "@session-manager/domain/errors/MagicContextFormatMismatchError"
 import { SwapFailedError } from "@session-manager/domain/errors/SwapFailedError"
+import { StoreLockedError } from "@session-manager/domain/errors/StoreLockedError"
 import { SyncVerificationError } from "@session-manager/domain/errors/SyncVerificationError"
 import type { SyncInput, SyncRequest } from "@session-manager/domain/model/MagicContextSync"
 import type { PathMapping } from "@session-manager/domain/model/PathMapping"
@@ -14,6 +16,7 @@ import type { MagicContextSessionStats, StoredSession } from "@session-manager/d
 import type { CopyOptions, CopyResult, SourceSessionState, StoredSessionState, StoreHealth } from "@session-manager/domain/ports/outbound/MagicContextSyncStorePort"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
 import { FakeHolders } from "@test/support/maintenance/fakes/holders"
+import { FakeStoreLock, fakeLocks } from "@test/support/maintenance/fakes/locks"
 import { FakeProcessList } from "@test/support/maintenance/fakes/processes"
 import { FakeRuntime } from "@test/support/maintenance/fakes/runtime"
 import { FakeSqlite } from "@test/support/maintenance/fakes/sqlite"
@@ -125,8 +128,9 @@ function setup(world: World = {}) {
       return { rewrite: (text) => text, residual: () => false }
     },
   })
-  const useCase = new SyncMagicContextUseCase({ builder, guard: new GuardService(files, new FakeProcessList(), holders), swap: new SwapService(files), fileSystem: files, runtime })
-  return { useCase, files, sqlite, holders, copies, mappings, copied, optionsSeen }
+  const lock = new FakeStoreLock()
+  const useCase = new SyncMagicContextUseCase({ builder, guard: new GuardService(files, new FakeProcessList(), holders), locks: fakeLocks(runtime, lock), swap: new SwapService(files), fileSystem: files, runtime })
+  return { useCase, files, sqlite, holders, copies, mappings, copied, optionsSeen, lock }
 }
 
 const input = (sessions: SyncRequest[], extra: Partial<SyncInput> = {}): SyncInput => ({
@@ -163,6 +167,7 @@ describe("SyncMagicContextUseCase", () => {
       user_memories_copied: 0,
       checks: { integrity_ok: true, foreign_keys_ok: true, anchors_ok: true, counts_ok: true },
       backup_dir: "/t/context-sync-backup-2026-09-27-00-00-00",
+      stale_locks_cleared: [],
     })
     expect(copied.map((result) => result.id)).toEqual(["ses_a"])
     expect(sqlite.calls).toEqual([`vacuumInto:/s/context.db->${WORK}/context-source.db`, `vacuumInto:/t/context.db->${WORK}/context-target.db`])
@@ -299,6 +304,35 @@ describe("SyncMagicContextUseCase", () => {
       ["ses_fresh", "copied", null],
       ["ses_busy", "skipped", "busy"],
     ])
+  })
+
+  it("--strict refuses the whole sync when a requested session is busy, before writing anything", () => {
+    const world = { source: { ses_a: "/w", ses_busy: "/w" }, target: { ses_a: "/w", ses_busy: "/w" }, identities: { "/w": "dir:w" }, busy: ["ses_busy"] }
+    const requests: SyncRequest[] = [
+      { id: "ses_a", resolution: "replace" },
+      { id: "ses_busy", resolution: "replace" },
+    ]
+    const strict = setup(world)
+    expect(() => strict.useCase.sync(input(requests, { strict: true }))).toThrow(new BusySessionsError(["ses_busy"]))
+    expect(strict.files.has("/t/context-sync-backup-2026-09-27-00-00-00/context.db")).toBe(false)
+    expect([strict.lock.taken, strict.lock.held.size]).toEqual([[["/t/context.db"]], 0])
+    expect(() => setup(world).useCase.sync(input(requests, { strict: true, dryRun: true }))).toThrow(BusySessionsError)
+    expect(setup(world).useCase.sync(input(requests)).sessions.map((session) => session.reason)).toEqual([null, "busy"])
+    expect(setup(world).useCase.sync(input([requests[0]!], { strict: true })).backup_dir).not.toBeNull()
+  })
+
+  it("writes under the target store's lock, reports stale locks, and refuses while another writer holds it", () => {
+    const world = { source: { ses_a: "/w" }, target: { ses_a: "/w" }, identities: { "/w": "dir:w" } }
+    const run = setup(world)
+    run.lock.stale = [{ file: "/t/context.db.session-manager.lock", pid: 3, command: "sync", since: "t" }]
+    expect(run.useCase.sync(input(replace("ses_a", "ses_a"))).stale_locks_cleared).toEqual(run.lock.stale)
+    expect([run.lock.taken, run.lock.releases]).toEqual([[["/t/context.db"]], 1])
+    const dry = setup(world)
+    expect(dry.useCase.sync(input(replace("ses_a", "ses_a"), { dryRun: true })).stale_locks_cleared).toEqual([])
+    expect(dry.lock.taken).toEqual([])
+    const locked = setup(world)
+    locked.lock.held.set("/t/context.db", { pid: 8, command: "rollback", since: "t" })
+    expect(() => locked.useCase.sync(input(replace("ses_a", "ses_a")))).toThrow(StoreLockedError)
   })
 
   it("refuses missing stores, a held target, a newer source and an upgrade that misses the target's format", () => {

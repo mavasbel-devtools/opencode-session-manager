@@ -143,9 +143,9 @@ opencode-session-manager preflight [--db <path>]
 
 # Write (to copies, swapped in by renames): OpenCode must be closed
 opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... \
-  (--session <id>... | --all) [--prefer further|keep|replace] [--dry-run]
+  (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--strict] [--dry-run]
 opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) \
-  [--prefer keep|further|replace | --replace] [--dry-run]
+  [--prefer keep|further|replace | --replace] [--context all|sessions] [--strict] [--dry-run]
 opencode-session-manager rehearse [--db <path>] [--keep]
 opencode-session-manager run [--db <path>]
 opencode-session-manager rollback <backupDir> [--db <path>]...
@@ -153,6 +153,19 @@ opencode-session-manager rollback <backupDir> [--db <path>]...
 
 `context copy` and `rehearse` write only their own output (a new file, or a
 rehearsal folder). The browser reads only, except when it applies its queue.
+
+**One writer per store.** `run`, `rollback`, `sync`, `context sync` and the
+browser's apply take a lock file beside each store they write
+(`<store>.session-manager.lock`, holding pid, command and start time), so two of
+them never write the same store at once: the second is refused and told who holds
+it. A lock left by a process that no longer exists (a crash, a killed terminal) is
+removed and reported (`stale_locks_cleared` in the JSON reports,
+`CLEARED stale lock …` for `run` and `rollback`). Dry runs take no lock.
+
+**`rollback` and a running OpenCode.** Restoring this user's own stores
+(`$XDG_DATA_HOME/opencode/opencode.db`, `$XDG_DATA_HOME/cortexkit/magic-context/context.db`)
+is refused while OpenCode runs at all; any other store (a copy, another profile)
+only while a process holds it open.
 
 ### Profiles
 
@@ -241,7 +254,10 @@ then replace the target stores by renames, both originals kept together in
 first is undone. The report's `rollback` field is the one command that puts both
 back (`rollback <backupDir> --db <opencode.db> --db <context.db>`). Applying
 refuses while any process holds a target store open, or when there is too little
-free space; `--dry-run` builds and checks without touching the target.
+free space; `--dry-run` builds and checks without touching the target. A session
+Magic Context is working on in the target (a wrapup, or a summary run holding its
+lease) keeps its state there and is reported `busy`; with `--strict` the whole
+sync is refused instead, before anything is written.
 
 ### How paths are rewritten
 

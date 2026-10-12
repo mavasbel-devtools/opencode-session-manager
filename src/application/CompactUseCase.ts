@@ -1,6 +1,7 @@
 import type { BuildAndVerifyService } from "@session-manager/application/BuildAndVerifyService"
 import type { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
 import type { GuardService } from "@session-manager/application/GuardService"
+import type { StoreLockService } from "@session-manager/application/StoreLockService"
 import type { SwapService } from "@session-manager/application/SwapService"
 import type { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
 import { baseName, dirName, joinPath } from "@session-manager/domain/model/DatabasePaths"
@@ -21,6 +22,7 @@ export class CompactUseCase implements CompactPort {
   private readonly fileSystem: MaintenanceFileSystemPort
   private readonly reports: ReportSinkPort
   private readonly runtime: RuntimePort
+  private readonly locks: StoreLockService
 
   constructor(
     buildAndVerify: BuildAndVerifyService,
@@ -32,6 +34,7 @@ export class CompactUseCase implements CompactPort {
     fileSystem: MaintenanceFileSystemPort,
     reports: ReportSinkPort,
     runtime: RuntimePort,
+    locks: StoreLockService,
   ) {
     this.buildAndVerify = buildAndVerify
     this.guard = guard
@@ -42,9 +45,16 @@ export class CompactUseCase implements CompactPort {
     this.fileSystem = fileSystem
     this.reports = reports
     this.runtime = runtime
+    this.locks = locks
   }
 
+  /** The whole run holds the database's lock, so no other opencode-session-manager writes it meanwhile. */
   execute(input: CompactInput): CompactOutcome {
+    this.guard.checkEnvironment({ dbPath: input.dbPath, image: input.image })
+    return this.locks.hold([input.dbPath], "run", (cleared) => ({ ...this.run(input), staleLocksCleared: cleared }))
+  }
+
+  private run(input: CompactInput): Omit<CompactOutcome, "staleLocksCleared"> {
     const when = this.runtime.stamp()
     this.guard.checkEnvironment({ dbPath: input.dbPath, image: input.image })
     const pages = this.sqlite.pageStats(input.dbPath)

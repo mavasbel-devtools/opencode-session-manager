@@ -1,6 +1,8 @@
 import type { GuardService } from "@session-manager/application/GuardService"
 import type { MagicContextSyncService } from "@session-manager/application/MagicContextSyncService"
+import type { StoreLockService } from "@session-manager/application/StoreLockService"
 import type { SwapService } from "@session-manager/application/SwapService"
+import { BusySessionsError } from "@session-manager/domain/errors/BusySessionsError"
 import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNotFoundError"
 import { OpenCodeFormatMismatchError } from "@session-manager/domain/errors/OpenCodeFormatMismatchError"
 import { SyncVerificationError } from "@session-manager/domain/errors/SyncVerificationError"
@@ -8,6 +10,7 @@ import { dirName, joinPath } from "@session-manager/domain/model/DatabasePaths"
 import { failedChecks, relationOf, type Resolution, type SyncRequest } from "@session-manager/domain/model/MagicContextSync"
 import type { PathMapping } from "@session-manager/domain/model/PathMapping"
 import type { StoredSession } from "@session-manager/domain/model/SessionCatalog"
+import type { StaleLock } from "@session-manager/domain/model/StoreLock"
 import {
   actionFor,
   type Prefer,
@@ -36,10 +39,19 @@ export interface SyncSessionsDependencies {
   readonly identity: ProjectIdentityPort
   readonly contexts: Pick<MagicContextSyncService, "build">
   readonly guard: GuardService
+  readonly locks: StoreLockService
   readonly swap: SwapService
   readonly fileSystem: MaintenanceFileSystemPort
   readonly runtime: RuntimePort
   readonly rewriterFor: (mapping: PathMapping) => TextRewriter
+}
+
+/** The stores a sync reads: the readable copies when a store cannot be read in place. */
+interface Readable {
+  readonly sourceOpencode: string
+  readonly targetOpencode: string
+  readonly sourceContext: string
+  readonly targetContext: string
 }
 
 /** A planned family: the root's outcome so far, and what the store adapter is asked to write. */
@@ -70,7 +82,7 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
   }
 
   sync(input: SessionSyncInput): SessionSyncReport {
-    const { fileSystem, runtime, sqlite, store } = this.deps
+    const { fileSystem } = this.deps
     const read = {
       sourceOpencode: input.source.readableOpencodeDb ?? input.source.opencodeDb,
       targetOpencode: input.target.readableOpencodeDb ?? input.target.opencodeDb,
@@ -79,10 +91,15 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
     }
     for (const path of [read.sourceOpencode, read.targetOpencode]) if (!fileSystem.exists(path)) throw new DatabaseNotFoundError(path)
     const withContext = fileSystem.exists(read.sourceContext) && fileSystem.exists(read.targetContext)
-    if (!input.dryRun) {
-      this.deps.guard.assertNotHeld(input.target.opencodeDb)
-      if (withContext) this.deps.guard.assertNotHeld(input.target.contextDb)
-    }
+    if (input.dryRun) return this.run(input, read, withContext, [])
+    this.deps.guard.assertNotHeld(input.target.opencodeDb)
+    if (withContext) this.deps.guard.assertNotHeld(input.target.contextDb)
+    const stores = [input.target.opencodeDb, ...(withContext ? [input.target.contextDb] : [])]
+    return this.deps.locks.hold(stores, "sync", (cleared) => this.run(input, read, withContext, cleared))
+  }
+
+  private run(input: SessionSyncInput, read: Readable, withContext: boolean, cleared: readonly StaleLock[]): SessionSyncReport {
+    const { fileSystem, runtime, sqlite, store } = this.deps
     const sourceFormat = store.formatOf(read.sourceOpencode)
     const targetFormat = store.formatOf(read.targetOpencode)
     if (sourceFormat.join() !== targetFormat.join())
@@ -124,6 +141,8 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
       const checks: SessionSyncChecks = { integrity_ok: health.integrity_ok, foreign_keys_ok: health.foreign_keys_ok, sessions_ok: sessionsOk, context: context?.checks ?? null }
       const failed = [...failedChecks({ integrity_ok: checks.integrity_ok, foreign_keys_ok: checks.foreign_keys_ok, sessions_ok: checks.sessions_ok }), ...failedChecks(checks.context ?? {})]
       if (failed.length > 0) throw new SyncVerificationError(failed)
+      const busy = (context?.sessions ?? []).filter((outcome) => outcome.reason === "busy").map((outcome) => outcome.id)
+      if (input.strict === true && busy.length > 0) throw new BusySessionsError(busy)
 
       const contextById = new Map((context?.sessions ?? []).map((outcome) => [outcome.id, outcome]))
       const sessions = families.map((family): SessionSyncOutcome => {
@@ -151,6 +170,7 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
         checks,
         backup_dir: backupDir,
         rollback: backupDir === null ? null : `opencode-session-manager rollback ${backupDir} ${databases.map((db) => `--db ${db}`).join(" ")}`,
+        stale_locks_cleared: cleared,
       }
     } finally {
       fileSystem.removeTree(work)

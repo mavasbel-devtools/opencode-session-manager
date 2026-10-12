@@ -3,10 +3,12 @@ import { GuardService } from "@session-manager/application/GuardService"
 import type { ContextBuild, ContextBuildInput } from "@session-manager/application/MagicContextSyncService"
 import { SwapService } from "@session-manager/application/SwapService"
 import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
+import { BusySessionsError } from "@session-manager/domain/errors/BusySessionsError"
 import { DatabaseHeldError } from "@session-manager/domain/errors/DatabaseHeldError"
 import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNotFoundError"
 import { InsufficientSpaceError } from "@session-manager/domain/errors/InsufficientSpaceError"
 import { OpenCodeFormatMismatchError } from "@session-manager/domain/errors/OpenCodeFormatMismatchError"
+import { StoreLockedError } from "@session-manager/domain/errors/StoreLockedError"
 import { SwapFailedError } from "@session-manager/domain/errors/SwapFailedError"
 import { SyncVerificationError } from "@session-manager/domain/errors/SyncVerificationError"
 import type { PathMapping, ProjectIdentity } from "@session-manager/domain/model/PathMapping"
@@ -16,6 +18,7 @@ import type { StoreHealth } from "@session-manager/domain/ports/outbound/MagicCo
 import type { SessionCopyPlan, StoredSessionRow } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
 import { FakeHolders } from "@test/support/maintenance/fakes/holders"
+import { FakeStoreLock, fakeLocks } from "@test/support/maintenance/fakes/locks"
 import { FakeProcessList } from "@test/support/maintenance/fakes/processes"
 import { FakeRuntime } from "@test/support/maintenance/fakes/runtime"
 import { FakeSqlite } from "@test/support/maintenance/fakes/sqlite"
@@ -48,6 +51,8 @@ interface World {
   readonly context?: boolean
   readonly contextChecksOk?: boolean
   readonly contextCopied?: number
+  /** Sessions Magic Context reports busy on the target. */
+  readonly contextBusy?: readonly string[]
   readonly holder?: string | null
   readonly free?: number
   readonly failRenameFrom?: string
@@ -81,6 +86,7 @@ function setup(world: World = {}) {
   runtime.fixedStamp = STAMP
   const holders = new FakeHolders()
   holders.holder = world.holder ?? null
+  const lock = new FakeStoreLock()
   const plans: SessionCopyPlan[] = []
   const builds: ContextBuildInput[] = []
   const mappings: PathMapping[] = []
@@ -115,7 +121,11 @@ function setup(world: World = {}) {
         return {
           workTarget: `${input.workDir}/context-target.db`,
           format: 94,
-          sessions: input.sessions.map((request) => ({ id: request.id, status: "copied", reason: null, relation: "same", counts: null, residual_windows_paths: 0 })),
+          sessions: input.sessions.map((request) =>
+            world.contextBusy?.includes(request.id) === true
+              ? { id: request.id, status: "skipped", reason: "busy", relation: "same", counts: null, residual_windows_paths: 0 }
+              : { id: request.id, status: "copied", reason: null, relation: "same", counts: null, residual_windows_paths: 0 },
+          ),
           projects: [],
           user_memories_copied: 0,
           checks: { integrity_ok: true, foreign_keys_ok: true, anchors_ok: ok, counts_ok: true },
@@ -125,6 +135,7 @@ function setup(world: World = {}) {
       },
     },
     guard: new GuardService(files, new FakeProcessList(), holders),
+    locks: fakeLocks(runtime, lock),
     swap: new SwapService(files),
     fileSystem: files,
     runtime,
@@ -140,7 +151,7 @@ function setup(world: World = {}) {
       }
     },
   })
-  return { useCase, files, plans, builds, mappings, sqlite }
+  return { useCase, files, plans, builds, mappings, sqlite, lock }
 }
 
 const input = (extra: Partial<SessionSyncInput> = {}): SessionSyncInput => ({
@@ -312,6 +323,33 @@ describe("SyncSessionsUseCase", () => {
     expect(() => setup({ formats: { source: [], target: ["m1"] } }).useCase.sync(input())).toThrow(new OpenCodeFormatMismatchError("/s/opencode.db", "none", "/t/opencode.db", "m1"))
     expect(() => setup({ formats: { source: ["m1"], target: [] } }).useCase.sync(input())).toThrow(/at none:/)
     expect(() => setup({ source: { ses_a: { directory: "/w" } }, free: 1 }).useCase.sync(input())).toThrow(InsufficientSpaceError)
+  })
+
+  it("--strict refuses the whole sync when Magic Context is busy with a requested session; by default only that session's state is skipped", () => {
+    const world = { source: { ses_a: { directory: "/w" }, ses_b: { directory: "/w" } }, contextBusy: ["ses_b"] }
+    const strict = setup(world)
+    expect(() => strict.useCase.sync(input({ strict: true }))).toThrow(new BusySessionsError(["ses_b"]))
+    expect([strict.files.has(`/t/sync-backup-${STAMP}/opencode.db`), strict.lock.held.size]).toEqual([false, 0])
+    expect(() => setup(world).useCase.sync(input({ strict: true, dryRun: true }))).toThrow(BusySessionsError)
+    const loose = setup(world).useCase.sync(input())
+    expect([loose.sessions.map((session) => session.context?.reason ?? null), loose.backup_dir]).toEqual([[null, "busy"], `/t/sync-backup-${STAMP}`])
+  })
+
+  it("writes under both target stores' locks, reports stale ones, and refuses while another writer holds one", () => {
+    const world = { source: { ses_a: { directory: "/w" } } }
+    const run = setup(world)
+    run.lock.stale = [{ file: "/t/opencode.db.session-manager.lock", pid: 3, command: "run", since: "t" }]
+    expect(run.useCase.sync(input()).stale_locks_cleared).toEqual(run.lock.stale)
+    expect([run.lock.taken, run.lock.releases]).toEqual([[["/t/opencode.db", "/t/context.db"]], 1])
+    const noContext = setup({ ...world, context: false })
+    noContext.useCase.sync(input())
+    expect(noContext.lock.taken).toEqual([["/t/opencode.db"]])
+    const dry = setup(world)
+    expect([dry.useCase.sync(input({ dryRun: true })).stale_locks_cleared, dry.lock.taken]).toEqual([[], []])
+    const locked = setup(world)
+    locked.lock.held.set("/t/context.db", { pid: 8, command: "context sync", since: "t" })
+    expect(() => locked.useCase.sync(input())).toThrow(StoreLockedError)
+    expect(locked.files.has(`/t/sync-backup-${STAMP}/opencode.db`)).toBe(false)
   })
 
   it("leaves both targets untouched when a check fails", () => {

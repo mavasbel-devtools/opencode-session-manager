@@ -11,7 +11,7 @@ import { parseOptions as parse } from "@session-manager/infrastructure/adapters/
 
 export const CONTEXT_USAGE = [
   "usage: opencode-session-manager context copy --from <context.db> --to <file>",
-  "       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--context all|sessions] [--dry-run]",
+  "       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--context all|sessions] [--strict] [--dry-run]",
 ].join("\n")
 
 const RESOLUTION: Readonly<Record<Prefer, Resolution>> = { keep: "skip", further: "further", replace: "replace" }
@@ -55,7 +55,7 @@ export class ContextCliAdapter {
   }
 
   private sync(argv: readonly string[]): number {
-    const values = parse(argv, ["--from", "--to", "--session", "--prefer", "--context"], ["--all", "--replace", "--dry-run"])
+    const values = parse(argv, ["--from", "--to", "--session", "--prefer", "--context"], ["--all", "--replace", "--dry-run", "--strict"])
     const from = values?.single.get("--from")
     const to = values?.single.get("--to")
     const ids = values?.many.get("--session") ?? []
@@ -82,6 +82,7 @@ export class ContextCliAdapter {
         sessions,
         scope,
         dryRun: values.flags.has("--dry-run"),
+        strict: values.flags.has("--strict"),
       })
       this.options.output.line(JSON.stringify(report, null, 2))
       return 0

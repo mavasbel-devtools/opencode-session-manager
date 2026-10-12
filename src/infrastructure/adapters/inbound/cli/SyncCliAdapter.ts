@@ -9,7 +9,7 @@ import { parseMapRule } from "@session-manager/domain/services/MapRules"
 import { parseOptions } from "@session-manager/infrastructure/adapters/inbound/cli/arguments"
 
 export const SYNC_USAGE =
-  "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--dry-run]"
+  "usage: opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... | --all) [--prefer further|keep|replace] [--context all|sessions] [--strict] [--dry-run]"
 
 export interface SyncCliOptions {
   readonly sync: SyncSessionsPort
@@ -22,7 +22,8 @@ export interface SyncCliOptions {
  * Context state — from one profile to another, with paths rewritten by `--map` rules (by default
  * the Windows profile the sessions live in maps to this home). `--all` takes every root session of
  * the source. `--prefer` decides Magic Context state for sessions both sides already have (default
- * `further`). Prints the JSON report.
+ * `further`). `--strict` refuses the whole sync when Magic Context is working on a requested session
+ * (by default that session is skipped). Prints the JSON report.
  */
 export class SyncCliAdapter {
   private readonly options: SyncCliOptions
@@ -32,7 +33,7 @@ export class SyncCliAdapter {
   }
 
   run(argv: readonly string[]): number {
-    const values = parseOptions(argv, ["--from", "--to", "--session", "--map", "--prefer", "--context"], ["--all", "--dry-run"])
+    const values = parseOptions(argv, ["--from", "--to", "--session", "--map", "--prefer", "--context"], ["--all", "--dry-run", "--strict"])
     const from = values?.single.get("--from")
     const to = values?.single.get("--to")
     const ids = values?.many.get("--session") ?? []
@@ -59,6 +60,7 @@ export class SyncCliAdapter {
         prefer,
         context,
         dryRun: values.flags.has("--dry-run"),
+        strict: values.flags.has("--strict"),
       })
       this.options.output.line(JSON.stringify(report, null, 2))
       return 0

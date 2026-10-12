@@ -63,11 +63,12 @@ function run(argv: readonly string[], stubs: Stubs = {}): { code: number; output
           beforeBytes: 10,
           afterBytes: 5,
           postIntegrityOk: true,
+          staleLocksCleared: [],
         }),
       },
     rollback: stubs.rollback ?? {
-      execute: () => ({ restored: ["opencode.db"], parked: "C:/b/rolled-back-x" }),
-      executeAll: (input) => input.dbPaths.map((dbPath) => ({ restored: [dbPath.split("/").at(-1)!], parked: "C:/b/rolled-back-x" })),
+      execute: () => ({ restored: ["opencode.db"], parked: "C:/b/rolled-back-x", staleLocksCleared: [] }),
+      executeAll: (input) => input.dbPaths.map((dbPath) => ({ restored: [dbPath.split("/").at(-1)!], parked: "C:/b/rolled-back-x", staleLocksCleared: [] })),
     },
     output,
     runtime: new FakeRuntime(),
@@ -162,6 +163,7 @@ test("run prints SWAPPED and returns 0 only when the post-swap integrity check p
         beforeBytes: 10,
         afterBytes: 5,
         postIntegrityOk: false,
+        staleLocksCleared: [],
       }),
     },
   })
@@ -185,6 +187,7 @@ test("run reports ABORTED with the kept failed copy", () => {
         beforeBytes: 10,
         afterBytes: null,
         postIntegrityOk: false,
+        staleLocksCleared: [],
       }),
     },
   })
@@ -203,6 +206,22 @@ test("rollback prints the restored files, and needs a backup directory", () => {
   assert.deepEqual(both.output.lines.slice(1), [
     "ROLLED BACK restored=opencode.db parked=C:/b/rolled-back-x",
     "ROLLED BACK restored=context.db parked=C:/b/rolled-back-x",
+  ])
+})
+
+test("rollback names the live stores among the restored ones, and prints the stale locks cleared", () => {
+  const seen: (readonly string[] | undefined)[] = []
+  const stale = [{ file: "C:/data/opencode/opencode.db.session-manager.lock", pid: 4, command: "sync", since: "t" }]
+  const rollback: RollbackPort = {
+    execute: (input) => (seen.push(input.liveStores), { restored: ["opencode.db"], parked: "C:/p", staleLocksCleared: stale }),
+    executeAll: (input) => (seen.push(input.liveStores), input.dbPaths.map(() => ({ restored: ["x"], parked: "C:/p", staleLocksCleared: [] }))),
+  }
+  const one = run(["rollback", "C:/backup"], { rollback })
+  run(["rollback", "C:/backup", "--db", "C:/tmp/copy/opencode.db", "--db", "C:/data/cortexkit/magic-context/context.db"], { rollback })
+  assert.deepEqual(seen, [["C:/data/opencode/opencode.db"], ["C:/data/cortexkit/magic-context/context.db"]])
+  assert.deepEqual(one.output.lines.slice(1), [
+    "CLEARED stale lock C:/data/opencode/opencode.db.session-manager.lock (pid 4, sync, since t: no such process)",
+    "ROLLED BACK restored=opencode.db parked=C:/p",
   ])
 })
 

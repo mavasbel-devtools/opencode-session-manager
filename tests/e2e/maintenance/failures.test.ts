@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, test } from "bun:test"
 import assert from "node:assert/strict"
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { Database } from "bun:sqlite"
 import { SUPPORTED_PLATFORMS } from "@session-manager/main/cli/platform"
@@ -31,11 +31,12 @@ function environment(): CliEnvironment {
 
 async function attempt(
   argv: readonly string[],
-  overrides: Parameters<typeof buildContainer>[1] = {},
+  overrides: Parameters<typeof buildContainer>[1] & { readonly environment?: CliEnvironment } = {},
 ): Promise<{ code: number; lines: string[] }> {
   const capture = captureConsole()
+  const { environment: extra, ...rest } = overrides
   try {
-    return { code: await (await buildContainer(environment(), overrides)).run(argv), lines: capture.lines }
+    return { code: await (await buildContainer({ ...environment(), ...extra }, rest)).run(argv), lines: capture.lines }
   } finally {
     capture.restore()
   }
@@ -110,24 +111,61 @@ test("a rename that fails mid-swap restores the originals and reports it", async
   assert.deepEqual(readdirSync(directory).filter((name) => name.includes(".compact-")), [`opencode.db.compact-${STAMP}`], "the failed copy is kept")
 })
 
-test("rollback refuses a missing backup, a running OpenCode, and a held database", async () => {
-  const dbPath = join(directory, "opencode.db")
+test("rollback refuses a missing backup, a running OpenCode for OpenCode's own store, and a held database", async () => {
+  // OpenCode's own store: the one under XDG_DATA_HOME.
+  const dbPath = join(directory, "opencode", "opencode.db")
+  mkdirSync(join(directory, "opencode"), { recursive: true })
   makeDatabase(dbPath)
-  await assert.rejects(attempt(["rollback", join(directory, "empty"), "--db", dbPath]), /no original database/)
+  const own = { XDG_DATA_HOME: directory }
+  await assert.rejects(attempt(["rollback", join(directory, "empty"), "--db", dbPath], { environment: own }), /no original database/)
 
   const backup = join(directory, "backup")
   mkdirSync(backup, { recursive: true })
   writeFileSync(join(backup, "opencode.db"), "original")
-  await assert.rejects(attempt(["rollback", backup, "--db", dbPath], { processes: runningProcesses }),
+  await assert.rejects(attempt(["rollback", backup, "--db", dbPath], { processes: runningProcesses, environment: own }),
     /is running \(PIDs \d+\); close it first/,
   )
 
   const held = new Database(dbPath)
   try {
-    await assert.rejects(attempt(["rollback", backup, "--db", dbPath]), heldByThisProcess())
+    await assert.rejects(attempt(["rollback", backup, "--db", dbPath], { environment: own }), heldByThisProcess())
   } finally {
     held.close()
   }
+})
+
+test("rollback restores a store OpenCode does not use (a copy elsewhere) while OpenCode runs", async () => {
+  const copy = join(directory, "elsewhere", "opencode.db")
+  mkdirSync(join(directory, "elsewhere"), { recursive: true })
+  makeDatabase(copy)
+  const backup = join(directory, "backup")
+  mkdirSync(backup, { recursive: true })
+  writeFileSync(join(backup, "opencode.db"), "original")
+  const restored = await attempt(["rollback", backup, "--db", copy], { processes: runningProcesses, environment: { XDG_DATA_HOME: join(directory, "live") } })
+  assert.equal(restored.code, 0)
+  assert.equal(readFileSync(copy, "utf8"), "original")
+})
+
+test("run and rollback hold the store's lock: they refuse while another writer holds it and clear a lock its owner left", async () => {
+  const dbPath = join(directory, "opencode.db")
+  makeDatabase(dbPath)
+  const lock = `${dbPath}.session-manager.lock`
+  writeFileSync(lock, JSON.stringify({ pid: process.ppid, command: "sync", since: "t" }))
+  await assert.rejects(attempt(["run", "--db", dbPath]), new RegExp(`being written by another opencode-session-manager \\(pid ${process.ppid}, sync, since t\\)`))
+  const backup = join(directory, "backup")
+  mkdirSync(backup, { recursive: true })
+  writeFileSync(join(backup, "opencode.db"), "original")
+  await assert.rejects(attempt(["rollback", backup, "--db", dbPath]), /being written by another opencode-session-manager/)
+
+  writeFileSync(lock, JSON.stringify({ pid: 4_194_305, command: "sync", since: "t" }))
+  const run = await attempt(["run", "--db", dbPath], { runtime: new FakeRuntime() })
+  assert.equal(run.code, 0)
+  assert.ok(run.lines.includes(`CLEARED stale lock ${lock} (pid 4194305, sync, since t: no such process)`))
+  writeFileSync(lock, JSON.stringify({ pid: 4_194_305, command: "run", since: "t" }))
+  const rolled = await attempt(["rollback", backup, "--db", dbPath])
+  assert.equal(rolled.code, 0)
+  assert.ok(rolled.lines.includes(`CLEARED stale lock ${lock} (pid 4194305, run, since t: no such process)`))
+  assert.equal(existsSync(lock), false)
 })
 
 test("rollback restores the original even when no database is currently in place", async () => {

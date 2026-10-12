@@ -30,6 +30,9 @@ import { BuildAndVerifyService } from "@session-manager/application/BuildAndVeri
 import { CompactUseCase } from "@session-manager/application/CompactUseCase"
 import { DatabaseSizesService } from "@session-manager/application/DatabaseSizesService"
 import { GuardService } from "@session-manager/application/GuardService"
+import { StoreLockService } from "@session-manager/application/StoreLockService"
+import type { StoreLockPort } from "@session-manager/domain/ports/outbound/StoreLockPort"
+import { FsStoreLockAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/FsStoreLockAdapter"
 import { PreflightUseCase } from "@session-manager/application/PreflightUseCase"
 import { RehearseUseCase } from "@session-manager/application/RehearseUseCase"
 import { RollbackUseCase } from "@session-manager/application/RollbackUseCase"
@@ -76,6 +79,7 @@ export interface ContainerOverrides {
   readonly magicContextSyncStore?: MagicContextSyncStorePort
   readonly magicContextIdentity?: MagicContextIdentityPort
   readonly sessionSyncStore?: SessionSyncStorePort
+  readonly storeLock?: StoreLockPort
   /** Shows the session browser; the default paints it on this terminal. */
   readonly show?: (initial: BrowserState, controls: BrowserControls) => Promise<void>
   readonly runtime?: RuntimePort
@@ -106,6 +110,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
 
   const sizes = new DatabaseSizesService(fileSystem)
   const guard = new GuardService(fileSystem, processes, holders)
+  const locks = new StoreLockService(overrides.storeLock ?? new FsStoreLockAdapter(), runtime)
   const swapper = new SwapService(fileSystem)
   const buildAndVerify = new BuildAndVerifyService(
     sqlite,
@@ -129,8 +134,9 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
       fileSystem,
       reports,
       runtime,
+      locks,
     ),
-    rollback: new RollbackUseCase(fileSystem, processes, guard, runtime),
+    rollback: new RollbackUseCase(fileSystem, processes, guard, runtime, locks),
     output,
     runtime,
     environment,
@@ -167,7 +173,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     runtime,
     rewriterFor,
   })
-  const syncContext = new SyncMagicContextUseCase({ builder: contextBuilder, guard, swap: swapper, fileSystem, runtime })
+  const syncContext = new SyncMagicContextUseCase({ builder: contextBuilder, guard, locks, swap: swapper, fileSystem, runtime })
   const contextCli = new ContextCliAdapter({
     copy: copier,
     sync: syncContext,
@@ -183,6 +189,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
       identity,
       contexts: contextBuilder,
       guard,
+      locks,
       swap: swapper,
       fileSystem,
       runtime,

@@ -1,5 +1,8 @@
+import path from "node:path"
 import type { BuildAndVerifyResult } from "@session-manager/domain/model/Build"
 import { defaultDatabasePath } from "@session-manager/domain/model/Database"
+import { defaultDataHome, profileAt } from "@session-manager/domain/model/Profile"
+import type { StaleLock } from "@session-manager/domain/model/StoreLock"
 import type { CompactPort } from "@session-manager/domain/ports/inbound/CompactPort"
 import type { PreflightPort } from "@session-manager/domain/ports/inbound/PreflightPort"
 import type { RehearsePort } from "@session-manager/domain/ports/inbound/RehearsePort"
@@ -97,6 +100,7 @@ export class CompactCliAdapter {
 
     if (args.mode === "run") {
       const outcome = this.options.compact.execute({ dbPath, image: this.options.image })
+      this.printStaleLocks(outcome.staleLocksCleared)
       this.printChecks(outcome.build)
       if (!outcome.swapped) {
         this.options.output.line(`ABORTED: originals untouched; failed copy kept at ${outcome.failedTarget}`)
@@ -110,16 +114,32 @@ export class CompactCliAdapter {
 
     const backupDirectory = args.positional[0]
     if (args.mode === "rollback" && backupDirectory !== undefined) {
+      const liveStores = this.liveStoresAmong(args.dbs.length > 1 ? args.dbs : [dbPath])
       const outcomes =
         args.dbs.length > 1
-          ? this.options.rollback.executeAll({ dbPaths: args.dbs, backupDir: backupDirectory, image: this.options.image })
-          : [this.options.rollback.execute({ dbPath, backupDir: backupDirectory, image: this.options.image })]
-      for (const outcome of outcomes) this.options.output.line(`ROLLED BACK restored=${outcome.restored.join(",")} parked=${outcome.parked}`)
+          ? this.options.rollback.executeAll({ dbPaths: args.dbs, backupDir: backupDirectory, image: this.options.image, liveStores })
+          : [this.options.rollback.execute({ dbPath, backupDir: backupDirectory, image: this.options.image, liveStores })]
+      for (const outcome of outcomes) {
+        this.printStaleLocks(outcome.staleLocksCleared)
+        this.options.output.line(`ROLLED BACK restored=${outcome.restored.join(",")} parked=${outcome.parked}`)
+      }
       return 0
     }
 
     this.options.output.line(USAGE)
     return 2
+  }
+
+  /** Which of the given stores are this user's OpenCode's own (its data home's), compared as absolute paths. */
+  private liveStoresAmong(stores: readonly string[]): readonly string[] {
+    const home = this.options.runtime.homeDirectory()
+    const live = profileAt("live", defaultDataHome(this.options.environment, home))
+    const own = new Set([defaultDatabasePath(this.options.environment, home), live.contextDb].map((store) => path.resolve(store)))
+    return stores.filter((store) => own.has(path.resolve(store)))
+  }
+
+  private printStaleLocks(locks: readonly StaleLock[]): void {
+    for (const lock of locks) this.options.output.line(`CLEARED stale lock ${lock.file} (pid ${lock.pid}, ${lock.command}, since ${lock.since}: no such process)`)
   }
 
   private printChecks(result: BuildAndVerifyResult): void {

@@ -58,7 +58,12 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
    refused with EBUSY.
 4. A verification failure **aborts before the swap** and leaves the originals
    untouched; the failed copy is kept beside the database for inspection.
-5. Rollback always restores the originals and parks what was in place.
+5. Rollback always restores the originals and parks what was in place. It
+   refuses while a restored store is held open, and — for the stores the running
+   OpenCode itself uses (this user's data home: `$XDG_DATA_HOME/opencode/opencode.db`
+   and `$XDG_DATA_HOME/cortexkit/magic-context/context.db`) — while OpenCode runs
+   at all. A copy anywhere else is restored while OpenCode runs. Every store is
+   checked before any is restored.
 6. The live tier **never writes the live database**: it snapshots it with
    `VACUUM INTO` from a read-only connection.
 7. A session sync **only ever writes copies it made itself**: both OpenCode
@@ -99,6 +104,17 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
    only rows keyed by the synced sessions (plus the projects and instruction
    blobs they need); credentials, accounts and OpenCode's `migration` log are
    never touched.
+12. **One writer per store.** Every command that writes a store (`run`,
+    `rollback`, `sync`, `context sync`, the browser's apply) first takes
+    `<store>.session-manager.lock` (`FsStoreLockAdapter`, created exclusively,
+    holding pid, command and start time), for all its stores or none, and
+    releases it however it ends. A second writer is refused with the holder named.
+    A lock whose process no longer exists is removed and reported
+    (`stale_locks_cleared`, `CLEARED stale lock …`); an unreadable lock is never
+    removed. Dry runs take no lock.
+13. `--strict` (`sync`, `context sync`) refuses the whole sync, before anything is
+    written, when Magic Context is working on a requested session (rule 10's
+    `busy`); without it that session's state is skipped and reported.
 
 ### The report JSON is a contract
 
@@ -267,6 +283,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `Database.ts` | maintenance | page statistics, schema, header and per-table fingerprints of a database |
 | `DatabasePaths.ts` | all | `baseName`, `dirName`, `joinPath` for either separator, so inner layers never import `node:path` |
 | `Sidecars.ts` | maintenance | a database's `-wal`/`-shm`/`-journal` sidecars |
+| `StoreLock.ts` | maintenance, sessions | a store's lock: its owner (pid, command, start), a stale lock removed, `lockFileOf` |
 | `Paths.ts` | plugin | `~` expansion and abbreviation |
 | `Session.ts` | plugin | session summaries, projects, transfer and move results, picker options |
 | `SessionId.ts` | plugin | the session-id guard and sidebar text |
@@ -288,12 +305,12 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 **`src/domain/errors`** — one class per file: `DatabaseError.ts`,
 `DatabaseHeldError.ts`, `DatabaseNotFoundError.ts`, `InsufficientSpaceError.ts`,
 `MissingOriginalError.ts`, `ProcessRunningError.ts`, `SwapFailedError.ts`,
-`TargetExistsError.ts`, `UnsupportedPlatformError.ts` (maintenance);
+`TargetExistsError.ts`, `UnsupportedPlatformError.ts`, `StoreLockedError.ts` (maintenance);
 `MagicContextFormatMismatchError.ts`, `MagicContextTooNewError.ts`,
 `MagicContextUnavailableError.ts`, `MagicContextUpgradeError.ts`,
 `ProfileUnreadableError.ts`, `SyncVerificationError.ts`,
 `InvalidMapRuleError.ts`, `OpenCodeFormatMismatchError.ts`,
-`UnknownStoreSchemaError.ts` (sessions);
+`UnknownStoreSchemaError.ts`, `BusySessionsError.ts` (sessions);
 `InvalidDirectoryError.ts`, `MissingSessionIdError.ts`,
 `SessionNotFoundError.ts` (plugin).
 
@@ -310,7 +327,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 **`src/domain/ports/outbound`** — what the inner layers need from outside:
 `SqlitePort.ts`, `ProjectIdentityPort.ts`,
 `ProcessListPort.ts`, `DatabaseHoldersPort.ts`, `MaintenanceFileSystemPort.ts`,
-`ReportSinkPort.ts`, `RuntimePort.ts`, `OutputPort.ts` (maintenance and the
+`ReportSinkPort.ts`, `RuntimePort.ts`, `OutputPort.ts`, `StoreLockPort.ts` (maintenance and the
 program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextSyncStorePort.ts`, `SessionSyncStorePort.ts`, `MagicContextReleasePort.ts`,
 `MagicContextIdentityPort.ts` (sessions); `SessionHostPort.ts`,
@@ -328,6 +345,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `RollbackUseCase.ts` | maintenance, sessions | put a backup's originals back (an `opencode.db`, a `context.db`, or both: `executeAll`) |
 | `BuildAndVerifyService.ts` | maintenance | `VACUUM INTO` and the six checks |
 | `GuardService.ts` | maintenance, sessions | refuse while OpenCode runs, a process holds the file, or space is short |
+| `StoreLockService.ts` | maintenance, sessions | run a write under its stores' locks (`StoreLockPort`), released however it ends |
 | `SwapService.ts` | maintenance, sessions | rename-only swap into a backup folder, restored on failure; `undo` reverses a finished swap |
 | `DatabaseSizesService.ts` | maintenance | sizes of a database and its sidecars |
 | `OpenProfileUseCase.ts` | sessions | open a profile read-only, from a snapshot when needed, and close it |
@@ -383,6 +401,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `platform/linux/ProcProcessListAdapter.ts`, `platform/linux/ProcFdHoldersAdapter.ts`, `platform/linux/ProcFs.ts` | Linux: running processes and file holders from `/proc` |
 | `platform/win32/TasklistAdapter.ts`, `platform/win32/RenameProbeHoldersAdapter.ts` | Windows: `tasklist` and the rename probe |
 | `fs/NodeMaintenanceFileSystemAdapter.ts` | the program's file operations |
+| `fs/FsStoreLockAdapter.ts` | `<store>.session-manager.lock` files: exclusive create, stale-owner check (`kill(pid, 0)`), release only by the owner |
 | `fs/NodeFileSystemAdapter.ts` | the plugin's file operations |
 | `fs/JsonReportAdapter.ts` | JSON evidence files |
 | `system/ConsoleOutputAdapter.ts` | the program's stdout |
@@ -451,7 +470,7 @@ in-process real-host tier and "live" is the real external process.
 | `live/isolated-host.ts` | an OpenCode with every XDG folder, its home and server password private to the test |
 | `live/load-built-tui.ts` | loads the built v2 TUI bundle |
 | `live/drive-tui.mjs`, `live/drive-transfer.mjs`, `live/drive-browser.mjs` | drive a real TUI (OpenCode's, or the compiled browser) in a pseudo-terminal with `node-pty` and a headless terminal |
-| `maintenance/fakes/*.ts` | stand-ins for the maintenance ports: file system, holders, processes, SQLite, output, report sink, runtime |
+| `maintenance/fakes/*.ts` | stand-ins for the maintenance ports: file system, holders, processes, SQLite, output, report sink, runtime, store locks (`locks.ts`: `FakeStoreLock`, `fakeLocks`) |
 | `maintenance/faults.ts` | the declared fault-injection seams (`DemandingSpacePolicy`, `TamperingSqlite`) |
 | `maintenance/database.ts` | real OpenCode-shaped databases for compaction |
 | `maintenance/repositories.ts` | real git repositories (`makeRepository`), `sha1`, read-only `query` |
