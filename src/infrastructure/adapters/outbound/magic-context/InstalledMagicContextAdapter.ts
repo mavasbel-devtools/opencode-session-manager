@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { join } from "node:path"
 import type { MagicContextRelease, MagicContextUpgradeOutcome } from "@session-manager/domain/model/MagicContextRelease"
 import type { MagicContextReleasePort } from "@session-manager/domain/ports/outbound/MagicContextReleasePort"
+import { compareVersions } from "@session-manager/domain/services/Versions"
 
 const PACKAGE = ["@cortexkit", "opencode-magic-context"] as const
 
@@ -147,16 +148,4 @@ function entryOf(directory: string): string | undefined {
     .sort()
     .map((name) => join(dist, name))
     .find((file) => /export\s*\{[^}]*\bopenDatabaseAsync\b[^}]*\bLATEST_SUPPORTED_VERSION\b|export\s*\{[^}]*\bLATEST_SUPPORTED_VERSION\b[^}]*\bopenDatabaseAsync\b/.test(readFileSync(file, "utf8")))
-}
-
-/** Compares dotted numeric versions; a pre-release suffix is ignored. */
-export function compareVersions(a: string, b: string): number {
-  const parts = (value: string) => value.split("-")[0]!.split(".").map((part) => Number.parseInt(part, 10) || 0)
-  const left = parts(a)
-  const right = parts(b)
-  for (let index = 0; index < Math.max(left.length, right.length); index++) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0)
-    if (difference !== 0) return difference
-  }
-  return 0
 }

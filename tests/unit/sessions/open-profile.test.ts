@@ -156,9 +156,19 @@ describe("BrowseCliAdapter", () => {
           }
         },
       },
+      versions: {
+        local: () => ({ pinned: "0.47.0", loaded: "0.47.0", latest: null }),
+        withLatest: async (local) => {
+          events.push("npm asked")
+          return { ...local, latest: "0.48.0" }
+        },
+        newer: (versions) => versions.latest === "0.48.0",
+      },
       show: async (initial, controls) => {
         shown.push(initial)
         events.push("shown")
+        const release = await controls.release()
+        events.push(`release ${release.versions.latest} ${release.newer}`)
         if (initial.right !== null) {
           events.push(controls.apply([], true, "all").result[0]!)
           const applied = controls.apply([], false, "sessions")
@@ -177,12 +187,15 @@ describe("BrowseCliAdapter", () => {
       "open left /home/me/.local/share/opencode/opencode.db /home/me/.local/share/cortexkit/magic-context/context.db",
       "verify left /data/left/opencode/opencode.db all 300",
       "shown",
+      "npm asked",
+      "release 0.48.0 true",
       "close left",
     ])
     // Each side is shown with its health, checked by verify when it is opened.
-    expect(one.shown[0]).toEqual(createBrowser({ ...opened("left", []), health: {} }, null, 1))
+    expect(one.shown[0]).toEqual(createBrowser({ ...opened("left", []), health: {} }, null, 1, { versions: { pinned: "0.47.0", loaded: "0.47.0", latest: null }, newer: false }))
     const two = cli()
-    expect(await two.adapter.run(["--right", "/r", "--map", "C:\\Users\\Me=/home/me", "--left", "/l"])).toBe(0)
+    // --offline: npm is not asked.
+    expect(await two.adapter.run(["--right", "/r", "--offline", "--map", "C:\\Users\\Me=/home/me", "--left", "/l"])).toBe(0)
     const rule = '[{"from":"C:\\\\Users\\\\Me","to":"/home/me"}]'
     expect(two.events).toEqual([
       "open left /l/opencode/opencode.db /l/cortexkit/magic-context/context.db",
@@ -190,6 +203,7 @@ describe("BrowseCliAdapter", () => {
       "open right /r/opencode/opencode.db /r/cortexkit/magic-context/context.db",
       "verify right /data/right/opencode/opencode.db all 300",
       "shown",
+      "release offline false",
       `apply left right 0 all ${rule}`,
       "checked",
       `apply left right 0 sessions ${rule}`,

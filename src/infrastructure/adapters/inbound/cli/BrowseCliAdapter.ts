@@ -3,6 +3,7 @@ import { defaultDataHome, profileAt, profileOfFiles, type Profile } from "@sessi
 import type { ApplyQueuePort } from "@session-manager/domain/ports/inbound/ApplyQueuePort"
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
 import type { VerifyProfilePort } from "@session-manager/domain/ports/inbound/VerifyProfilePort"
+import type { MagicContextVersionsPort } from "@session-manager/domain/ports/inbound/MagicContextVersionsPort"
 import { syncSideOf } from "@session-manager/domain/model/MagicContextSync"
 import { DEFAULT_BEHIND, healthBySession } from "@session-manager/domain/model/Verify"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
@@ -13,7 +14,7 @@ import type { CliEnvironment } from "@session-manager/infrastructure/adapters/in
 import type { BrowserControls } from "@session-manager/infrastructure/adapters/inbound/manager-tui/controls"
 
 export const TUI_USAGE =
-  "usage: opencode-session-manager tui [--left <dataHome> | --left-db <opencode.db> [--left-context <context.db>]] [--right <dataHome> | --right-db <opencode.db> [--right-context <context.db>]] [--map <from>=<to>]..."
+  "usage: opencode-session-manager tui [--left <dataHome> | --left-db <opencode.db> [--left-context <context.db>]] [--right <dataHome> | --right-db <opencode.db> [--right-context <context.db>]] [--map <from>=<to>]... [--offline]"
 
 const FLAGS = ["--left", "--right", "--left-db", "--right-db", "--left-context", "--right-context"]
 
@@ -25,6 +26,8 @@ export interface BrowseCliOptions {
   readonly apply: ApplyQueuePort
   /** Each side's health, shown per session: checked when a side is opened or read again. */
   readonly verify: VerifyProfilePort
+  /** The Magic Context this machine runs, and the newest on npm (not asked with `--offline`). */
+  readonly versions: MagicContextVersionsPort
   /** Shows the browser and resolves when the user quits. */
   readonly show: (initial: BrowserState, controls: BrowserControls) => Promise<void>
 }
@@ -47,6 +50,8 @@ export class BrowseCliAdapter {
     const { output, runtime, environment, profiles } = this.options
     const values = new Map<string, string>()
     const maps: MapRule[] = []
+    const offline = argv.includes("--offline")
+    argv = argv.filter((argument) => argument !== "--offline")
     for (let index = 0; index < argv.length; index += 2) {
       const value = argv[index + 1]
       if (![...FLAGS, "--map"].includes(argv[index]!) || value === undefined || value.startsWith("--")) return this.usage()
@@ -67,6 +72,7 @@ export class BrowseCliAdapter {
     if (leftProfile === undefined || rightProfile === undefined) return this.usage()
     const shown: { left?: OpenedProfile; right?: OpenedProfile } = {}
     const applied: string[] = []
+    const local = this.options.versions.local()
     const checked = (opened: OpenedProfile): OpenedProfile => ({
       ...opened,
       health: healthBySession(this.options.verify.verify({ ...syncSideOf(opened), sessions: "all", behind: DEFAULT_BEHIND }, opened.catalog)),
@@ -79,6 +85,11 @@ export class BrowseCliAdapter {
         shown.right = checked(shown.right)
       }
       const controls: BrowserControls = {
+        release: async () => {
+          const { versions } = this.options
+          const known = offline ? { ...local, latest: "offline" } : await versions.withLatest(local)
+          return { versions: known, newer: versions.newer(known) }
+        },
         apply: (queue, dryRun, scope) => {
           const result = this.options.apply.apply({ queue, left: shown.left!, right: shown.right!, dryRun, maps, scope })
           const outcome = {
@@ -92,7 +103,7 @@ export class BrowseCliAdapter {
           return outcome
         },
       }
-      await this.options.show(createBrowser(shown.left, shown.right ?? null, 1), controls)
+      await this.options.show(createBrowser(shown.left, shown.right ?? null, 1, { versions: local, newer: false }), controls)
       // What changed a store is printed whole once the screen is back: the undo command does not fit the panel.
       for (const line of applied) output.line(line)
       return 0

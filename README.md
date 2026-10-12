@@ -136,7 +136,7 @@ is preloaded by `bunfig.toml`).
 opencode-session-manager --help | --version
 
 # Read-only: safe while OpenCode runs
-opencode-session-manager tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]...
+opencode-session-manager tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]
 opencode-session-manager sessions [--data <dataHome>] [--json]
 opencode-session-manager verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]
 opencode-session-manager context copy --from <context.db> --to <file>
@@ -213,6 +213,14 @@ defaults to this machine's profile, the right is optional. `--map <from>=<to>`
 [`sync`](#session-sync). Sessions are grouped
 by folder, newest first, each with its message count and Magic Context
 summaries (`S`) and tags (`T`); a detail panel describes the selected row.
+
+The **header** names the Magic Context this machine's OpenCode loads — the
+version `opencode.jsonc` pins, resolved to the copy OpenCode installed for it —
+and asks npm (5 s at most, once, after the browser is shown) whether a newer one
+is published: `Magic Context 0.47.0 · 0.48.0 available on npm` (highlighted),
+`up to date`, `npm did not answer`, or `npm not checked` with `--offline` /
+`OPENCODE_SESSION_MANAGER_OFFLINE`. Updating stays yours to do (pin the new
+version in `opencode.jsonc` and restart OpenCode, with no wrapup running).
 
 Each side's **health** is checked by [`verify`](#checking-a-profile-verify) when it is opened and
 again after an apply changed it (read-only, so it is safe while OpenCode runs).
@@ -467,6 +475,9 @@ flowchart LR
     ROUTER --> XC[ContextCliAdapter]
     ROUTER --> BC[BrowseCliAdapter]
     ROUTER --> YC[SyncCliAdapter]
+    ROUTER --> VC[VerifyCliAdapter]
+    VC --> OP
+    VC --> VF
     YC --> OP
     YC --> SY[SyncSessionsUseCase]
     SY --> SST[SessionSyncStorePort -> BunSessionSyncStoreAdapter]
@@ -475,6 +486,11 @@ flowchart LR
     SY --> MB
     BC -->|show| TUI[OpenTuiBrowser: Browser reducer, keys, format]
     TUI -->|BrowserControls.apply| AQ[ApplyQueueUseCase]
+    AQ --> SY
+    BC -->|health| VF[VerifyProfileUseCase]
+    BC -->|header| MV[MagicContextVersionsUseCase]
+    MV --> MCC[MagicContextConfigPort -> OpencodeMagicContextConfigAdapter]
+    MV --> NPM[PublishedVersionPort -> NpmRegistryAdapter]
     SC --> OP[OpenProfileUseCase]
     BC --> OP
     XC --> OP
@@ -483,7 +499,6 @@ flowchart LR
     CAT --> MCS[MagicContextStorePort -> BunMagicContextStoreAdapter]
     XC --> CM[CopyMagicContextUseCase]
     XC --> SM[SyncMagicContextUseCase]
-    AQ --> SM
     AQ --> OP
     SM --> MB[MagicContextSyncService]
     MB --> CM
@@ -558,13 +573,15 @@ live tier needs `node` (for the pseudo-terminal).
 |---|---|---|
 | `XDG_DATA_HOME` | the program, the v1 plugin | default data home (`~/.local/share`) |
 | `XDG_CACHE_HOME` | the program | where OpenCode's package cache, and so the installed Magic Context, is found (`~/.cache`) |
-| `XDG_CONFIG_HOME` | the installers | the plugins folder (`~/.config/opencode/plugins`) |
+| `XDG_CONFIG_HOME` | the installers, `tui` | the plugins folder (`~/.config/opencode/plugins`); the browser reads `opencode/opencode.jsonc` there for the Magic Context OpenCode loads |
 | `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` | `InstalledMagicContextAdapter` | pointed into a throwaway sandbox for the child process that runs Magic Context's code |
 | `OPENCODE_DB_PATH` | the v1 plugin | the OpenCode 1 store, as the v1 host reads it |
 | `OPENCODE_DB_COMPACT_IMAGE` | `preflight`, `run`, `rollback` | the OpenCode process name: `preflight` reports it, the others refuse while it runs (`opencode`, `opencode.exe` on Windows) |
 | `OPENCODE_DB_COMPACT_REHEARSAL_DIR` | `rehearse` | rehearsal folder (`<temp>/opencode/compact-rehearsal`) |
 | `OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT` | `context copy`, `context sync`, `sync` | a Magic Context package folder, instead of the newest in OpenCode's cache |
 | `OPENCODE_SESSION_MANAGER_BIN_DIR` | `install:cli` | install folder (`~/.local/bin`) |
+| `OPENCODE_SESSION_MANAGER_OFFLINE` | `tui` | non-empty: npm is never asked for the newest Magic Context (as `--offline`) |
+| `OPENCODE_SESSION_MANAGER_NPM_REGISTRY` | `tui` | the registry asked for the newest Magic Context (`https://registry.npmjs.org`) |
 | `OPENCODE_V2_PLUGIN_DIR`, `OPENCODE_V1_PLUGIN_DIR` | the plugin installers | the plugins folder of each lane |
 | `OPENCODE_V2_EXECUTABLE` | live tier | the OpenCode 2 executable (else `~/.opencode/bin/opencode`, `~/.local/bin/opencode.exe` on Windows, else `PATH`) |
 | `OPENCODE_BIN` | live `sync` test | the `opencode` that lists the synced copy (default `opencode` on `PATH`) |

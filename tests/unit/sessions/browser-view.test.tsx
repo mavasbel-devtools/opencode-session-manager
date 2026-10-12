@@ -27,7 +27,8 @@ afterEach(() => {
   destroy = undefined
 })
 
-const NO_CONTROLS: BrowserControls = { apply: () => ({ result: ["not used"], changed: false, planned: {} }) }
+const RELEASE = { versions: { pinned: "0.47.0", loaded: "0.47.0", latest: "0.48.0" }, newer: true }
+const NO_CONTROLS: BrowserControls = { apply: () => ({ result: ["not used"], changed: false, planned: {} }), release: async () => RELEASE }
 
 async function paint(withRight: boolean, size = { width: 120, height: 30 }) {
   let quits = 0
@@ -48,15 +49,17 @@ const frame = async (setup: TestRendererSetup) => {
 describe("BrowserView", () => {
   it("lays out two panes, the details and the footer for the terminal height", async () => {
     const { setup } = await paint(true)
-    const lines = (await frame(setup)).split("\n")
-    expect(listHeightFor(30)).toBe(30 - DETAIL_HEIGHT - 1 - 2)
+    // The header asks for the newest Magic Context once shown: "…" until the answer arrives.
+    const lines = (await waitForText(setup, "0.48.0 available on npm")).split("\n")
+    expect(lines[0]).toStartWith(" Magic Context 0.47.0 · 0.48.0 available on npm")
+    expect(listHeightFor(30)).toBe(30 - 1 - DETAIL_HEIGHT - 1 - 2)
     expect(listHeightFor(3)).toBe(1)
-    expect(lines[0]).toContain("left · 30 sessions · Magic Context format 94")
-    expect(lines[0]).toContain("right (snapshot) · 1 sessions")
-    expect(lines[1]).toContain("▾ /w/a (3)")
-    expect(lines[1]).toContain("▾ C:/a (1)")
-    expect(lines[2]).toContain("< Left 0")
-    expect(lines[2]).toContain("> Right zero")
+    expect(lines[1]).toContain("left · 30 sessions · Magic Context format 94")
+    expect(lines[1]).toContain("right (snapshot) · 1 sessions")
+    expect(lines[2]).toContain("▾ /w/a (3)")
+    expect(lines[2]).toContain("▾ C:/a (1)")
+    expect(lines[3]).toContain("< Left 0")
+    expect(lines[3]).toContain("> Right zero")
     expect(lines.filter((line) => line.includes("+ Left")).length).toBe(listHeightFor(30) - 3)
     expect(lines.some((line) => line.includes("Folder /w/a"))).toBe(true)
     expect(lines[29]).toContain("Tab pane · p pair")
@@ -85,21 +88,21 @@ describe("BrowserView", () => {
 
   it("selects a clicked row and scrolls a pane with the wheel", async () => {
     const { setup } = await paint(true)
-    await setup.mockMouse.click(70, 2)
+    await setup.mockMouse.click(70, 3)
     expect(await frame(setup)).toContain("Magic Context: 7 summaries")
     await setup.mockMouse.scroll(10, 5, "down")
     await setup.mockMouse.scroll(10, 5, "down")
     const scrolled = (await frame(setup)).split("\n")
-    expect(scrolled[1]).toContain("+ Left 4")
+    expect(scrolled[2]).toContain("+ Left 4")
     await setup.mockMouse.scroll(10, 5, "up")
-    expect((await frame(setup)).split("\n")[1]).toContain("+ Left 2")
+    expect((await frame(setup)).split("\n")[2]).toContain("+ Left 2")
   })
 
   it("fills the width with one pane and follows a resize", async () => {
     const { setup } = await paint(false, { width: 90, height: 20 })
     const lines = (await frame(setup)).split("\n")
-    expect(lines[0]).toContain("left · 30 sessions")
-    expect(lines[0]).not.toContain("right")
+    expect(lines[1]).toContain("left · 30 sessions")
+    expect(lines[1]).not.toContain("right")
     expect(lines[19]).not.toContain("Tab")
     setup.resize(90, 14)
     const small = (await frame(setup)).split("\n")
@@ -119,7 +122,7 @@ describe("BrowserView pairing and the queue", () => {
     expect(await frame(setup)).toContain("● < Left 0")
     setup.mockInput.pressKey("<")
     expect(await frame(setup)).toContain("Queued 1 session sync ←.")
-    await setup.mockMouse.click(10, 3)
+    await setup.mockMouse.click(10, 4)
     expect(await frame(setup)).toContain("ses_l01 · only on the left")
     await setup.mockMouse.scroll(10, 5, "down")
     setup.mockInput.pressKey("Q")
@@ -135,6 +138,7 @@ describe("BrowserView pairing and the queue", () => {
     const calls: string[] = []
     const fresh = opened("left", [session({ id: "ses_x", directory: "/w", updated: T, title: "Both", context: { compartments: 42 } })])
     const controls: BrowserControls = {
+      release: async () => RELEASE,
       apply: (queue, dryRun, scope) => {
         calls.push(`${dryRun ? "check" : "apply"} ${queue.length} ${queue[0]!.prefer} ${scope}`)
         const planned = { ses_x: { action: "keep" as const, relation: "same" as const, reason: null, context: "Magic Context copied" } }

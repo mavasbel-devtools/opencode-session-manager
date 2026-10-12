@@ -51,7 +51,9 @@ function drive(executable: string, ...args: string[]) {
 function expectBrowsed(run: ReturnType<typeof drive>) {
   expect(run.ok).toBe(true)
   expect(run.exitCode).toBe(0)
-  expect(run.screens[0]!.join("\n")).toMatch(/left · \d+ sessions/)
+  expect(run.screens[0]!.join("\n")).toMatch(/left · \d+ sessions · Magic Context format \d+ · health \d+! \d+~/)
+  // The header names the Magic Context this machine's OpenCode loads (npm's answer may still be on its way).
+  expect(run.screens[0]![0]).toMatch(/^ Magic Context \d+\.\d+\.\d+ · /)
   expect(run.screens[1]!.join("\n")).toMatch(/ses_\w+ · v[12] · project /)
   expect(run.screens[5]!.join("\n")).toContain("Queue · 0 session syncs · 0 new on the target")
 }

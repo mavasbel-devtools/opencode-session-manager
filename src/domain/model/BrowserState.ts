@@ -1,4 +1,5 @@
 import type { ContextScope } from "@session-manager/domain/model/MagicContextSync"
+import type { MagicContextVersions } from "@session-manager/domain/model/MagicContextRelease"
 import type { CatalogedSession, ProfileCatalog } from "@session-manager/domain/model/SessionCatalog"
 import type { SessionHealth } from "@session-manager/domain/model/Verify"
 import type { Prefer, SessionAction, SessionRelation, SessionSkipReason } from "@session-manager/domain/model/SessionSync"
@@ -101,6 +102,13 @@ export interface BrowserState {
   readonly notice: string | null
   /** What the last apply or dry run did, shown in the queue view. */
   readonly lastResult: readonly string[] | null
+  /** The Magic Context this machine runs, and whether npm has a newer one (null: not known). */
+  readonly release: MagicContextReleaseState | null
+}
+
+export interface MagicContextReleaseState {
+  readonly versions: MagicContextVersions
+  readonly newer: boolean
 }
 
 export type BrowserAction =
@@ -129,6 +137,7 @@ export type BrowserAction =
   | { readonly type: "filter-clear" }
   | { readonly type: "resize"; readonly listHeight: number }
   | { readonly type: "notice"; readonly text: string }
+  | { readonly type: "release"; readonly release: MagicContextReleaseState }
   | {
       readonly type: "applied"
       readonly result: readonly string[]

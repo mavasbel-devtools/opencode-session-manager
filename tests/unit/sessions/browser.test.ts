@@ -308,3 +308,14 @@ describe("Browser queue", () => {
     expect([result.queue[0]!.planned, result.queue[1]!.planned, queueSummary(result.queue).diverged]).toEqual([diverged, null, 1])
   })
 })
+
+describe("Browser background actions", () => {
+  it("keeps the notice when the terminal is resized or npm answers, and records the release", () => {
+    const noticed = run(two(), { type: "notice", text: "Dry run: fine" })
+    const release = { versions: { pinned: "0.47.0", loaded: "0.47.0", latest: "0.48.0" }, newer: true }
+    const after = run(noticed, { type: "resize", listHeight: 7 }, { type: "release", release })
+    expect([after.notice, after.release, after.listHeight]).toEqual(["Dry run: fine", release, 7])
+    expect(run(after, { type: "move", delta: 1 }).notice).toBeNull()
+    expect(two().release).toBeNull()
+  })
+})

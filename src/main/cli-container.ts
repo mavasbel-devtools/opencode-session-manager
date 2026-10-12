@@ -4,6 +4,10 @@ import { MagicContextSyncService } from "@session-manager/application/MagicConte
 import { SyncMagicContextUseCase } from "@session-manager/application/SyncMagicContextUseCase"
 import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
 import { VerifyProfileUseCase } from "@session-manager/application/VerifyProfileUseCase"
+import { MagicContextVersionsUseCase } from "@session-manager/application/MagicContextVersionsUseCase"
+import { MAGIC_CONTEXT_PACKAGE } from "@session-manager/domain/services/Jsonc"
+import { OpencodeMagicContextConfigAdapter } from "@session-manager/infrastructure/adapters/outbound/magic-context/OpencodeMagicContextConfigAdapter"
+import { NpmRegistryAdapter } from "@session-manager/infrastructure/adapters/outbound/npm/NpmRegistryAdapter"
 import { VerifyCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/VerifyCliAdapter"
 import type { SessionSyncStorePort } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
 import { SyncCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/SyncCliAdapter"
@@ -230,6 +234,15 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     environment,
     apply: new ApplyQueueUseCase(syncSessions, profiles),
     verify: verifyProfile,
+    versions: new MagicContextVersionsUseCase(
+      new OpencodeMagicContextConfigAdapter(
+        joinPath(environment.XDG_CONFIG_HOME || joinPath(runtime.homeDirectory(), ".config"), "opencode"),
+        joinPath(environment.XDG_CACHE_HOME || joinPath(runtime.homeDirectory(), ".cache"), "opencode"),
+      ),
+      environment.OPENCODE_SESSION_MANAGER_OFFLINE
+        ? null
+        : new NpmRegistryAdapter(environment.OPENCODE_SESSION_MANAGER_NPM_REGISTRY || "https://registry.npmjs.org", MAGIC_CONTEXT_PACKAGE, 5000),
+    ),
     show: overrides.show ?? showBrowser(terminalRenderer),
   })
 

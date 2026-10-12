@@ -17,7 +17,7 @@ code is wrong until one of them is deliberately changed.
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | deployed at (v1) | `<plugins>/session-manager.js`, `<plugins>/session-manager.tui.js` | v1.18.32 forbids `server` and `tui` in one module |
 | build outputs | `dist/v2/{server,tui}.js`, `dist/v1/session-manager{,.tui}.js` | the entrypoints the hosts load |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--dry-run]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--dry-run]`, `tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]...` (session browser; its queue applies Magic Context syncs) |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--dry-run]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--dry-run]`, `tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies Magic Context syncs) |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
@@ -238,6 +238,11 @@ Health: `BrowseCliAdapter` runs `VerifyProfileUseCase` on each side it opens or
 the apply read again, and attaches `healthBySession(report)` (`Verify.ts`) to the
 `OpenedProfile`; `format.ts` turns it into the list's health column
 (`rowSeverity`, `HEALTH_MARKS`), the pane totals and the details' health line.
+The header: `MagicContextVersionsUseCase` (`OpencodeMagicContextConfigAdapter`
+reads the pinned spec and the installed copy, `NpmRegistryAdapter` the `latest`
+dist-tag); the view asks `controls.release()` once mounted and dispatches a
+`release` action. `resize` and `release` are background actions: they keep the
+user's notice (`Browser.ts`, `BACKGROUND`).
 Applying is asked of the program around the view through `BrowserControls`
 (`controls.ts`), wired by `BrowseCliAdapter` to `ApplyQueueUseCase`, which runs
 one `SyncSessionsUseCase` per direction that has entries (left to right first,
@@ -305,6 +310,8 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `PathRewriter.ts` | sessions | `TextRewriter`: rewrites Windows profile paths in text, through nested JSON escaping; counts what is left |
 | `WindowsMapping.ts` | sessions | the mapping a session's own folders imply (Windows profile → this home, plus a moved folder) |
 | `MapRules.ts` | sessions | `--map` rules → a `PathMapping` (`parseMapRule`, `mappingFromRules`, `NO_WINDOWS_PROFILE`) |
+| `Versions.ts` | sessions | `compareVersions` (dotted numeric versions) |
+| `Jsonc.ts` | sessions | `stripComments`, `pinnedMagicContext` (the spec `opencode.jsonc` pins), `MAGIC_CONTEXT_PACKAGE` |
 | `GitRemote.ts` | sessions | a remote URL in the form OpenCode hashes into a project id |
 | `PosixPaths.ts` | sessions | `isWithin`, `sessionSubpath` |
 | `FingerprintComparer.ts` | maintenance | names every difference between two database fingerprints |
@@ -328,7 +335,8 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 **`src/domain/ports/inbound`** — one per use case: `CompactPort.ts`,
 `PreflightPort.ts`, `RehearsePort.ts`, `RollbackPort.ts` (maintenance);
 `OpenProfilePort.ts`, `CatalogProfilePort.ts`, `CopyMagicContextPort.ts`,
-`SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`
+`SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
+`MagicContextVersionsPort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`,
 `MoveSessionPort.ts`, `TransferSessionPort.ts`, `BuildDirectoryOptionsPort.ts`
 (plugin).
@@ -339,7 +347,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `ReportSinkPort.ts`, `RuntimePort.ts`, `OutputPort.ts`, `StoreLockPort.ts` (maintenance and the
 program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextSyncStorePort.ts`, `SessionSyncStorePort.ts`, `MagicContextReleasePort.ts`,
-`MagicContextIdentityPort.ts` (sessions); `SessionHostPort.ts`,
+`MagicContextIdentityPort.ts`, `MagicContextConfigPort.ts`, `PublishedVersionPort.ts` (sessions); `SessionHostPort.ts`,
 `SessionDbPort.ts`, `ProjectResolverPort.ts`, `FileSystemPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`,
 `SidebarViewPort.ts` (plugin).
@@ -365,6 +373,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `SyncMagicContextUseCase.ts` | sessions | `context sync`: the service's copy swapped in, with a backup |
 | `SyncSessionsUseCase.ts` | sessions | `sync`: whole sessions (OpenCode rows + Magic Context state) into working copies of both target stores, checked, swapped in together |
 | `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one whole-session sync per direction |
+| `MagicContextVersionsUseCase.ts` | sessions | the Magic Context OpenCode loads here and the newest on npm (the browser's header) |
 | `ResolveSessionIdToolUseCase.ts` | plugin | the `session-id` tool |
 | `RenderSidebarEntryUseCase.ts` | plugin | the sidebar line |
 | `MoveSessionUseCase.ts` | plugin | v2 transfer through the host |
@@ -406,6 +415,8 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `sqlite/BunMagicContextSyncStoreAdapter.ts` | reads and writes session state in `context.db` working copies |
 | `sqlite/SqliteSessionDbAdapter.ts` | the OpenCode 1 store, for the v1 transfer |
 | `magic-context/InstalledMagicContextAdapter.ts` | finds the installed Magic Context and runs its store code in a sandboxed child process |
+| `magic-context/OpencodeMagicContextConfigAdapter.ts` | the spec `opencode.jsonc` pins and the copy OpenCode installed for it |
+| `npm/NpmRegistryAdapter.ts` | a package's `latest` dist-tag on an npm registry (time-limited) |
 | `magic-context/MagicContextIdentityAdapter.ts` | Magic Context's project identity of a folder |
 | `project/GitProjectIdentityAdapter.ts` | OpenCode 2's project id of a folder |
 | `project/ProjectResolverAdapter.ts` | OpenCode 1.18.32's project resolution |

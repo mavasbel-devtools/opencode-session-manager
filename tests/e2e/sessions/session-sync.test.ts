@@ -381,7 +381,7 @@ describe("the browser applies its queue of whole sessions (real stores, OpenTUI'
     const before = [fileSha(opencodeOf("linux")), fileSha(contextOf("linux"))]
     let setup: TestRendererSetup | undefined
     const container = await buildContainer(
-      { OPENCODE_DB_COMPACT_IMAGE: NO_IMAGE },
+      { OPENCODE_DB_COMPACT_IMAGE: NO_IMAGE, OPENCODE_SESSION_MANAGER_OFFLINE: "1" },
       {
         runtime: runtime(),
         show: showBrowser(async () => {

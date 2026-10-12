@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
-import { chmodSync, copyFileSync, existsSync, readdirSync, renameSync, rmSync } from "node:fs"
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing"
 import { buildContainer } from "@session-manager/main/cli-container"
@@ -8,6 +8,7 @@ import { showBrowser, terminalRenderer } from "@session-manager/infrastructure/a
 import { captureConsole } from "@test/support/maintenance/console"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 import { makeContextStore, makeOpenCodeStore } from "@test/support/sessions/stores"
+import { waitForText } from "@test/support/sessions/frames"
 import { silentTerminal } from "@test/support/sessions/terminal-streams"
 
 let directory = ""
@@ -62,12 +63,26 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
     })
     makeUnopenableInPlace(rightDb)
 
+    // This machine runs Magic Context 0.47.0 (pinned and installed); a stand-in registry publishes 0.48.0.
+    mkdirSync(join(directory, ".config", "opencode"), { recursive: true })
+    writeFileSync(
+      join(directory, ".config", "opencode", "opencode.jsonc"),
+      '{ /* pinned */ "theme": "a \\"quoted\\" name", // see below\n "plugin": ["@cortexkit/opencode-magic-context@0.47.0"] }',
+    )
+    // Several installs of the spec: the newest is what OpenCode loads.
+    for (const [stamp, version] of [["1", "0.47.0"], ["0", "0.46.9"], ["2", "0.47.0"]]) {
+      const installed = join(directory, ".cache", "opencode", "npm", "@cortexkit", "opencode-magic-context@0.47.0", stamp!, "node_modules", "@cortexkit", "opencode-magic-context")
+      mkdirSync(installed, { recursive: true })
+      writeFileSync(join(installed, "package.json"), `{ "version": "${version}" }`)
+    }
+    const registry = Bun.serve({ port: 0, fetch: () => Response.json({ version: "0.48.0" }) })
+
     let setup: TestRendererSetup | undefined
     const temporary = join(directory, "tmp")
     const out = captureConsole()
     try {
       const cli = await buildContainer(
-        { XDG_DATA_HOME: join(directory, "left") },
+        { XDG_DATA_HOME: join(directory, "left"), OPENCODE_SESSION_MANAGER_NPM_REGISTRY: registry.url.origin },
         {
           runtime: Object.assign(Object.create(null), {
             pid: () => process.pid,
@@ -86,6 +101,7 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
       const running = cli.run(["tui", "--right", join(directory, "right")])
       while (setup === undefined) await new Promise((resolve) => setTimeout(resolve, 10))
       const first = await setup.waitForFrame((text) => text.includes("Windows only"))
+      expect(await waitForText(setup, "Magic Context 0.47.0 · 0.48.0 available on npm")).toStartWith(" Magic Context 0.47.0")
       expect(first).toContain("left · 1 sessions · Magic Context format 94")
       expect(first).toContain("right (snapshot) · 2 sessions · no Magic Context")
       expect(first).toContain("> Shared session")
@@ -120,10 +136,10 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
         await setup.renderOnce()
       }
       expect(setup.captureCharFrame()).toContain("Shared session")
-      await setup.mockMouse.click(80, 4)
+      await setup.mockMouse.click(80, 5)
       expect(await setup.waitForFrame((text) => text.includes("ses_only · v2"))).toBeTruthy()
-      await setup.mockMouse.scroll(80, 4, "down")
-      await setup.mockMouse.scroll(80, 4, "up")
+      await setup.mockMouse.scroll(80, 5, "down")
+      await setup.mockMouse.scroll(80, 5, "up")
       setup.resize(140, 20)
       await setup.waitForFrame((text) => text.split("\n").length >= 20)
       // Pair by id, mark, queue a whole-session sync each way, and edit the queue.
@@ -173,6 +189,7 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
       expect(await running).toBe(0)
     } finally {
       out.restore()
+      registry.stop(true)
     }
     expect(readdirSync(join(temporary, "opencode"))).toEqual([])
   })
@@ -184,7 +201,7 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
     makeContextStore(context, { version: 94, compartments: { ses_file: 3 } })
     let setup: TestRendererSetup | undefined
     const cli = await buildContainer(
-      {},
+      { OPENCODE_SESSION_MANAGER_OFFLINE: "1", XDG_CONFIG_HOME: join(directory, "no-config"), XDG_CACHE_HOME: join(directory, "no-cache") },
       {
         show: showBrowser(async () => {
           setup = await createTestRenderer({ width: 120, height: 20 })
@@ -195,6 +212,8 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
     const running = cli.run(["tui", "--left-db", db, "--left-context", context])
     while (setup === undefined) await new Promise((resolve) => setTimeout(resolve, 10))
     const shown = await setup.waitForFrame((text) => text.includes("From a file"))
+    // Offline: npm is not asked, and this home has no OpenCode configuration.
+    expect(await waitForText(setup, "Magic Context: not configured in opencode.jsonc")).toBeTruthy()
     // verify ran when the side was opened, and found nothing wrong.
     expect(shown).toContain(`left · 1 sessions · Magic Context format 94 · health 0! 0~ · ${join(directory, "files")}`)
     expect(shown).toContain("S 3")

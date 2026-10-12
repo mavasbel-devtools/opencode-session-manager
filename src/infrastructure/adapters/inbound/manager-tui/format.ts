@@ -10,6 +10,7 @@ import {
 } from "@session-manager/domain/model/Browser"
 import type { CatalogedSession, MagicContextSessionStats } from "@session-manager/domain/model/SessionCatalog"
 import { worse, type FindingSeverity, type SessionHealth } from "@session-manager/domain/model/Verify"
+import { versionsText } from "@session-manager/domain/model/MagicContextRelease"
 import type { ListId } from "@session-manager/domain/model/Browser"
 
 /** Pure text for the browser: everything the view paints, so the view itself only lays it out. */
@@ -245,6 +246,11 @@ export function footerText(state: BrowserState): string {
   if (state.right === null) return `${notice}${filter}↑↓ move · PgUp/PgDn · Enter fold · Space mark · / filter · q quit`
   const layout = state.layout === "panes" ? "Tab pane · p pair" : "p panes"
   return `${notice}${filter}↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · ${layout} · / filter · q quit`
+}
+
+/** The header line: the Magic Context this machine runs and what npm has. */
+export function headerText(state: BrowserState): string {
+  return state.release === null ? "Magic Context: …" : ` ${versionsText(state.release.versions, state.release.newer)}`
 }
 
 /** The details panel's title; with two profiles it carries the legend of the match marks. */

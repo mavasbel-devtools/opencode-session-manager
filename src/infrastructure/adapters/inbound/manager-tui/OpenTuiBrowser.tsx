@@ -1,6 +1,6 @@
 import { createCliRenderer, type CliRenderer, type CliRendererConfig, type MouseEvent } from "@opentui/core"
 import { render, useKeyboard, useTerminalDimensions } from "@opentui/solid"
-import { createEffect, createMemo, createSignal, Index, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, Index, onMount, Show } from "solid-js"
 import {
   queueWindowStart,
   reduce,
@@ -16,6 +16,7 @@ import {
   detailTitle,
   fit,
   footerText,
+  headerText,
   pairedTitle,
   paneTitle,
   queueText,
@@ -26,8 +27,9 @@ import {
 import type { BrowserControls } from "@session-manager/infrastructure/adapters/inbound/manager-tui/controls"
 import { commandFor } from "@session-manager/infrastructure/adapters/inbound/manager-tui/keys"
 
-/** Rows the layout spends outside the lists: the detail panel (with its border) and the footer. */
+/** Rows the layout spends outside the lists: the header, the detail panel (with its border) and the footer. */
 export const DETAIL_HEIGHT = 9
+const HEADER_HEIGHT = 1
 const FOOTER_HEIGHT = 1
 const PANE_BORDER = 2
 const SCROLL_STEP = 3
@@ -43,7 +45,7 @@ const COLORS = {
 } as const
 
 export function listHeightFor(terminalHeight: number): number {
-  return Math.max(1, terminalHeight - DETAIL_HEIGHT - FOOTER_HEIGHT - PANE_BORDER)
+  return Math.max(1, terminalHeight - HEADER_HEIGHT - DETAIL_HEIGHT - FOOTER_HEIGHT - PANE_BORDER)
 }
 
 export interface BrowserViewProps {
@@ -61,6 +63,9 @@ export function BrowserView(props: BrowserViewProps) {
   const dimensions = useTerminalDimensions()
 
   createEffect(() => dispatch({ type: "resize", listHeight: listHeightFor(dimensions().height) }))
+  onMount(() => {
+    void props.controls.release().then((release) => dispatch({ type: "release", release }))
+  })
 
   let busy = false
   const apply = async (dryRun: boolean) => {
@@ -94,6 +99,7 @@ export function BrowserView(props: BrowserViewProps) {
 
   return (
     <box flexDirection="column" width="100%" height="100%">
+      <text fg={state().release?.newer === true ? COLORS.folder : COLORS.muted}>{fit(headerText(state()), dimensions().width)}</text>
       <box flexDirection="row" flexGrow={1}>
         <Show when={state().view === "list"} fallback={<Queue state={state()} width={listWidth()} />}>
           <Show

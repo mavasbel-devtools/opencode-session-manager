@@ -10,7 +10,7 @@ import {
   visibleIds,
   withPosition,
 } from "@session-manager/domain/model/BrowserRows"
-import type { BrowserAction, BrowserState, ListId, ListPosition, OpenedProfile, Side } from "@session-manager/domain/model/BrowserState"
+import type { BrowserAction, BrowserState, ListId, ListPosition, MagicContextReleaseState, OpenedProfile, Side } from "@session-manager/domain/model/BrowserState"
 
 export * from "@session-manager/domain/model/BrowserState"
 export { activeList, paneOf, rowsOf, selectedRow } from "@session-manager/domain/model/BrowserRows"
@@ -23,7 +23,7 @@ export { queueSummary, queueWindowStart, requestsFor } from "@session-manager/do
  */
 const START: ListPosition = { collapsed: [], cursor: 0, offset: 0 }
 
-export function createBrowser(left: OpenedProfile, right: OpenedProfile | null, listHeight: number): BrowserState {
+export function createBrowser(left: OpenedProfile, right: OpenedProfile | null, listHeight: number, release: MagicContextReleaseState | null = null): BrowserState {
   return {
     left: { ...left, ...START },
     right: right === null ? null : { ...right, ...START },
@@ -40,12 +40,16 @@ export function createBrowser(left: OpenedProfile, right: OpenedProfile | null, 
     queueCursor: 0,
     notice: null,
     lastResult: null,
+    release,
   }
 }
 
-/** Applies one action; the notice of the previous action is cleared first. */
+/** Actions that arrive on their own (a terminal resize, npm's answer) and leave the user's notice alone. */
+const BACKGROUND: ReadonlySet<BrowserAction["type"]> = new Set(["resize", "release"])
+
+/** Applies one action; the notice of the previous user action is cleared first. */
 export function reduce(state: BrowserState, action: BrowserAction): BrowserState {
-  return step({ ...state, notice: null }, action)
+  return step(BACKGROUND.has(action.type) ? state : { ...state, notice: null }, action)
 }
 
 function step(state: BrowserState, action: BrowserAction): BrowserState {
@@ -108,6 +112,8 @@ function step(state: BrowserState, action: BrowserAction): BrowserState {
       return clampAll({ ...state, listHeight: Math.max(1, action.listHeight) })
     case "notice":
       return { ...state, notice: action.text }
+    case "release":
+      return { ...state, release: action.release }
     case "applied":
       return applied(state, action)
   }
