@@ -4,6 +4,8 @@ import type { ApplyQueuePort } from "@session-manager/domain/ports/inbound/Apply
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
 import type { VerifyProfilePort } from "@session-manager/domain/ports/inbound/VerifyProfilePort"
 import type { MagicContextVersionsPort } from "@session-manager/domain/ports/inbound/MagicContextVersionsPort"
+import type { RebuildContextPort } from "@session-manager/domain/ports/inbound/RebuildContextPort"
+import { progressText, REBUILD_GRACE_MS, REBUILD_POLL_MS, REBUILD_TIMEOUT_MINUTES, rebuildLines } from "@session-manager/domain/model/Rebuild"
 import { syncSideOf } from "@session-manager/domain/model/MagicContextSync"
 import { DEFAULT_BEHIND, healthBySession } from "@session-manager/domain/model/Verify"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
@@ -28,6 +30,8 @@ export interface BrowseCliOptions {
   readonly verify: VerifyProfilePort
   /** The Magic Context this machine runs, and the newest on npm (not asked with `--offline`). */
   readonly versions: MagicContextVersionsPort
+  /** `/ctx-wrapup` and `/ctx-recomp` through the running OpenCode, on this machine's own profile only. */
+  readonly rebuild: RebuildContextPort
   /** Shows the browser and resolves when the user quits. */
   readonly show: (initial: BrowserState, controls: BrowserControls) => Promise<void>
 }
@@ -73,6 +77,7 @@ export class BrowseCliAdapter {
     const shown: { left?: OpenedProfile; right?: OpenedProfile } = {}
     const applied: string[] = []
     const local = this.options.versions.local()
+    const live = defaultDataHome(environment, runtime.homeDirectory())
     const checked = (opened: OpenedProfile): OpenedProfile => ({
       ...opened,
       health: healthBySession(this.options.verify.verify({ ...syncSideOf(opened), sessions: "all", behind: DEFAULT_BEHIND }, opened.catalog)),
@@ -85,6 +90,33 @@ export class BrowseCliAdapter {
         shown.right = checked(shown.right)
       }
       const controls: BrowserControls = {
+        rebuild: async (request, onProgress) => {
+          const opened = shown[request.side]!
+          if (opened.catalog.profile.dataHome !== live || opened.snapshot !== null)
+            return { result: [`/ctx-${request.command} runs through this machine's OpenCode: only for the side showing ${live}.`] }
+          try {
+            const report = await this.options.rebuild.rebuild({
+              contextDb: opened.catalog.profile.contextDb,
+              sessions: request.ids,
+              command: request.command,
+              keep: null,
+              server: null,
+              wait: true,
+              timeoutMs: REBUILD_TIMEOUT_MINUTES * 60_000,
+              pollMs: REBUILD_POLL_MS,
+              graceMs: REBUILD_GRACE_MS,
+              onProgress: (progress) => onProgress(progressText(progress)),
+            })
+            const fresh = checked(profiles.open(opened.catalog.profile))
+            profiles.close(opened)
+            shown[request.side] = fresh
+            const lines = rebuildLines(report)
+            applied.push(...lines)
+            return { result: lines, [request.side]: fresh }
+          } catch (error) {
+            return { result: [`Not started: ${error instanceof Error ? error.message : String(error)}`] }
+          }
+        },
         release: async () => {
           const { versions } = this.options
           const known = offline ? { ...local, latest: "offline" } : await versions.withLatest(local)

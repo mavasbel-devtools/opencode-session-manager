@@ -18,6 +18,7 @@ export interface CliEnvironment {
   /** An explicit Magic Context package folder, instead of the one in OpenCode's package cache. */
   readonly OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT?: string | undefined
   readonly XDG_CONFIG_HOME?: string | undefined
+  readonly XDG_STATE_HOME?: string | undefined
   /** Non-empty: never ask npm for the newest Magic Context (the browser's header says "npm not checked"). */
   readonly OPENCODE_SESSION_MANAGER_OFFLINE?: string | undefined
   /** The npm registry asked for the newest Magic Context (default https://registry.npmjs.org). */

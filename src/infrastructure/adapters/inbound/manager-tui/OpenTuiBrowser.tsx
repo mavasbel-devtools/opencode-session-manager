@@ -10,6 +10,7 @@ import {
   type BrowserState,
   type ListId,
   type ListPosition,
+  type RebuildRequest,
 } from "@session-manager/domain/model/Browser"
 import {
   detailLines,
@@ -86,11 +87,22 @@ export function BrowserView(props: BrowserViewProps) {
     busy = false
   }
 
+  const rebuild = async (request: RebuildRequest) => {
+    if (busy) return
+    busy = true
+    dispatch({ type: "notice", text: `/ctx-${request.command} on ${request.ids.length} sessions: starting…` })
+    const outcome = await props.controls.rebuild(request, (text) => dispatch({ type: "notice", text }))
+    const { left, right } = outcome
+    dispatch({ type: "applied", result: outcome.result, changed: false, ...(left === undefined ? {} : { left }), ...(right === undefined ? {} : { right }) })
+    busy = false
+  }
+
   useKeyboard((key) => {
     const command = commandFor(key, state())
     if (command === null) return
     if (command.type === "quit") props.onQuit()
     else if (command.type === "apply") void apply(command.dryRun)
+    else if (command.type === "rebuild") void rebuild(command.request)
     else dispatch(command)
   })
 

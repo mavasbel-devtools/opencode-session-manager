@@ -4,6 +4,11 @@ import { MagicContextSyncService } from "@session-manager/application/MagicConte
 import { SyncMagicContextUseCase } from "@session-manager/application/SyncMagicContextUseCase"
 import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
 import { VerifyProfileUseCase } from "@session-manager/application/VerifyProfileUseCase"
+import { RebuildContextUseCase } from "@session-manager/application/RebuildContextUseCase"
+import { HttpOpencodeServerAdapter } from "@session-manager/infrastructure/adapters/outbound/opencode2/HttpOpencodeServerAdapter"
+import { BunMagicContextProgressAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextProgressAdapter"
+import { SystemTimerAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemTimerAdapter"
+import type { TimerPort } from "@session-manager/domain/ports/outbound/TimerPort"
 import { MagicContextVersionsUseCase } from "@session-manager/application/MagicContextVersionsUseCase"
 import { MAGIC_CONTEXT_PACKAGE } from "@session-manager/domain/services/Jsonc"
 import { OpencodeMagicContextConfigAdapter } from "@session-manager/infrastructure/adapters/outbound/magic-context/OpencodeMagicContextConfigAdapter"
@@ -93,6 +98,8 @@ export interface ContainerOverrides {
   readonly output?: OutputPort
   /** A policy demanding more space than a test machine has, so the real disk guard can be exercised. */
   readonly space?: RequiredSpacePolicy
+  /** Waiting between looks at a running rebuild; tests wait no real time. */
+  readonly timer?: TimerPort
 }
 
 export interface Cli {
@@ -183,11 +190,20 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     rewriterFor,
   })
   const syncContext = new SyncMagicContextUseCase({ builder: contextBuilder, guard, locks, swap: swapper, fileSystem, runtime })
+  const rebuild = new RebuildContextUseCase({
+    server: new HttpOpencodeServerAdapter(joinPath(environment.XDG_STATE_HOME || joinPath(runtime.homeDirectory(), ".local", "state"), "opencode", "service.json"), 30_000),
+    progress: new BunMagicContextProgressAdapter(contextSyncStore),
+    runtime,
+    timer: overrides.timer ?? new SystemTimerAdapter(),
+  })
   const contextCli = new ContextCliAdapter({
     copy: copier,
     sync: syncContext,
+    rebuild,
     profiles,
     output,
+    runtime,
+    environment,
   })
 
   const syncSessions = new SyncSessionsUseCase({
@@ -234,6 +250,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     environment,
     apply: new ApplyQueueUseCase(syncSessions, profiles),
     verify: verifyProfile,
+    rebuild,
     versions: new MagicContextVersionsUseCase(
       new OpencodeMagicContextConfigAdapter(
         joinPath(environment.XDG_CONFIG_HOME || joinPath(runtime.homeDirectory(), ".config"), "opencode"),

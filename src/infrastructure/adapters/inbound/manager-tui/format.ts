@@ -243,9 +243,9 @@ export function footerText(state: BrowserState): string {
   const notice = state.notice === null ? "" : `${state.notice}   `
   if (state.view === "queue") return `${notice}d dry run · a apply · r/R Magic Context preference (one/all) · t scope · x remove · c clear · Esc back · q quit`
   const filter = state.filter === "" ? "" : `filter "${state.filter}" · `
-  if (state.right === null) return `${notice}${filter}↑↓ move · PgUp/PgDn · Enter fold · Space mark · / filter · q quit`
+  if (state.right === null) return `${notice}${filter}↑↓ move · PgUp/PgDn · Enter fold · Space mark · W/R wrapup/rebuild · / filter · q quit`
   const layout = state.layout === "panes" ? "Tab pane · p pair" : "p panes"
-  return `${notice}${filter}↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · ${layout} · / filter · q quit`
+  return `${notice}${filter}↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · W/R wrapup/rebuild · ${layout} · / filter · q quit`
 }
 
 /** The header line: the Magic Context this machine runs and what npm has. */

@@ -1,4 +1,4 @@
-import type { BrowserAction, BrowserState } from "@session-manager/domain/model/Browser"
+import type { BrowserAction, BrowserState, RebuildRequest } from "@session-manager/domain/model/Browser"
 
 /** The fields of an OpenTUI key event the browser reads. */
 export interface KeyInput {
@@ -8,7 +8,11 @@ export interface KeyInput {
   readonly sequence: string
 }
 
-export type Command = BrowserAction | { readonly type: "quit" } | { readonly type: "apply"; readonly dryRun: boolean }
+export type Command =
+  | BrowserAction
+  | { readonly type: "quit" }
+  | { readonly type: "apply"; readonly dryRun: boolean }
+  | { readonly type: "rebuild"; readonly request: RebuildRequest }
 
 const BROWSE: Readonly<Record<string, Command>> = {
   up: { type: "move", delta: -1 },
@@ -42,6 +46,8 @@ const TYPED: Readonly<Record<string, Command>> = {
   "<": { type: "enqueue", direction: "to-left" },
   G: { type: "end" },
   Q: { type: "view", view: "queue" },
+  W: { type: "rebuild-ask", command: "wrapup" },
+  R: { type: "rebuild-ask", command: "recomp" },
 }
 
 const QUEUE: Readonly<Record<string, Command>> = {
@@ -75,7 +81,14 @@ export function commandFor(key: KeyInput, state: BrowserState): Command | null {
     return key.sequence.length === 1 && key.sequence >= " " && !key.ctrl ? { type: "filter-input", text: key.sequence } : null
   }
   const [typed, named] = state.view === "queue" ? [QUEUE_TYPED, QUEUE] : [TYPED, BROWSE]
-  if (Object.hasOwn(typed, key.sequence)) return typed[key.sequence]!
-  if (key.shift && Object.hasOwn(typed, key.name.toUpperCase())) return typed[key.name.toUpperCase()]!
-  return Object.hasOwn(named, key.name) ? named[key.name]! : null
+  const command = Object.hasOwn(typed, key.sequence)
+    ? typed[key.sequence]!
+    : key.shift && Object.hasOwn(typed, key.name.toUpperCase())
+      ? typed[key.name.toUpperCase()]!
+      : Object.hasOwn(named, key.name)
+        ? named[key.name]!
+        : null
+  // The same rebuild key a second time runs what the first one asked.
+  if (command?.type === "rebuild-ask" && state.confirm?.command === command.command) return { type: "rebuild", request: state.confirm }
+  return command
 }

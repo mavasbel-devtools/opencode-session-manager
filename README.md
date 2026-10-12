@@ -85,6 +85,8 @@ The program:
 - Two sessions whose histories differ after a shared beginning (`diverged`) are
   skipped; forking one of them into a new session is a later step
   (`docs/plans/2026-10-08-23-15-complete-sync-and-robustness.md`).
+- Two profiles whose OpenCode stores are at different OpenCode migrations are
+  refused: start the same OpenCode version on both once, then sync.
 - A project Magic Context's own module manages (its Rust authority) is never
   written from outside: its sessions are skipped (`authority-managed`).
 - A store holding tables or columns this program's schemas do not describe
@@ -103,8 +105,12 @@ The program:
 - A `dir:` Magic Context project is a hash of the folder's path, so it differs
   between machines; a session whose folder does not exist here, and is not in a
   git repository, gets no project (`no-project`) and is skipped.
-- It does not rebuild Magic Context summaries; a session whose summaries lag far
-  behind its history needs `/ctx-wrapup` in OpenCode.
+- It does not summarise anything itself: `context wrapup` / `context recomp`
+  (and the browser's `W` / `R`) ask the running OpenCode to run Magic Context's
+  own `/ctx-wrapup` / `/ctx-recomp`, so they need OpenCode running, work only on
+  this machine's profile, and spend historian tokens. OpenCode answers before the
+  command ends and says nothing about it afterwards; progress is read from the
+  store. OpenCode refuses a session whose folder no longer exists (404).
 
 ## Install the plugin
 
@@ -141,6 +147,10 @@ opencode-session-manager sessions [--data <dataHome>] [--json]
 opencode-session-manager verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]
 opencode-session-manager context copy --from <context.db> --to <file>
 opencode-session-manager preflight [--db <path>]
+
+# Through the running OpenCode (Magic Context's own commands; spends tokens)
+opencode-session-manager context wrapup|recomp --session <id>... [--data <dataHome>] [--keep <messages>] \
+  [--server <url>] [--no-wait] [--timeout <minutes>] [--json]
 
 # Write (to copies, swapped in by renames): OpenCode must be closed
 opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... \
@@ -221,6 +231,14 @@ is published: `Magic Context 0.47.0 · 0.48.0 available on npm` (highlighted),
 `up to date`, `npm did not answer`, or `npm not checked` with `--offline` /
 `OPENCODE_SESSION_MANAGER_OFFLINE`. Updating stays yours to do (pin the new
 version in `opencode.jsonc` and restart OpenCode, with no wrapup running).
+
+`W` (wrapup) and `R` (full rebuild) run [`context wrapup` / `context
+recomp`](#rebuilding-magic-context-context-wrapup-and-context-recomp) on the
+marked sessions (or the selected one) of the focused side, which must be this
+machine's own profile: the first press says what would run, the same key again
+runs it, any other key cancels. Each look at the store shows in the footer; the
+outcome replaces it, the side is read again (summaries, health), and the
+outcome's lines are printed once the browser has closed.
 
 Each side's **health** is checked by [`verify`](#checking-a-profile-verify) when it is opened and
 again after an apply changed it (read-only, so it is safe while OpenCode runs).
@@ -386,6 +404,35 @@ Applying refuses while any process holds the target store open (OpenCode with
 Magic Context does): close OpenCode and run `opencode service stop` first.
 `--dry-run` builds and checks the copy without touching the target.
 
+### Rebuilding Magic Context: `context wrapup` and `context recomp`
+
+`context wrapup` runs Magic Context's `/ctx-wrapup` in each `--session` (it
+summarises what lags, round after round, until only the newest messages are raw:
+`--keep <messages>`, Magic Context's default 20 otherwise); `context recomp`
+runs `/ctx-recomp` (it rebuilds every summary from the first message; memories
+are untouched). Both go through the OpenCode server this machine's service
+recorded (`$XDG_STATE_HOME/opencode/service.json`: its URL and password), or the
+one `--server <url>` names: `POST <url>/api/session/<id>/command`. The server
+answers at once and runs the command in the background, so the program then
+follows it in this machine's Magic Context store (or `--data`), reading only:
+summaries and how far they reach, the wrapup marker, an unexpired history lease,
+summaries a recomp has staged, and the historian runs recorded since the
+command. It prints each look (every 10 s) and ends each session with one of:
+
+| Status | Meaning |
+|---|---|
+| `finished` | a historian run since the command succeeded (or had nothing to do) |
+| `failed` | the newest run since the command failed (its reason follows) |
+| `stopped` | the wrapup marker was left behind: OpenCode restarted, run it again to continue |
+| `nothing-to-do` | Magic Context showed no sign of work within 60 s (nothing to wrap up or rebuild) |
+| `refused` | Magic Context was already working on the session, or the server refused (the folder is gone, a wrong password, no server) |
+| `started` | `--no-wait`: started, not followed |
+| `timed-out` | still running after `--timeout` minutes (180); it carries on in OpenCode |
+
+Sessions run one at a time; the exit code is 0 when every session finished,
+started or had nothing to do. Do not restart OpenCode while one runs: a restart
+cuts a wrapup off (`stopped`; summaries already written stay).
+
 ### Compaction
 
 `preflight`, `rehearse`, `run` and `rollback` work on
@@ -497,6 +544,10 @@ flowchart LR
     OP --> CAT[CatalogProfileUseCase]
     CAT --> SS[SessionStorePort -> BunSessionStoreAdapter]
     CAT --> MCS[MagicContextStorePort -> BunMagicContextStoreAdapter]
+    XC --> RB[RebuildContextUseCase]
+    BC -->|W / R| RB
+    RB --> SRV[OpencodeServerPort -> HttpOpencodeServerAdapter]
+    RB --> PRG[MagicContextProgressPort -> BunMagicContextProgressAdapter]
     XC --> CM[CopyMagicContextUseCase]
     XC --> SM[SyncMagicContextUseCase]
     AQ --> OP
@@ -575,6 +626,7 @@ live tier needs `node` (for the pseudo-terminal).
 | `XDG_CACHE_HOME` | the program | where OpenCode's package cache, and so the installed Magic Context, is found (`~/.cache`) |
 | `XDG_CONFIG_HOME` | the installers, `tui` | the plugins folder (`~/.config/opencode/plugins`); the browser reads `opencode/opencode.jsonc` there for the Magic Context OpenCode loads |
 | `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` | `InstalledMagicContextAdapter` | pointed into a throwaway sandbox for the child process that runs Magic Context's code |
+| `XDG_STATE_HOME` | `context wrapup`, `context recomp`, the browser's `W`/`R` | where `opencode/service.json` (the running OpenCode server's URL and password) is found (`~/.local/state`) |
 | `OPENCODE_DB_PATH` | the v1 plugin | the OpenCode 1 store, as the v1 host reads it |
 | `OPENCODE_DB_COMPACT_IMAGE` | `preflight`, `run`, `rollback` | the OpenCode process name: `preflight` reports it, the others refuse while it runs (`opencode`, `opencode.exe` on Windows) |
 | `OPENCODE_DB_COMPACT_REHEARSAL_DIR` | `rehearse` | rehearsal folder (`<temp>/opencode/compact-rehearsal`) |
@@ -586,6 +638,7 @@ live tier needs `node` (for the pseudo-terminal).
 | `OPENCODE_V2_EXECUTABLE` | live tier | the OpenCode 2 executable (else `~/.opencode/bin/opencode`, `~/.local/bin/opencode.exe` on Windows, else `PATH`) |
 | `OPENCODE_BIN` | live `sync` test | the `opencode` that lists the synced copy (default `opencode` on `PATH`) |
 | `OPENCODE_SM_LIVE_OLD_CONTEXT` | live `context copy` test | an older `context.db` to upgrade with the installed Magic Context |
+| `OPENCODE_SM_LIVE_REBUILD_SESSION` | live `context recomp` test | a session of this machine to rebuild with `/ctx-recomp` through the running OpenCode (spends historian tokens); skipped without it |
 | `OPENCODE_SM_LIVE_OTHER_PROFILE` | live `sync` and `context sync` tests | another profile's data home to sync into a copy of this machine's; skipped without it |
 | `OPENCODE_TEST_HOME`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_SERVER_PASSWORD` | `tests/support/live/isolated-host.ts` | set for the isolated OpenCode the live tier starts: its home, no self-update, a fixed server password |
 

@@ -1,5 +1,6 @@
 import type { ContextScope } from "@session-manager/domain/model/MagicContextSync"
 import type { MagicContextVersions } from "@session-manager/domain/model/MagicContextRelease"
+import type { RebuildCommand } from "@session-manager/domain/model/Rebuild"
 import type { CatalogedSession, ProfileCatalog } from "@session-manager/domain/model/SessionCatalog"
 import type { SessionHealth } from "@session-manager/domain/model/Verify"
 import type { Prefer, SessionAction, SessionRelation, SessionSkipReason } from "@session-manager/domain/model/SessionSync"
@@ -104,6 +105,15 @@ export interface BrowserState {
   readonly lastResult: readonly string[] | null
   /** The Magic Context this machine runs, and whether npm has a newer one (null: not known). */
   readonly release: MagicContextReleaseState | null
+  /** A rebuild asked for once, waiting for the same key again (any other key cancels it). */
+  readonly confirm: RebuildRequest | null
+}
+
+/** `/ctx-wrapup` or `/ctx-recomp` on sessions of one side, through the OpenCode server running it. */
+export interface RebuildRequest {
+  readonly command: RebuildCommand
+  readonly side: Side
+  readonly ids: readonly string[]
 }
 
 export interface MagicContextReleaseState {
@@ -138,6 +148,7 @@ export type BrowserAction =
   | { readonly type: "resize"; readonly listHeight: number }
   | { readonly type: "notice"; readonly text: string }
   | { readonly type: "release"; readonly release: MagicContextReleaseState }
+  | { readonly type: "rebuild-ask"; readonly command: RebuildCommand }
   | {
       readonly type: "applied"
       readonly result: readonly string[]

@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 import { buildContainer } from "@session-manager/main/cli-container"
+import { CONTEXT_USAGE } from "@session-manager/infrastructure/adapters/inbound/cli/ContextCliAdapter"
 import { fileSha } from "@test/support/maintenance/database"
 import { captureConsole, captureConsoleError } from "@test/support/maintenance/console"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
@@ -267,7 +268,7 @@ describe("context sync (real stores, the wired container)", () => {
     const missing = await cli(["context", "sync", "--from", at("nowhere"), "--to", at("linux"), "--all"])
     expect(missing.code).toBe(1)
     const usage = await cli(["context", "sync", "--from", at("win")])
-    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager context copy --from <context.db> --to <file>\n       opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) [--prefer keep|further|replace | --replace] [--context all|sessions] [--strict] [--dry-run]"])
+    expect([usage.code, usage.text]).toEqual([2, CONTEXT_USAGE])
     removeTemporary(directory)
     directory = temporaryWorkspace("oc-context-sync-e2e-")
 

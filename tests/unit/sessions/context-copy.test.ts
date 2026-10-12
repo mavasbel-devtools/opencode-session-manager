@@ -6,6 +6,8 @@ import { MagicContextUnavailableError } from "@session-manager/domain/errors/Mag
 import { MagicContextUpgradeError } from "@session-manager/domain/errors/MagicContextUpgradeError"
 import type { MagicContextRelease, MagicContextUpgradeOutcome } from "@session-manager/domain/model/MagicContextRelease"
 import { CONTEXT_USAGE, ContextCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/ContextCliAdapter"
+import { REBUILD_GRACE_MS, REBUILD_POLL_MS, REBUILD_TIMEOUT_MINUTES } from "@session-manager/domain/model/Rebuild"
+import type { RebuildInput } from "@session-manager/domain/ports/inbound/RebuildContextPort"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
 import { FakeOutput } from "@test/support/maintenance/fakes/output"
 import { FakeSqlite } from "@test/support/maintenance/fakes/sqlite"
@@ -84,6 +86,7 @@ describe("ContextCliAdapter", () => {
     const seen: unknown[] = []
     const syncs: SyncInput[] = []
     const events: string[] = []
+    const rebuilds: RebuildInput[] = []
     const adapter = new ContextCliAdapter({
       copy: {
         copy: (input) => {
@@ -114,9 +117,32 @@ describe("ContextCliAdapter", () => {
           events.push(`close ${profile.catalog.profile.name}`)
         },
       },
+      rebuild: {
+        rebuild: async (input) => {
+          rebuilds.push(input)
+          input.onProgress?.({ session_id: input.sessions[0]!, snapshot: { summaries: 1, reach: 9, wrapup: "running", leased: false, staged: 0, runs: [] }, elapsed_ms: 4000 })
+          const status = input.sessions.includes("ses_fail") ? ("failed" as const) : ("finished" as const)
+          const sessions = input.sessions.map((id) => ({
+            session_id: id,
+            command: input.command,
+            status,
+            detail: null,
+            summaries_before: 1,
+            summaries_after: 2,
+            reach_before: 9,
+            reach_after: 20,
+            runs: 1,
+            failed_runs: 0,
+            elapsed_ms: 8000,
+          }))
+          return { server: "http://s", context_db: input.contextDb, command: input.command, sessions, ok: status === "finished" }
+        },
+      },
       output,
+      runtime: { homeDirectory: () => "/home/me" },
+      environment: {},
     })
-    return { adapter, output, seen, syncs, events }
+    return { adapter, output, seen, syncs, events, rebuilds }
   }
 
   it("copies with --from and --to in any order and prints the report", () => {
@@ -191,4 +217,52 @@ describe("ContextCliAdapter", () => {
       expect(output.lines).toEqual([CONTEXT_USAGE])
     }
   })
+
+  describe("wrapup and recomp", () => {
+  it("runs /ctx-wrapup on this machine's profile, waiting and printing progress, then the outcome", async () => {
+    const { adapter, output, rebuilds } = cli()
+    expect(await adapter.run(["wrapup", "--session", "ses_a", "--keep", "30", "--session", "ses_b"])).toBe(0)
+    expect(rebuilds[0]).toMatchObject({
+      contextDb: "/home/me/.local/share/cortexkit/magic-context/context.db",
+      sessions: ["ses_a", "ses_b"],
+      command: "wrapup",
+      keep: 30,
+      server: null,
+      wait: true,
+      timeoutMs: REBUILD_TIMEOUT_MINUTES * 60_000,
+      pollMs: REBUILD_POLL_MS,
+      graceMs: REBUILD_GRACE_MS,
+    })
+    expect(output.lines).toEqual([
+      "ses_a: running · 1 summaries to message 9 · 4 s",
+      "/ctx-wrapup through http://s: 2 finished",
+      "ses_a: finished · summaries 1 → 2, to message 9 → to message 20 · 1 runs (0 failed) · 8 s",
+      "ses_b: finished · summaries 1 → 2, to message 9 → to message 20 · 1 runs (0 failed) · 8 s",
+      "OK",
+    ])
+  })
+
+  it("runs /ctx-recomp on another profile and server without waiting, as JSON, and fails when a session did not finish", async () => {
+    const { adapter, output, rebuilds } = cli()
+    expect(await adapter.run(["recomp", "--session", "ses_fail", "--data", "/d", "--server", "http://other", "--no-wait", "--timeout", "5", "--json"])).toBe(1)
+    expect(rebuilds[0]).toMatchObject({ contextDb: "/d/cortexkit/magic-context/context.db", command: "recomp", keep: null, server: "http://other", wait: false, timeoutMs: 300_000 })
+    expect(rebuilds[0]!.onProgress).toBeUndefined()
+    expect(JSON.parse(output.text())).toMatchObject({ ok: false, sessions: [{ status: "failed" }] })
+  })
+
+  it("prints the usage for a missing session, --keep on recomp, a bad number or an unknown option", async () => {
+    for (const argv of [
+      ["wrapup"],
+      ["recomp", "--session", "s", "--keep", "3"],
+      ["wrapup", "--session", "s", "--keep", "x"],
+      ["wrapup", "--session", "s", "--timeout", "0"],
+      ["wrapup", "--session", "s", "--timeout", "-1"],
+      ["wrapup", "--session", "s", "--fast"],
+    ]) {
+      const { adapter, output, rebuilds } = cli()
+      expect(await adapter.run(argv)).toBe(2)
+      expect([output.text(), rebuilds.length]).toEqual([CONTEXT_USAGE, 0])
+    }
+  })
+})
 })

@@ -166,8 +166,8 @@ describe("browser text", () => {
   it("explains the keys in the footer for each view, with the notice and the filter", () => {
     const one = createBrowser(opened("left", []), null, 3)
     const two = createBrowser(opened("left", []), opened("right", []), 3)
-    expect(footerText(one)).toBe("↑↓ move · PgUp/PgDn · Enter fold · Space mark · / filter · q quit")
-    expect(footerText(two)).toBe("↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · Tab pane · p pair · / filter · q quit")
+    expect(footerText(one)).toBe("↑↓ move · PgUp/PgDn · Enter fold · Space mark · W/R wrapup/rebuild · / filter · q quit")
+    expect(footerText(two)).toBe("↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · W/R wrapup/rebuild · Tab pane · p pair · / filter · q quit")
     expect(footerText(run(two, { type: "layout" }))).toContain("· p panes ·")
     expect(footerText(run(two, { type: "view" }))).toBe("d dry run · a apply · r/R Magic Context preference (one/all) · t scope · x remove · c clear · Esc back · q quit")
     expect(footerText({ ...two, notice: "Done." })).toStartWith("Done.   ↑↓ ·")
@@ -206,6 +206,16 @@ describe("browser keys", () => {
     expect(commandFor(key("x"), browsing)).toBeNull()
     expect(commandFor(key("toString"), browsing)).toBeNull()
     expect(commandFor(key("x", { shift: true, sequence: "X" }), browsing)).toBeNull()
+  })
+
+  it("asks for a rebuild with W or R, and runs it on the same key again", () => {
+    expect(commandFor(key("w", { shift: true, sequence: "W" }), browsing)).toEqual({ type: "rebuild-ask", command: "wrapup" })
+    expect(commandFor(key("R", { sequence: "R" }), browsing)).toEqual({ type: "rebuild-ask", command: "recomp" })
+    const request = { command: "wrapup" as const, side: "left" as const, ids: ["ses_a"] }
+    const asked = { ...browsing, confirm: request }
+    expect(commandFor(key("w", { shift: true, sequence: "W" }), asked)).toEqual({ type: "rebuild", request })
+    expect(commandFor(key("r", { shift: true, sequence: "R" }), asked)).toEqual({ type: "rebuild-ask", command: "recomp" })
+    expect(commandFor(key("j"), asked)).toEqual({ type: "move", delta: 1 })
   })
 
   it("edits the queue in the queue view", () => {

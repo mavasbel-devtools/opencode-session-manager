@@ -11,6 +11,7 @@ import {
   withPosition,
 } from "@session-manager/domain/model/BrowserRows"
 import type { BrowserAction, BrowserState, ListId, ListPosition, MagicContextReleaseState, OpenedProfile, Side } from "@session-manager/domain/model/BrowserState"
+import type { RebuildCommand } from "@session-manager/domain/model/Rebuild"
 
 export * from "@session-manager/domain/model/BrowserState"
 export { activeList, paneOf, rowsOf, selectedRow } from "@session-manager/domain/model/BrowserRows"
@@ -41,6 +42,7 @@ export function createBrowser(left: OpenedProfile, right: OpenedProfile | null, 
     notice: null,
     lastResult: null,
     release,
+    confirm: null,
   }
 }
 
@@ -49,7 +51,7 @@ const BACKGROUND: ReadonlySet<BrowserAction["type"]> = new Set(["resize", "relea
 
 /** Applies one action; the notice of the previous user action is cleared first. */
 export function reduce(state: BrowserState, action: BrowserAction): BrowserState {
-  return step(BACKGROUND.has(action.type) ? state : { ...state, notice: null }, action)
+  return step(BACKGROUND.has(action.type) ? state : { ...state, notice: null, confirm: null }, action)
 }
 
 function step(state: BrowserState, action: BrowserAction): BrowserState {
@@ -114,8 +116,27 @@ function step(state: BrowserState, action: BrowserAction): BrowserState {
       return { ...state, notice: action.text }
     case "release":
       return { ...state, release: action.release }
+    case "rebuild-ask":
+      return askRebuild(state, action.command)
     case "applied":
       return applied(state, action)
+  }
+}
+
+/** The first press of W or R: what would run, on which sessions of the focused side; the same key again runs it. */
+function askRebuild(state: BrowserState, command: RebuildCommand): BrowserState {
+  const ids = state.marked.length > 0 ? state.marked : idsOf(state, activeList(state), selectedRow(state))
+  const side = state.focus
+  const pane = side === "left" ? state.left : state.right!
+  const here = new Set(pane.catalog.sessions.map((session) => session.id))
+  const present = ids.filter((id) => here.has(id))
+  if (present.length === 0) return { ...state, notice: `Nothing selected on the ${side}.` }
+  const key = command === "wrapup" ? "W" : "R"
+  const what = command === "wrapup" ? "/ctx-wrapup (summarise what lags)" : "/ctx-recomp (rebuild every summary)"
+  return {
+    ...state,
+    confirm: { command, side, ids: present },
+    notice: `${key} again: ${what} on ${present.length} ${present.length === 1 ? "session" : "sessions"} of the ${side}, through the running OpenCode; it spends historian tokens. Any other key cancels.`,
   }
 }
 

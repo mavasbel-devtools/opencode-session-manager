@@ -115,6 +115,13 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
 13. `--strict` (`sync`, `context sync`) refuses the whole sync, before anything is
     written, when Magic Context is working on a requested session (rule 10's
     `busy`); without it that session's state is skipped and reported.
+14. **Rebuilds never write a store.** `context wrapup|recomp` and the browser's
+    `W`/`R` only send Magic Context's own command to the running OpenCode and
+    read the store to follow it; the writing is Magic Context's, inside
+    OpenCode. A session Magic Context already works on is refused, never
+    interrupted; sessions run one at a time; the browser offers them only on
+    the side showing this machine's own profile (not a snapshot), and only on a
+    second press of the same key.
 
 ### The report JSON is a contract
 
@@ -311,6 +318,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `WindowsMapping.ts` | sessions | the mapping a session's own folders imply (Windows profile → this home, plus a moved folder) |
 | `MapRules.ts` | sessions | `--map` rules → a `PathMapping` (`parseMapRule`, `mappingFromRules`, `NO_WINDOWS_PROFILE`) |
 | `Versions.ts` | sessions | `compareVersions` (dotted numeric versions) |
+| `Rebuild.ts` (model) | sessions | `/ctx-wrapup` / `/ctx-recomp` through the server: snapshots, `phaseOf`, statuses, report text, poll/grace/timeout defaults |
 | `Jsonc.ts` | sessions | `stripComments`, `pinnedMagicContext` (the spec `opencode.jsonc` pins), `MAGIC_CONTEXT_PACKAGE` |
 | `GitRemote.ts` | sessions | a remote URL in the form OpenCode hashes into a project id |
 | `PosixPaths.ts` | sessions | `isWithin`, `sessionSubpath` |
@@ -336,7 +344,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `PreflightPort.ts`, `RehearsePort.ts`, `RollbackPort.ts` (maintenance);
 `OpenProfilePort.ts`, `CatalogProfilePort.ts`, `CopyMagicContextPort.ts`,
 `SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
-`MagicContextVersionsPort.ts`
+`MagicContextVersionsPort.ts`, `RebuildContextPort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`,
 `MoveSessionPort.ts`, `TransferSessionPort.ts`, `BuildDirectoryOptionsPort.ts`
 (plugin).
@@ -347,7 +355,8 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `ReportSinkPort.ts`, `RuntimePort.ts`, `OutputPort.ts`, `StoreLockPort.ts` (maintenance and the
 program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextSyncStorePort.ts`, `SessionSyncStorePort.ts`, `MagicContextReleasePort.ts`,
-`MagicContextIdentityPort.ts`, `MagicContextConfigPort.ts`, `PublishedVersionPort.ts` (sessions); `SessionHostPort.ts`,
+`MagicContextIdentityPort.ts`, `MagicContextConfigPort.ts`, `PublishedVersionPort.ts`, `OpencodeServerPort.ts`,
+`MagicContextProgressPort.ts`, `TimerPort.ts` (sessions); `SessionHostPort.ts`,
 `SessionDbPort.ts`, `ProjectResolverPort.ts`, `FileSystemPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`,
 `SidebarViewPort.ts` (plugin).
@@ -373,6 +382,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `SyncMagicContextUseCase.ts` | sessions | `context sync`: the service's copy swapped in, with a backup |
 | `SyncSessionsUseCase.ts` | sessions | `sync`: whole sessions (OpenCode rows + Magic Context state) into working copies of both target stores, checked, swapped in together |
 | `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one whole-session sync per direction |
+| `RebuildContextUseCase.ts` | sessions | `context wrapup|recomp` and the browser's `W`/`R`: one session at a time through the OpenCode server, followed in the store (read-only); refuses a session Magic Context already works on |
 | `MagicContextVersionsUseCase.ts` | sessions | the Magic Context OpenCode loads here and the newest on npm (the browser's header) |
 | `ResolveSessionIdToolUseCase.ts` | plugin | the `session-id` tool |
 | `RenderSidebarEntryUseCase.ts` | plugin | the sidebar line |
@@ -416,6 +426,9 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `sqlite/SqliteSessionDbAdapter.ts` | the OpenCode 1 store, for the v1 transfer |
 | `magic-context/InstalledMagicContextAdapter.ts` | finds the installed Magic Context and runs its store code in a sandboxed child process |
 | `magic-context/OpencodeMagicContextConfigAdapter.ts` | the spec `opencode.jsonc` pins and the copy OpenCode installed for it |
+| `opencode2/HttpOpencodeServerAdapter.ts` | the server `service.json` records, and its command endpoint (HTTP Basic `opencode`) |
+| `sqlite/BunMagicContextProgressAdapter.ts` | a session's Magic Context progress (summaries, reach, wrapup marker, lease, staged recomp rows, historian runs since a moment), read-only |
+| `system/SystemTimerAdapter.ts` | waiting between looks at a running rebuild (tests pass a timer that does not wait) |
 | `npm/NpmRegistryAdapter.ts` | a package's `latest` dist-tag on an npm registry (time-limited) |
 | `magic-context/MagicContextIdentityAdapter.ts` | Magic Context's project identity of a folder |
 | `project/GitProjectIdentityAdapter.ts` | OpenCode 2's project id of a folder |

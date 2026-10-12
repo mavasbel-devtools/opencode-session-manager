@@ -28,7 +28,11 @@ afterEach(() => {
 })
 
 const RELEASE = { versions: { pinned: "0.47.0", loaded: "0.47.0", latest: "0.48.0" }, newer: true }
-const NO_CONTROLS: BrowserControls = { apply: () => ({ result: ["not used"], changed: false, planned: {} }), release: async () => RELEASE }
+const NO_CONTROLS: BrowserControls = {
+  apply: () => ({ result: ["not used"], changed: false, planned: {} }),
+  release: async () => RELEASE,
+  rebuild: async () => ({ result: ["not used"] }),
+}
 
 async function paint(withRight: boolean, size = { width: 120, height: 30 }) {
   let quits = 0
@@ -139,6 +143,7 @@ describe("BrowserView pairing and the queue", () => {
     const fresh = opened("left", [session({ id: "ses_x", directory: "/w", updated: T, title: "Both", context: { compartments: 42 } })])
     const controls: BrowserControls = {
       release: async () => RELEASE,
+      rebuild: async () => ({ result: ["not used"] }),
       apply: (queue, dryRun, scope) => {
         calls.push(`${dryRun ? "check" : "apply"} ${queue.length} ${queue[0]!.prefer} ${scope}`)
         const planned = { ses_x: { action: "keep" as const, relation: "same" as const, reason: null, context: "Magic Context copied" } }
@@ -168,6 +173,46 @@ describe("BrowserView pairing and the queue", () => {
     expect(calls).toEqual(["check 1 keep sessions", "apply 1 keep sessions"])
     setup.mockInput.pressEscape()
     expect(await waitForText(setup, "S42")).toContain("Both")
+  })
+})
+
+describe("BrowserView rebuilds", () => {
+  it("asks once, runs on the second press, shows each step, then the outcome and the side read again", async () => {
+    const calls: string[] = []
+    let finish!: () => void
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const fresh = opened("left", [session({ id: "ses_l00", directory: "/w/a", updated: T, title: "Left 0", context: { compartments: 9 } })])
+    const controls: BrowserControls = {
+      ...NO_CONTROLS,
+      rebuild: async (request, onProgress) => {
+        calls.push(`${request.command} ${request.side} ${request.ids.join(",")}`)
+        onProgress("ses_l00: running · 1 summaries to message 9 · 10 s")
+        await finished
+        return { result: ["/ctx-wrapup through http://s", "OK"], left: fresh, right }
+      },
+    }
+    const setup = await testRender(() => <BrowserView initial={createBrowser(left, right, 1)} onQuit={() => {}} controls={controls} />, { width: 140, height: 30 })
+    destroy = () => setup.renderer.destroy()
+    setup.mockInput.pressArrow("down")
+    setup.mockInput.pressKey("W", { shift: true })
+    expect(await waitForText(setup, "W again: /ctx-wrapup (summarise what lags) on 1 session of the left")).toContain("spends historian tokens")
+    setup.mockInput.pressKey("j")
+    expect(await frame(setup)).not.toContain("W again")
+    setup.mockInput.pressKey("k")
+    setup.mockInput.pressKey("W", { shift: true })
+    setup.mockInput.pressKey("W", { shift: true })
+    expect(await waitForText(setup, "ses_l00: running · 1 summaries to message 9")).toBeTruthy()
+    // A second rebuild or an apply while one runs is ignored.
+    setup.mockInput.pressKey("R", { shift: true })
+    expect(await waitForText(setup, "R again: /ctx-recomp")).toBeTruthy()
+    setup.mockInput.pressKey("R", { shift: true })
+    await frame(setup)
+    finish()
+    expect(await waitForText(setup, "/ctx-wrapup through http://s")).toBeTruthy()
+    expect(await waitForText(setup, "S 9")).toContain("Left 0")
+    expect(calls).toEqual(["wrapup left ses_l00"])
   })
 })
 

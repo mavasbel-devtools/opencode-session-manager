@@ -319,3 +319,21 @@ describe("Browser background actions", () => {
     expect(two().release).toBeNull()
   })
 })
+
+describe("Browser rebuild requests", () => {
+  it("asks for the marked sessions of the focused side, or the selected one, and any other action cancels", () => {
+    const one = run(two(), { type: "move", delta: 1 }, { type: "rebuild-ask", command: "wrapup" })
+    expect(one.confirm).toEqual({ command: "wrapup", side: "left", ids: ["ses_a"] })
+    expect(one.notice).toBe(
+      "W again: /ctx-wrapup (summarise what lags) on 1 session of the left, through the running OpenCode; it spends historian tokens. Any other key cancels.",
+    )
+    expect(run(one, { type: "move", delta: 1 }).confirm).toBeNull()
+    expect(run(one, { type: "release", release: { versions: { pinned: null, loaded: null, latest: null }, newer: false } }).confirm).toEqual(one.confirm)
+    // Marked sessions the focused side does not have are left out.
+    const marked = run(paired(), { type: "mark-all" }, { type: "focus", side: "right" }, { type: "rebuild-ask", command: "recomp" })
+    expect(marked.confirm).toEqual({ command: "recomp", side: "right", ids: ["ses_c", "ses_a", "ses_b", "ses_e"] })
+    expect(marked.notice).toStartWith("R again: /ctx-recomp (rebuild every summary) on 4 sessions of the right")
+    const nothing = run(two(), { type: "filter-input", text: "zz" }, { type: "rebuild-ask", command: "wrapup" })
+    expect([nothing.confirm, nothing.notice]).toEqual([null, "Nothing selected on the left."])
+  })
+})
