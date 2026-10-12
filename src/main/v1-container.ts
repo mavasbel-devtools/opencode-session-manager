@@ -3,6 +3,7 @@ import { TransferSessionUseCase } from "@session-manager/application/TransferSes
 import { SessionTransferV1TuiAdapter } from "@session-manager/infrastructure/adapters/inbound/tui/SessionTransferV1TuiAdapter"
 import { NodeFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeFileSystemAdapter"
 import { ProjectResolverAdapter } from "@session-manager/infrastructure/adapters/outbound/project/ProjectResolverAdapter"
+import { OpenCodeGitIdentity } from "@session-manager/infrastructure/adapters/outbound/project/OpenCodeGitIdentity"
 import { SystemHomeDirectoryAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemHomeDirectoryAdapter"
 import { SqliteSessionDbAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/SqliteSessionDbAdapter"
 
@@ -24,7 +25,7 @@ export function createV1Container(customDbPath?: string): V1Container {
     transfer: new SessionTransferV1TuiAdapter({
       db,
       home: new SystemHomeDirectoryAdapter(),
-      transferSession: new TransferSessionUseCase(db, new ProjectResolverAdapter(), fs),
+      transferSession: new TransferSessionUseCase(db, new ProjectResolverAdapter(new OpenCodeGitIdentity()), fs),
       buildDirectoryOptions: new BuildDirectoryOptionsUseCase(db, fs),
     }),
   }

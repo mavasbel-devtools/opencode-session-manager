@@ -88,9 +88,11 @@ test("PathRewriter.residual flags profile paths and a doubled home, nothing else
 test("normalizeRemote: URLs and scp remotes to host/path; no host gives null", () => {
   assert.equal(normalizeRemote("https://GitHub.com/Owner/Repo.git"), "github.com/Owner/Repo")
   assert.equal(normalizeRemote("ssh://git@github.com:22/owner/repo.git/"), "github.com/owner/repo")
-  assert.equal(normalizeRemote("https://host/a%20b/"), "host/a b")
+  // Kept as written, as OpenCode keeps it.
+  assert.equal(normalizeRemote("https://host/a%20b/"), "host/a%20b")
   assert.equal(normalizeRemote("git@github.com:owner/repo.git"), "github.com/owner/repo")
-  assert.equal(normalizeRemote("Host.Example:path/x"), "host.example/path/x")
+  // Parsed as a URL whose scheme is `host.example:` and has no host, so OpenCode names no remote.
+  assert.equal(normalizeRemote("Host.Example:path/x"), null)
   assert.equal(normalizeRemote("  "), null)
   assert.equal(normalizeRemote(null), null)
   assert.equal(normalizeRemote("file:///srv/repo.git"), null)

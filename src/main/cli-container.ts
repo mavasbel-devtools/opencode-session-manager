@@ -70,6 +70,7 @@ import { CliRouter } from "@session-manager/infrastructure/adapters/inbound/cli/
 import { CompactCliAdapter, type CliEnvironment } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
 import { ConsoleOutputAdapter } from "@session-manager/infrastructure/adapters/outbound/system/ConsoleOutputAdapter"
 import { GitProjectIdentityAdapter } from "@session-manager/infrastructure/adapters/outbound/project/GitProjectIdentityAdapter"
+import { OpenCodeGitIdentity } from "@session-manager/infrastructure/adapters/outbound/project/OpenCodeGitIdentity"
 import { JsonReportAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/JsonReportAdapter"
 import { NodeMaintenanceFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeMaintenanceFileSystemAdapter"
 import { BunSqliteAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSqliteAdapter"
@@ -122,7 +123,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
   const output = overrides.output ?? new ConsoleOutputAdapter()
   const reports = overrides.reports ?? new JsonReportAdapter()
   const sqlite = overrides.sqlite ?? new BunSqliteAdapter()
-  const identity = overrides.identity ?? new GitProjectIdentityAdapter()
+  const identity = overrides.identity ?? new GitProjectIdentityAdapter(new OpenCodeGitIdentity())
   const sessionStore = overrides.sessionStore ?? new BunSessionStoreAdapter()
   const magicContextStore = overrides.magicContextStore ?? new BunMagicContextStoreAdapter()
   const space = overrides.space ?? new RequiredSpacePolicy()

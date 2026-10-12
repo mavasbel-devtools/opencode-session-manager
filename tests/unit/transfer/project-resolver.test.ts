@@ -5,9 +5,11 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { ProjectResolverAdapter } from "@session-manager/infrastructure/adapters/outbound/project/ProjectResolverAdapter"
+import { OpenCodeGitIdentity } from "@session-manager/infrastructure/adapters/outbound/project/OpenCodeGitIdentity"
+import { normalizeRemote } from "@session-manager/domain/services/GitRemote"
 import { removeTemporarySync } from "@test/support/live/process"
 
-const adapter = new ProjectResolverAdapter()
+const adapter = new ProjectResolverAdapter(new OpenCodeGitIdentity())
 
 function hasGit(): boolean {
   try {
@@ -44,8 +46,8 @@ function rootCommitOf(dir: string): string {
   return spawnSync("git", ["rev-list", "--max-parents=0", "HEAD"], { cwd: dir, windowsHide: true, encoding: "utf8" }).stdout.trim()
 }
 
-describe("ProjectResolverAdapter (v1.18.32 remote normalization)", () => {
-  const normalize = (adapter as any).normalizeRemoteUrl.bind(adapter) as (url: string) => string | undefined
+describe("normalizeRemote (OpenCode 1.18.32's and 2.0.26's remote normalization)", () => {
+  const normalize = (url: string) => normalizeRemote(url) ?? undefined
 
   it("normalizes any URL scheme, stripping the leading slash, .git and trailing slashes", () => {
     expect(normalize("https://github.com/anomalyco/opencode.git")).toBe("github.com/anomalyco/opencode")

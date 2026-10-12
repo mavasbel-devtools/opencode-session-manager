@@ -441,8 +441,9 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `system/SystemTimerAdapter.ts` | waiting between looks at a running rebuild (tests pass a timer that does not wait) |
 | `npm/NpmRegistryAdapter.ts` | a package's `latest` dist-tag on an npm registry (time-limited) |
 | `magic-context/MagicContextIdentityAdapter.ts` | Magic Context's project identity of a folder |
-| `project/GitProjectIdentityAdapter.ts` | OpenCode 2's project id of a folder |
-| `project/ProjectResolverAdapter.ts` | OpenCode 1.18.32's project resolution |
+| `project/OpenCodeGitIdentity.ts` | how OpenCode 1.18.32 and 2.0.26 both name a git repository's project (`origin` remote only, the id stored in `<git-common-dir>/opencode`, the first root commit in sorted order); shared by the two below |
+| `project/GitProjectIdentityAdapter.ts` | OpenCode 2's project id of a folder (outside a repository: `sha1("directory:" + realpath)`) |
+| `project/ProjectResolverAdapter.ts` | OpenCode 1.18.32's project resolution (outside a repository: `global`) |
 | `platform/linux/ProcProcessListAdapter.ts`, `platform/linux/ProcFdHoldersAdapter.ts`, `platform/linux/ProcFs.ts` | Linux: running processes and file holders from `/proc` |
 | `platform/win32/TasklistAdapter.ts`, `platform/win32/RenameProbeHoldersAdapter.ts` | Windows: `tasklist` and the rename probe |
 | `fs/NodeMaintenanceFileSystemAdapter.ts` | the program's file operations |

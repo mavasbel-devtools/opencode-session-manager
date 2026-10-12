@@ -322,8 +322,9 @@ Windows profile (every form [the rewriter](#how-paths-are-rewritten) knows),
 folder. Without a profile rule, the one Windows profile the source's sessions
 live in maps to this home. A session the target already has keeps its folder
 there, and its text follows that folder. A session written to the target gets
-the project OpenCode derives for its folder on this machine (a git remote, a
-stored id, the root commit, else `sha1("directory:" + realpath)`); for a folder
+the project OpenCode derives for its folder on this machine (the `origin`
+remote, else the id stored in the repository, else its first root commit in
+sorted order; outside a repository `sha1("directory:" + realpath)`); for a folder
 that does not exist here, the deepest project of the target containing it, else
 the source's project, recreated with its name and settings.
 
@@ -523,6 +524,7 @@ flowchart LR
     MS --> HP[SessionHostPort -> OpenCode2HostAdapter]
     TS --> DB[SessionDbPort -> SqliteSessionDbAdapter]
     TS --> PR[ProjectResolverPort -> ProjectResolverAdapter]
+    PR --> OGI2[OpenCodeGitIdentity]
     MS --> FS[FileSystemPort -> NodeFileSystemAdapter]
     TS --> FS
 ```
@@ -575,6 +577,7 @@ flowchart LR
     YC --> SY[SyncSessionsUseCase]
     SY --> SST[SessionSyncStorePort -> BunSessionSyncStoreAdapter]
     SY --> PI[ProjectIdentityPort -> GitProjectIdentityAdapter]
+    PI --> OGI[OpenCodeGitIdentity]
     SY --> MR[MapRules + PathRewriter]
     SY --> MB
     BC -->|show| TUI[OpenTuiBrowser: Browser reducer, keys, format]
