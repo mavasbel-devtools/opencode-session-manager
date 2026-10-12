@@ -1,4 +1,4 @@
-import { enqueue, moveInQueue, resolve, unqueue } from "@session-manager/domain/model/BrowserQueue"
+import { cyclePrefer, enqueue, moveInQueue, toggleScope, unqueue, withPlans } from "@session-manager/domain/model/BrowserQueue"
 import {
   activeList,
   idsOf,
@@ -35,6 +35,7 @@ export function createBrowser(left: OpenedProfile, right: OpenedProfile | null, 
     listHeight: Math.max(1, listHeight),
     marked: [],
     queue: [],
+    scope: "all",
     view: "list",
     queueCursor: 0,
     notice: null,
@@ -85,8 +86,10 @@ function step(state: BrowserState, action: BrowserAction): BrowserState {
       return { ...state, view: action.view ?? (state.view === "list" ? "queue" : "list") }
     case "queue-move":
       return moveInQueue(state, action.delta)
-    case "resolve":
-      return resolve(state, action.resolution, action.all === true)
+    case "prefer":
+      return cyclePrefer(state, action.all === true)
+    case "scope":
+      return toggleScope(state)
     case "unqueue":
       return unqueue(state)
     case "queue-clear":
@@ -114,7 +117,7 @@ function step(state: BrowserState, action: BrowserAction): BrowserState {
 function applied(state: BrowserState, action: Extract<BrowserAction, { type: "applied" }>): BrowserState {
   const left = action.left === undefined ? state.left : { ...state.left, ...action.left }
   const right = action.right === undefined || state.right === null ? state.right : { ...state.right, ...action.right }
-  const queue = action.changed ? [] : state.queue
+  const queue = action.changed ? [] : withPlans(state.queue, action.planned ?? {})
   return clampAll({ ...state, left, right, queue, queueCursor: action.changed ? 0 : state.queueCursor, lastResult: action.result, notice: action.result[0]! })
 }
 

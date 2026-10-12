@@ -136,7 +136,7 @@ is preloaded by `bunfig.toml`).
 opencode-session-manager --help | --version
 
 # Read-only: safe while OpenCode runs
-opencode-session-manager tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …]
+opencode-session-manager tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]...
 opencode-session-manager sessions [--data <dataHome>] [--json]
 opencode-session-manager verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]
 opencode-session-manager context copy --from <context.db> --to <file>
@@ -208,7 +208,9 @@ its own numbering, so its counts can be slightly lower.
 `tui` opens two panes, one per profile. Each side is a data home (`--left`,
 `--right`) or explicit store files (`--left-db <opencode.db>` with an optional
 `--left-context <context.db>`, likewise `--right-db`/`--right-context`); the left
-defaults to this machine's profile, the right is optional. Sessions are grouped
+defaults to this machine's profile, the right is optional. `--map <from>=<to>`
+(repeatable) gives the path rules a sync from the queue uses, as for
+[`sync`](#session-sync). Sessions are grouped
 by folder, newest first, each with its message count and Magic Context
 summaries (`S`) and tags (`T`); a detail panel describes the selected row.
 
@@ -219,18 +221,30 @@ With two sides, sessions are **matched by session id**:
   pane selects the same session in the other;
 - `p` switches to the **paired list**: one row per session id with both copies
   on the same line (`L` left only, `R` right only, `=` same, `>` left newer,
-  `<` right newer).
+  `<` right newer). A session moved from OpenCode 1 to OpenCode 2 keeps both
+  rows; it is listed and matched once, by its OpenCode 2 row.
 
 `Space` marks the session under the cursor (on a folder: all of its sessions),
-`*` everything the filter shows. `>` and `<` queue copying the marked sessions'
-(or the selected row's) **Magic Context state** to the right or to the left: a
-copy needs the session on both sides and state to copy, and when the target has
-state of its own the entry is a conflict until you decide. `Q` opens the queue:
-`r`/`s` replace or skip a conflict (`R`/`S` all of them), `x` removes an entry,
-`c` clears it, `d` checks the queue on copies (a dry run) and `a` applies it
-(see [Magic Context sync](#magic-context-sync)); the result replaces the queue
-in the details, and the changed side is read again. Applying refuses while the
-target store is open. Other keys: `↑↓`/`jk`, `PgUp`/`PgDn`, `g`/`G`, `Enter`
+`*` everything the filter shows. `>` and `<` queue a **whole-session sync** of
+the marked sessions (or the selected row) to the right or to the left: the
+OpenCode session with its sub-agent sessions and its Magic Context state, exactly
+as [`sync`](#session-sync) does it (a sub-agent session queues its root). `Q`
+opens the queue; each entry shows its size, its Magic Context preference and what
+the sync does with it — before a check, `new: copy` or `both: d to check`; after
+one, `copy`, `replace (target behind)`, `same: context only`, `same: nothing` or
+`diverged: skipped` (diverged sessions are never merged). Keys there: `d` checks
+the queue on copies (a dry run, which fills in what each entry does), `a` applies
+it, `r` cycles the entry's preference for sessions whose history is the same on
+both sides (`further`: the side whose summaries reach further, the default;
+`keep`: the target's own; `replace`: the source's), `R` sets every entry to the
+next preference, `t` switches the scope between Magic Context state with the
+sessions' projects (memories, notes, primers; the default) and the sessions'
+own state only, `x` removes an entry, `c` clears the queue. Each direction is one
+sync, left to right first, with its own backup of both target stores; the result
+replaces the queue in the details, the changed side is read again, and once the
+browser closes the lines of every applied sync are printed whole, the rollback
+command included. Applying refuses while either target store is open (rule 10).
+Other keys: `↑↓`/`jk`, `PgUp`/`PgDn`, `g`/`G`, `Enter`
 folds a folder, `/` filters by id, title or folder (`Esc` clears), `Esc` leaves
 the queue, `q` quits; the mouse selects rows and scrolls a list.
 
@@ -323,7 +337,7 @@ is kept, so syncing twice adds nothing the second time. Magic Context's
 scheduler state, caches, leases and search indexes are never copied. `--all` takes every such session the source has state
 for. A session the target already has state for is kept unless `--prefer
 replace` (or `--replace`), or `--prefer further` and the source's summaries reach
-further (in the browser: a conflict you decide). A session Magic Context is
+further (in the browser: the entry's `r` preference). A session Magic Context is
 working on in the target store (a wrapup, or an unexpired history lease) is
 skipped (`busy`).
 

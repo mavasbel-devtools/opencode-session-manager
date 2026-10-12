@@ -3,12 +3,14 @@ import { defaultDataHome, profileAt, profileOfFiles, type Profile } from "@sessi
 import type { ApplyQueuePort } from "@session-manager/domain/ports/inbound/ApplyQueuePort"
 import type { OpenProfilePort } from "@session-manager/domain/ports/inbound/OpenProfilePort"
 import type { OutputPort } from "@session-manager/domain/ports/outbound/OutputPort"
+import type { MapRule } from "@session-manager/domain/model/SessionSync"
+import { parseMapRule } from "@session-manager/domain/services/MapRules"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 import type { CliEnvironment } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
 import type { BrowserControls } from "@session-manager/infrastructure/adapters/inbound/manager-tui/controls"
 
 export const TUI_USAGE =
-  "usage: opencode-session-manager tui [--left <dataHome> | --left-db <opencode.db> [--left-context <context.db>]] [--right <dataHome> | --right-db <opencode.db> [--right-context <context.db>]]"
+  "usage: opencode-session-manager tui [--left <dataHome> | --left-db <opencode.db> [--left-context <context.db>]] [--right <dataHome> | --right-db <opencode.db> [--right-context <context.db>]] [--map <from>=<to>]..."
 
 const FLAGS = ["--left", "--right", "--left-db", "--right-db", "--left-context", "--right-context"]
 
@@ -25,7 +27,9 @@ export interface BrowseCliOptions {
 /**
  * `tui`: the session browser. Each side is a data home (`--left`, `--right`) or explicit store files
  * (`--left-db` with an optional `--left-context`, likewise for the right); the left defaults to this
- * machine's profile, and a right side adds a second profile beside it. Read-only, so it is safe while OpenCode runs.
+ * machine's profile, and a right side adds a second profile beside it. Browsing only reads, so it is
+ * safe while OpenCode runs; applying the queue syncs whole sessions (OpenCode closed), with `--map`
+ * rules as for `sync`.
  */
 export class BrowseCliAdapter {
   private readonly options: BrowseCliOptions
@@ -37,10 +41,12 @@ export class BrowseCliAdapter {
   async run(argv: readonly string[]): Promise<number> {
     const { output, runtime, environment, profiles } = this.options
     const values = new Map<string, string>()
+    const maps: MapRule[] = []
     for (let index = 0; index < argv.length; index += 2) {
       const value = argv[index + 1]
-      if (!FLAGS.includes(argv[index]!) || value === undefined || value.startsWith("--")) return this.usage()
-      values.set(argv[index]!, value)
+      if (![...FLAGS, "--map"].includes(argv[index]!) || value === undefined || value.startsWith("--")) return this.usage()
+      if (argv[index] === "--map") maps.push(parseMapRule(value))
+      else values.set(argv[index]!, value)
     }
     const profileFor = (side: "left" | "right"): Profile | null | undefined => {
       const home = values.get(`--${side}`)
@@ -55,18 +61,22 @@ export class BrowseCliAdapter {
     const rightProfile = profileFor("right")
     if (leftProfile === undefined || rightProfile === undefined) return this.usage()
     const shown: { left?: OpenedProfile; right?: OpenedProfile } = {}
+    const applied: string[] = []
     try {
       shown.left = profiles.open(leftProfile as Profile)
       if (rightProfile !== null) shown.right = profiles.open(rightProfile)
       const controls: BrowserControls = {
-        apply: (queue, dryRun) => {
-          const outcome = this.options.apply.apply({ queue, left: shown.left!, right: shown.right!, dryRun })
+        apply: (queue, dryRun, scope) => {
+          const outcome = this.options.apply.apply({ queue, left: shown.left!, right: shown.right!, dryRun, maps, scope })
           // A side read again replaces the one shown; the use case closed the old one.
           Object.assign(shown, outcome.left === undefined ? {} : { left: outcome.left }, outcome.right === undefined ? {} : { right: outcome.right })
+          if (outcome.changed) applied.push(...outcome.result)
           return outcome
         },
       }
       await this.options.show(createBrowser(shown.left, shown.right ?? null, 1), controls)
+      // What changed a store is printed whole once the screen is back: the undo command does not fit the panel.
+      for (const line of applied) output.line(line)
       return 0
     } finally {
       for (const profile of [shown.left, shown.right]) if (profile !== undefined) profiles.close(profile)

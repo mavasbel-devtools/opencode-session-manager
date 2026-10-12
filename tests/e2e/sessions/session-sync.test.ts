@@ -3,7 +3,9 @@ import { createHash } from "node:crypto"
 import { Database } from "bun:sqlite"
 import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import { showBrowser } from "@session-manager/infrastructure/adapters/inbound/manager-tui/OpenTuiBrowser"
 import { buildContainer } from "@session-manager/main/cli-container"
 import { captureConsole, captureConsoleError } from "@test/support/maintenance/console"
 import { fileSha } from "@test/support/maintenance/database"
@@ -11,6 +13,7 @@ import { makeRepository, query, sha1 } from "@test/support/maintenance/repositor
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 import { makeOpenCode2Store, MIGRATIONS } from "@test/support/sessions/opencode-stores"
 import { makeSyncContextStore, rowsOf, type StateSpec } from "@test/support/sessions/sync-stores"
+import { waitForText } from "@test/support/sessions/frames"
 
 const STAMP = "2026-10-09-12-00-00"
 const NO_IMAGE = "no-such-opencode-image"
@@ -369,5 +372,89 @@ describe("sync (real stores, the wired container)", () => {
     const run = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all"])
     expect([run.code, run.json.stale_locks_cleared]).toEqual([0, [{ file: lock, pid: 4_194_305, command: "sync", since: "2026-10-11T00:00:00.000Z" }]])
     expect([existsSync(lock), existsSync(`${opencodeOf("linux")}.session-manager.lock`)]).toEqual([false, false])
+  })
+})
+
+describe("the browser applies its queue of whole sessions (real stores, OpenTUI's test renderer)", () => {
+  it("queues sessions with their sub-agent sessions, checks them on copies, refuses a held store, applies, and shows the new state", async () => {
+    const { home, repoId } = makeProfiles()
+    const before = [fileSha(opencodeOf("linux")), fileSha(contextOf("linux"))]
+    let setup: TestRendererSetup | undefined
+    const container = await buildContainer(
+      { OPENCODE_DB_COMPACT_IMAGE: NO_IMAGE },
+      {
+        runtime: runtime(),
+        show: showBrowser(async () => {
+          setup = await createTestRenderer({ width: 200, height: 40 })
+          return setup.renderer
+        }),
+      },
+    )
+    const running = container.run(["tui", "--left", at("linux"), "--right", at("win")])
+    while (setup === undefined) await new Promise((resolve) => setTimeout(resolve, 10))
+    const input = setup.mockInput
+    await waitForText(setup, "ses_scp")
+    input.pressKey("p")
+    await waitForText(setup, "paired by session id")
+    input.pressKey("*")
+    input.pressKey("<")
+    // 14 sessions shown; the sub-agent session queues its root once.
+    await waitForText(setup, "Queued 13 session syncs ←.")
+    input.pressKey("Q")
+    // "a" while the dry run is still painting its notice is ignored: nothing is applied.
+    input.pressKey("d")
+    input.pressKey("a")
+    const checked = await waitForText(setup, "← Dry run: 8 copied, 1 replaced, 3 kept, 1 skipped", 60000)
+    expect(checked).toContain("Queue · 13 session syncs · 8 new on the target · 1 diverged")
+    for (const text of ["further diverged: skipped", "further same: context only", "further replace (target behind)"]) expect(checked).toContain(text)
+    expect([fileSha(opencodeOf("linux")), fileSha(contextOf("linux"))]).toEqual(before)
+    // ses_same: keep this side's Magic Context state instead of the one that reaches further.
+    for (let row = 0; row < 5; row++) input.pressArrow("down")
+    input.pressKey("r")
+    input.pressKey("d")
+    expect(await waitForText(setup, "keep    same: nothing", 60000)).toContain("← Dry run:")
+    const holder = new Database(opencodeOf("linux"))
+    input.pressKey("a")
+    expect(await waitForText(setup, "Not applied:", 60000)).toContain("Not applied:")
+    holder.close()
+    expect([fileSha(opencodeOf("linux")), fileSha(contextOf("linux"))]).toEqual(before)
+    input.pressKey("a")
+    const applied = await waitForText(setup, "← Applied: 8 copied, 1 replaced, 3 kept, 1 skipped", 60000)
+    expect(applied).toContain("Originals kept; undo: opencode-session-manager rollback")
+    input.pressKey("Q")
+    // The left side was read again: the copied sessions are on both sides now.
+    expect(await waitForText(setup, "= ses_scp")).toContain("= ses_new_child")
+    // And back: this machine's own Magic Context state of ses_same replaces the other side's.
+    input.pressKey("/")
+    await input.typeText("ses_same")
+    input.pressEnter()
+    await waitForText(setup, 'filter "ses_same"')
+    input.pressKey("g")
+    input.pressArrow("down")
+    input.pressKey(">")
+    await waitForText(setup, "Queued 1 session sync →.")
+    input.pressKey("Q")
+    input.pressKey("r")
+    input.pressKey("r")
+    input.pressKey("a")
+    expect(await waitForText(setup, "→ Applied: 0 copied, 0 replaced, 1 kept, 0 skipped", 60000)).toContain("Magic Context: state copied for 1 of 1 sessions")
+    input.pressKey("Q")
+    expect(await waitForText(setup, "S 1 T    5 │ 01-01 00:00     2m S 1 T    5")).toContain("ses_same")
+    input.pressKey("q")
+    const out = captureConsole()
+    try {
+      expect(await running).toBe(0)
+    } finally {
+      out.restore()
+    }
+    // After the browser closes, what was applied is printed whole: the undo command does not fit the panel.
+    // The way back only changed Magic Context state, so only that store was swapped.
+    expect(out.lines.filter((line) => line.startsWith("Originals kept"))).toEqual([
+      `Originals kept; undo: opencode-session-manager rollback ${backupOf()} --db ${opencodeOf("linux")} --db ${contextOf("linux")}`,
+      `Originals kept; undo: opencode-session-manager rollback ${at("win", "opencode", `sync-backup-${STAMP}`)} --db ${contextOf("win")}`,
+    ])
+    expect(query(opencodeOf("linux"), "select project_id, directory from session_v2 where id = 'ses_new'")).toEqual([{ project_id: repoId, directory: join(home, "repo") }])
+    expect(rowsOf(contextOf("linux"), "select count(*) as n from compartments where session_id = 'ses_same'")).toEqual([{ n: 1 }])
+    expect(readdirSync(at("linux", "opencode")).filter((name) => name.startsWith("sync-backup-"))).toEqual([`sync-backup-${STAMP}`])
   })
 })

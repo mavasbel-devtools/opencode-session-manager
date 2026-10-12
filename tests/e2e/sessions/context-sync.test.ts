@@ -3,14 +3,11 @@ import { Database } from "bun:sqlite"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
-import { showBrowser } from "@session-manager/infrastructure/adapters/inbound/manager-tui/OpenTuiBrowser"
 import { buildContainer } from "@session-manager/main/cli-container"
 import { fileSha } from "@test/support/maintenance/database"
 import { captureConsole, captureConsoleError } from "@test/support/maintenance/console"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
-import { waitForText } from "@test/support/sessions/frames"
 import { makeMagicContextPackage } from "@test/support/sessions/magic-context-package"
 import { makeOpenCodeStore } from "@test/support/sessions/stores"
 import { makeSyncContextStore, rowsOf, type StateSpec } from "@test/support/sessions/sync-stores"
@@ -300,67 +297,5 @@ describe("context sync (real stores, the wired container)", () => {
     makeProfiles({ targetExtraSql: "create trigger refuse after insert on tags begin select raise(abort, 'refused by trigger'); end" })
     const refused = await cli(["context", "sync", "--from", at("win"), "--to", at("linux"), "--all"])
     expect(refused.errors[0]).toBe("ERROR: refused by trigger")
-  })
-})
-
-describe("the browser applies its queue (real stores, OpenTUI's test renderer)", () => {
-  it("checks, refuses undecided conflicts, applies, shows the result and the new state, and reports a failure", async () => {
-    makeProfiles()
-    let setup: TestRendererSetup | undefined
-    const container = await buildContainer(
-      { OPENCODE_DB_COMPACT_IMAGE: NO_IMAGE },
-      {
-        runtime: runtime(),
-        show: showBrowser(async () => {
-          setup = await createTestRenderer({ width: 160, height: 30 })
-          return setup.renderer
-        }),
-      },
-    )
-    const running = container.run(["tui", "--left", at("linux"), "--right", at("win")])
-    while (setup === undefined) await new Promise((resolve) => setTimeout(resolve, 10))
-    const input = setup.mockInput
-    await waitForText(setup, "ses_win")
-    input.pressKey("p")
-    await waitForText(setup, "paired by session id")
-    input.pressKey("/")
-    await input.typeText("ses_")
-    input.pressEnter()
-    input.pressKey("*")
-    input.pressKey("<")
-    await waitForText(setup, "Queued 7 Magic Context copies ←; skipped 1 not on the right, 1 not on the left")
-    input.pressKey("Q")
-    input.pressKey("a")
-    await waitForText(setup, "Decide every conflict first")
-    input.pressKey("S")
-    input.pressKey("d")
-    await waitForText(setup, "Dry run: 2 of 7 sessions copied")
-    const holder = new Database(contextOf("linux"))
-    input.pressKey("a")
-    await waitForText(setup, "Not applied:")
-    holder.close()
-    input.pressKey("a")
-    const done = await waitForText(setup, "Applied: 2 of 7 sessions copied")
-    expect(done).toContain("Original kept in")
-    input.pressEscape()
-    const after = await waitForText(setup, "S 1 T    3")
-    expect(after).toContain("ses_win")
-    // And back: this machine's state of one session replaces the other side's.
-    input.pressKey("/")
-    for (let index = 0; index < "ses_".length; index++) input.pressBackspace()
-    await input.typeText("ses_keep")
-    input.pressEnter()
-    await waitForText(setup, 'filter "ses_keep"')
-    input.pressKey("j")
-    input.pressKey(">")
-    input.pressKey("Q")
-    input.pressKey("R")
-    input.pressKey("a")
-    await waitForText(setup, "Applied: 1 of 1 sessions copied")
-    input.pressEscape()
-    await waitForText(setup, "S 1 T    7 │ 01-01 00:00     3m S 1 T    7")
-    input.pressKey("q")
-    expect(await running).toBe(0)
-    expect(rowsOf(contextOf("linux"), "select count(*) as n from compartments where session_id = 'ses_win'")).toEqual([{ n: 1 }])
   })
 })

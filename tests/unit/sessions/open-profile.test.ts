@@ -134,17 +134,19 @@ describe("BrowseCliAdapter", () => {
       environment: {},
       apply: {
         apply: (input) => {
-          events.push(`apply ${input.left.catalog.profile.name} ${input.right.catalog.profile.name} ${input.queue.length}`)
-          return input.dryRun ? { result: ["checked"], changed: false } : { result: ["done"], changed: true, right: opened("right", [], { snapshot: "/fresh" }) }
+          events.push(`apply ${input.left.catalog.profile.name} ${input.right.catalog.profile.name} ${input.queue.length} ${input.scope} ${JSON.stringify(input.maps)}`)
+          return input.dryRun
+            ? { result: ["checked"], changed: false, planned: {} }
+            : { result: ["done"], changed: true, planned: {}, right: opened("right", [], { snapshot: "/fresh" }) }
         },
       },
       show: async (initial, controls) => {
         shown.push(initial)
         events.push("shown")
         if (initial.right !== null) {
-          events.push(controls.apply([], true).result[0]!)
-          events.push(controls.apply([], false).result[0]!)
-          events.push(controls.apply([], true).result[0]!)
+          events.push(controls.apply([], true, "all").result[0]!)
+          events.push(controls.apply([], false, "sessions").result[0]!)
+          events.push(controls.apply([], true, "all").result[0]!)
         }
       },
     })
@@ -161,23 +163,32 @@ describe("BrowseCliAdapter", () => {
     ])
     expect(one.shown[0]).toEqual(createBrowser(opened("left", []), null, 1))
     const two = cli()
-    expect(await two.adapter.run(["--right", "/r", "--left", "/l"])).toBe(0)
+    expect(await two.adapter.run(["--right", "/r", "--map", "C:\\Users\\Me=/home/me", "--left", "/l"])).toBe(0)
+    const rule = '[{"from":"C:\\\\Users\\\\Me","to":"/home/me"}]'
     expect(two.events).toEqual([
       "open left /l/opencode/opencode.db /l/cortexkit/magic-context/context.db",
       "open right /r/opencode/opencode.db /r/cortexkit/magic-context/context.db",
       "shown",
-      "apply left right 0",
+      `apply left right 0 all ${rule}`,
       "checked",
-      "apply left right 0",
+      `apply left right 0 sessions ${rule}`,
       "done",
-      "apply left right 0",
+      `apply left right 0 all ${rule}`,
       "checked",
       "close left",
       "close right",
     ])
+    // What changed a store is printed once the browser is closed.
+    expect(two.output.lines).toEqual(["done"])
     const files = cli()
     expect(await files.adapter.run(["--left-db", "/a/x.db", "--right-db", "/b/y.db", "--right-context", "/b/c.db"])).toBe(0)
     expect(files.events.slice(0, 2)).toEqual(["open left /a/x.db ", "open right /b/y.db /b/c.db"])
+  })
+
+  it("refuses a map rule it cannot read, before opening anything", async () => {
+    const { adapter, events } = cli()
+    await expect(adapter.run(["--map", "no-equals-sign"])).rejects.toThrow()
+    expect(events).toEqual([])
   })
 
   it("closes what it opened when a profile fails, and prints the usage for unknown arguments", async () => {
@@ -190,6 +201,7 @@ describe("BrowseCliAdapter", () => {
       ["--top", "/x"],
       ["--left", "/a", "--left-db", "/b.db"],
       ["--right-context", "/c.db"],
+      ["--map", "--left"],
     ]) {
       const { adapter, output, events } = cli()
       expect(await adapter.run(argv)).toBe(2)

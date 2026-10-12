@@ -126,7 +126,7 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
       await setup.mockMouse.scroll(80, 4, "up")
       setup.resize(140, 20)
       await setup.waitForFrame((text) => text.split("\n").length >= 20)
-      // Pair by id, mark, queue a copy each way, and edit the queue.
+      // Pair by id, mark, queue a whole-session sync each way, and edit the queue.
       input.pressKey("p")
       await setup.waitForFrame((text) => text.includes("paired by session id"))
       input.pressKey("g")
@@ -134,7 +134,7 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
       input.pressKey(" ")
       expect(await setup.waitForFrame((text) => text.includes("● > Shared session"))).toContain("ses_shared · newer on the left")
       input.pressKey(">")
-      expect(await setup.waitForFrame((text) => text.includes("Queued 1 Magic Context copy →."))).toBeTruthy()
+      expect(await setup.waitForFrame((text) => text.includes("Queued 1 session sync →."))).toBeTruthy()
       // Queued again: the entry is replaced, not added twice. Then the paired list is filtered.
       input.pressKey(">")
       await input.typeText("/Windows")
@@ -152,15 +152,18 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
       input.pressKey(" ")
       input.pressKey("*")
       input.pressKey("<")
-      expect(
-        await setup.waitForFrame((text) => text.includes("Queued 0 Magic Context copies ←; skipped 1 not on the left (sync the session first), 1 with no Magic")),
-      ).toBeTruthy()
+      expect(await setup.waitForFrame((text) => text.includes("Queued 2 session syncs ←."))).toBeTruthy()
       input.pressKey("Q")
-      expect(await setup.waitForFrame((text) => text.includes("Queue · 1 Magic Context copy · 0 conflicts"))).toContain("new on target")
+      const queue = await setup.waitForFrame((text) => text.includes("Queue · 2 session syncs · 1 new on the target"))
+      expect(queue).toContain("further new: copy")
+      expect(queue).toContain("further both: d to check")
       input.pressArrow("down")
       input.pressKey("r")
-      expect(await setup.waitForFrame((text) => text.includes("No conflict:"))).toBeTruthy()
-      input.pressKey("S")
+      expect(await setup.waitForFrame((text) => text.includes("keep    new: copy"))).toBeTruthy()
+      input.pressKey("R")
+      input.pressKey("t")
+      expect(await setup.waitForFrame((text) => text.includes("Magic Context: sessions only"))).toContain("replace")
+      input.pressKey("x")
       input.pressKey("x")
       expect(await setup.waitForFrame((text) => text.includes("The queue is empty"))).toBeTruthy()
       input.pressKey("c")

@@ -186,20 +186,21 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     output,
   })
 
+  const syncSessions = new SyncSessionsUseCase({
+    sqlite,
+    sessions: sessionStore,
+    store: sessionSyncStore,
+    identity,
+    contexts: contextBuilder,
+    guard,
+    locks,
+    swap: swapper,
+    fileSystem,
+    runtime,
+    rewriterFor,
+  })
   const syncCli = new SyncCliAdapter({
-    sync: new SyncSessionsUseCase({
-      sqlite,
-      sessions: sessionStore,
-      store: sessionSyncStore,
-      identity,
-      contexts: contextBuilder,
-      guard,
-      locks,
-      swap: swapper,
-      fileSystem,
-      runtime,
-      rewriterFor,
-    }),
+    sync: syncSessions,
     profiles,
     output,
   })
@@ -221,7 +222,7 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     environment,
   })
 
-  const browseCli = new BrowseCliAdapter({ profiles, output, runtime, environment, apply: new ApplyQueueUseCase(syncContext, profiles), show: overrides.show ?? showBrowser(terminalRenderer) })
+  const browseCli = new BrowseCliAdapter({ profiles, output, runtime, environment, apply: new ApplyQueueUseCase(syncSessions, profiles), show: overrides.show ?? showBrowser(terminalRenderer) })
 
   const helpCli = new HelpCliAdapter(output, packageJson.version)
   const help = { run: (argv: readonly string[]) => helpCli.run(argv, "help") }

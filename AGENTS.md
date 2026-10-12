@@ -17,7 +17,7 @@ code is wrong until one of them is deliberately changed.
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | deployed at (v1) | `<plugins>/session-manager.js`, `<plugins>/session-manager.tui.js` | v1.18.32 forbids `server` and `tui` in one module |
 | build outputs | `dist/v2/{server,tui}.js`, `dist/v1/session-manager{,.tui}.js` | the entrypoints the hosts load |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--dry-run]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--dry-run]`, `tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …]` (session browser; its queue applies Magic Context syncs) |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--dry-run]`, `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--dry-run]`, `tui [--left <dataHome> | --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]...` (session browser; its queue applies Magic Context syncs) |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
@@ -78,8 +78,8 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
    the only commands allowed while OpenCode runs. A store that cannot be opened
    in place is read from a private temporary copy, removed afterwards. The
    browser writes only when the user applies its queue (`a`), through the same
-   use case as `context sync` and under rule 10; its dry run (`d`) writes only
-   private copies.
+   use case as `sync` (whole sessions) and under rule 10; its dry run (`d`)
+   writes only private copies.
 9. Magic Context's own code runs **only on copies, only in a child process**
    whose `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` and
    `XDG_CONFIG_HOME` point into a throwaway sandbox
@@ -228,15 +228,19 @@ Bulk writes in tests go inside a transaction; one fsync per insert made a
 
 Its state is pure: `src/domain/model/BrowserState.ts` (the data),
 `BrowserRows.ts` (the left, right and paired lists: grouping, filter, matching
-by session id), `BrowserQueue.ts` (Magic Context copies and their conflicts) and
+by session id, one row per id), `BrowserQueue.ts` (whole-session syncs, each
+with its Magic Context preference and the last run's result) and
 `Browser.ts` (the reducer: cursors, linked panes, layout, marks, queue view);
 `src/infrastructure/adapters/inbound/manager-tui/` turns keys into
 actions (`keys.ts`), state into text (`format.ts`) and paints it
 (`OpenTuiBrowser.tsx`, the only file there that imports OpenTUI at run time).
 Applying is asked of the program around the view through `BrowserControls`
 (`controls.ts`), wired by `BrowseCliAdapter` to `ApplyQueueUseCase`, which runs
-one `SyncMagicContextUseCase` per direction that has entries (left to right
-first), reads each changed side again and returns lines for a person. The view
+one `SyncSessionsUseCase` per direction that has entries (left to right first,
+with the `--map` rules, the queue's scope and each entry's preference as
+`preferFor`), reads each changed side again and returns lines for a person plus
+what the run did with each session (`planned`). `BrowseCliAdapter` prints the
+lines of every applied sync once the browser has closed. The view
 dispatches a `notice` first and starts the work after a short timer (`PAINT_BEFORE_WORK_MS`), so "Applying…"
 is painted before the synchronous work blocks; the outcome arrives as an
 `applied` action (a change clears the queue and replaces the side's catalog).
@@ -272,7 +276,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `Browser.ts` | sessions | the browser reducer (`createBrowser`, `reduce`): cursors, linked panes, layout, marks, queue view, apply results |
 | `BrowserState.ts` | sessions | the browser's state types |
 | `BrowserRows.ts` | sessions | the left, right and paired lists: grouping by folder, filter, matching by session id |
-| `BrowserQueue.ts` | sessions | the queue of Magic Context copies, conflicts and their resolutions; `requestsFor` turns it into sync requests |
+| `BrowserQueue.ts` | sessions | the queue of whole-session syncs, their Magic Context preference and scope; `requestsFor` turns it into session ids and `preferFor` per direction |
 | `Profile.ts` | sessions | a profile (data home → `opencode.db` + `context.db`), `profileAt`, `profileOfFiles`, `defaultDataHome` |
 | `SessionCatalog.ts` | sessions | stored sessions (v1/v2), Magic Context counts per session, the joined catalog |
 | `MagicContextSync.ts` | sessions | sync requests and resolutions (`replace`, `skip`, `further`), sides, history relation (`relationOf`), harness labels, `failedChecks`, the sync report and its summary for a person |
@@ -356,7 +360,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `MagicContextSyncService.ts` | sessions | build and check a working copy of a target Magic Context store holding sessions' state and, for scope `all`, their projects' state |
 | `SyncMagicContextUseCase.ts` | sessions | `context sync`: the service's copy swapped in, with a backup |
 | `SyncSessionsUseCase.ts` | sessions | `sync`: whole sessions (OpenCode rows + Magic Context state) into working copies of both target stores, checked, swapped in together |
-| `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one sync per direction |
+| `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one whole-session sync per direction |
 | `ResolveSessionIdToolUseCase.ts` | plugin | the `session-id` tool |
 | `RenderSidebarEntryUseCase.ts` | plugin | the sidebar line |
 | `MoveSessionUseCase.ts` | plugin | v2 transfer through the host |

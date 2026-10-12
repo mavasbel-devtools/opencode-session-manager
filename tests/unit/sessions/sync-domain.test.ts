@@ -2,20 +2,56 @@ import { describe, expect, it } from "bun:test"
 import { ApplyQueueUseCase } from "@session-manager/application/ApplyQueueUseCase"
 import { MagicContextFormatMismatchError } from "@session-manager/domain/errors/MagicContextFormatMismatchError"
 import { SyncVerificationError } from "@session-manager/domain/errors/SyncVerificationError"
-import { createBrowser, reduce, requestsFor, type QueueEntry } from "@session-manager/domain/model/Browser"
-import { harnessFor, isContextScope, relationOf, syncSideOf, syncSummary, type SyncInput, type SyncReport } from "@session-manager/domain/model/MagicContextSync"
+import { createBrowser, reduce, type QueueEntry } from "@session-manager/domain/model/Browser"
+import { harnessFor, isContextScope, relationOf, projectLines, syncSideOf, type SessionOutcome, type SyncReport } from "@session-manager/domain/model/MagicContextSync"
+import { contextOutcomeText, sessionSyncLines, type SessionSyncInput, type SessionSyncOutcome, type SessionSyncReport } from "@session-manager/domain/model/SessionSync"
 import { hasContextState } from "@session-manager/domain/model/SessionCatalog"
 import { inferWindowsMapping } from "@session-manager/domain/services/WindowsMapping"
 import { opened, session } from "@test/support/sessions/catalogs"
 
 const STATS = { compartments: 1, tags: 2, lastTag: 2, notes: 0, memoriesOriginated: 0, project: null }
-const entry = (id: string, direction: QueueEntry["direction"], resolution: QueueEntry["resolution"], conflict = false): QueueEntry => ({
+const entry = (id: string, direction: QueueEntry["direction"], prefer: QueueEntry["prefer"] = "further"): QueueEntry => ({
   id,
   title: id,
   direction,
-  source: STATS,
-  conflict,
-  resolution,
+  source: session({ id, directory: "/w", updated: 1, context: {} }),
+  target: null,
+  prefer,
+  planned: null,
+})
+
+const outcome = (id: string, action: SessionSyncOutcome["action"], extra: Partial<SessionSyncOutcome> = {}): SessionSyncOutcome => ({
+  id,
+  title: id,
+  relation: action === "copy" ? "missing" : action === "skip" ? "diverged" : "same",
+  action,
+  reason: action === "skip" ? "diverged" : null,
+  sessions_written: 0,
+  rows_written: 0,
+  source_directory: null,
+  target_directory: null,
+  project_id: null,
+  project_source: null,
+  residual_windows_paths: 0,
+  context: null,
+  ...extra,
+})
+
+const sessionReport = (extra: Partial<SessionSyncReport> = {}): SessionSyncReport => ({
+  source_opencode_db: "/s/opencode.db",
+  target_opencode_db: "/t/opencode.db",
+  source_context_db: "/s/context.db",
+  target_context_db: "/t/context.db",
+  dry_run: false,
+  context: "all",
+  sessions: [],
+  projects: [],
+  user_memories_copied: 0,
+  checks: { integrity_ok: true, foreign_keys_ok: true, sessions_ok: true, context: null },
+  backup_dir: null,
+  rollback: null,
+  stale_locks_cleared: [],
+  ...extra,
 })
 
 const report = (extra: Partial<SyncReport> = {}): SyncReport => ({
@@ -85,28 +121,7 @@ describe("Magic Context sync rules", () => {
     })
   })
 
-  it("summarises a report for a person", () => {
-    const copied = {
-      id: "ses_a",
-      status: "copied" as const,
-      reason: null,
-      relation: "same" as const,
-      counts: { compartments: 2, tags: 5, notes: 1, memories_copied: 3, memories_already_there: 1, history_rows: 4 },
-      residual_windows_paths: 0,
-    }
-    const skipped = (id: string, reason: "no-project" | "stale-anchors") => ({ id, status: "skipped" as const, reason, relation: null, counts: null, residual_windows_paths: 0 })
-    expect(syncSummary(report({ sessions: [copied, skipped("b", "no-project"), skipped("c", "no-project"), skipped("d", "stale-anchors")], backup_dir: "/t/b" }))).toEqual([
-      "Applied: 1 of 4 sessions copied into /t/context.db",
-      "2 summaries · 5 tags · 1 notes · 4 history rows · 3 memories copied (1 already there)",
-      "Skipped: 2 no project, 1 stale summaries",
-      "Original kept in /t/b (undo: opencode-session-manager rollback /t/b --db /t/context.db)",
-    ])
-    expect(syncSummary(report({ dry_run: true }))).toEqual([
-      "Dry run: 0 of 0 sessions copied into /t/context.db",
-      "0 summaries · 0 tags · 0 notes · 0 history rows · 0 memories copied (0 already there)",
-      "Nothing skipped.",
-      "The target store was not changed.",
-    ])
+  it("sums up what a sync merged into the target's projects", () => {
     const project = (skipped: "authority-managed" | null) => ({
       from: "dir:s",
       to: "dir:t",
@@ -119,10 +134,11 @@ describe("Magic Context sync rules", () => {
       retrospective_windows: 0,
       skipped,
     })
-    expect(syncSummary(report({ projects: [project(null), project(null), project("authority-managed")], user_memories_copied: 2 }))[2]).toBe(
+    expect(projectLines(report({ projects: [project(null), project(null), project("authority-managed")], user_memories_copied: 2 }))[0]).toBe(
       "Projects: 2 merged — 10 memories · 6 notes · 2 primers · 8 dreamer runs · 2 user memories (1 managed by Magic Context, left alone)",
     )
-    expect(syncSummary(report({ projects: [project(null)] }))[2]).toBe("Projects: 1 merged — 5 memories · 3 notes · 1 primers · 4 dreamer runs · 0 user memories")
+    expect(projectLines(report({ projects: [project(null)] }))[0]).toBe("Projects: 1 merged — 5 memories · 3 notes · 1 primers · 4 dreamer runs · 0 user memories")
+    expect(projectLines(report())).toEqual([])
     expect([isContextScope("all"), isContextScope("sessions"), isContextScope("none")]).toEqual([true, true, false])
   })
 
@@ -137,21 +153,36 @@ describe("Magic Context sync rules", () => {
   })
 })
 
-describe("the browser after an apply", () => {
-  it("turns the queue into sync requests per direction, only once every conflict is decided", () => {
-    const queue = [entry("a", "to-right", "replace"), entry("b", "to-left", "skip", true), entry("c", "to-right", "skip", true)]
-    expect(requestsFor(queue, "to-right")).toEqual([
-      { id: "a", resolution: "replace" },
-      { id: "c", resolution: "skip" },
+describe("whole-session sync text", () => {
+  it("says what happened to a session's Magic Context state, and sums a report up", () => {
+    const copied: SessionOutcome = { id: "a", status: "copied", reason: null, relation: "same", counts: { compartments: 2, tags: 5, notes: 0, memories_copied: 1, memories_already_there: 0, history_rows: 0 }, residual_windows_paths: 0 }
+    const kept: SessionOutcome = { ...copied, status: "skipped", reason: "target-further", counts: null }
+    expect([contextOutcomeText(null), contextOutcomeText(copied), contextOutcomeText(kept)]).toEqual([null, "Magic Context copied", "Magic Context kept (target further)"])
+    const sessions = [
+      outcome("a", "copy", { context: copied }),
+      outcome("b", "replace", { context: { ...copied, counts: null } }),
+      outcome("c", "keep", { context: kept }),
+      outcome("d", "skip"),
+      outcome("e", "skip", { reason: "hidden-run", relation: null }),
+    ]
+    expect(sessionSyncLines(sessionReport({ dry_run: true, sessions }))).toEqual([
+      "Dry run: 1 copied, 1 replaced, 1 kept, 2 skipped → /t/opencode.db",
+      "Magic Context: state copied for 2 of 3 sessions (2 summaries · 5 tags · 1 memories)",
+      "Skipped: 1 diverged, 1 plugin run",
+      "The target stores were not changed.",
     ])
-    expect(requestsFor(queue, "to-left")).toEqual([{ id: "b", resolution: "skip" }])
-    expect(requestsFor([...queue, entry("d", "to-left", null, true)], "to-right")).toBeNull()
+    expect(sessionSyncLines(sessionReport({ target_context_db: null, rollback: "opencode-session-manager rollback /b --db /t/opencode.db" }))).toEqual([
+      "Applied: 0 copied, 0 replaced, 0 kept, 0 skipped → /t/opencode.db",
+      "Originals kept; undo: opencode-session-manager rollback /b --db /t/opencode.db",
+    ])
   })
+})
 
+describe("the browser after an apply", () => {
   it("shows a notice, then the result: a change clears the queue and shows the sides read again", () => {
     const left = opened("left", [session({ id: "ses_a", directory: "/w", updated: 1 })])
     const right = opened("right", [session({ id: "ses_a", directory: "/w", updated: 1, context: {} })])
-    const state = { ...createBrowser(left, right, 5), queue: [entry("ses_a", "to-left", "replace")], view: "queue" as const }
+    const state = { ...createBrowser(left, right, 5), queue: [entry("ses_a", "to-left")], view: "queue" as const }
     expect(reduce(state, { type: "notice", text: "Working…" }).notice).toBe("Working…")
     const fresh = opened("left", [session({ id: "ses_a", directory: "/w", updated: 1, context: { compartments: 3 } })])
     const applied = reduce(state, { type: "applied", result: ["Applied: 1 of 1", "more"], changed: true, left: fresh })
@@ -171,15 +202,22 @@ describe("ApplyQueueUseCase", () => {
   const left = opened("left", [])
   const right = opened("right", [])
   function setup(fail?: string) {
-    const syncs: SyncInput[] = []
+    const syncs: SessionSyncInput[] = []
     const events: string[] = []
     const useCase = new ApplyQueueUseCase(
       {
         sync: (input) => {
           syncs.push(input)
-          if (fail !== undefined && input.target.contextDb.includes(fail)) throw new Error(`cannot write ${fail}`)
+          if (fail !== undefined && input.target.opencodeDb.includes(fail)) throw new Error(`cannot write ${fail}`)
           if (fail === "string") throw "plain failure"
-          return report({ target_context_db: input.target.contextDb, dry_run: input.dryRun, backup_dir: input.dryRun ? null : "/backup" })
+          const ids = input.sessions as string[]
+          return sessionReport({
+            target_opencode_db: input.target.opencodeDb,
+            dry_run: input.dryRun,
+            sessions: ids.map((id) => outcome(id, "copy")),
+            backup_dir: input.dryRun ? null : "/backup",
+            rollback: input.dryRun ? null : "opencode-session-manager rollback /backup",
+          })
         },
       },
       {
@@ -194,40 +232,40 @@ describe("ApplyQueueUseCase", () => {
     )
     return { useCase, syncs, events }
   }
+  const maps = [{ from: "C:\\Users\\Me", to: "/home/me" }]
 
-  it("syncs left to right, then right to left, and reads each changed side again", () => {
+  it("syncs left to right, then right to left, with the map rules, scope and preferences, and reads each changed side again", () => {
     const { useCase, syncs, events } = setup()
-    const outcome = useCase.apply({ queue: [entry("b", "to-left", "replace"), entry("a", "to-right", "replace")], left, right, dryRun: false })
-    expect(syncs.map((input) => [input.source.contextDb, input.target.contextDb, input.sessions])).toEqual([
-      ["/data/left/cortexkit/magic-context/context.db", "/data/right/cortexkit/magic-context/context.db", [{ id: "a", resolution: "replace" }]],
-      ["/data/right/cortexkit/magic-context/context.db", "/data/left/cortexkit/magic-context/context.db", [{ id: "b", resolution: "replace" }]],
+    const result = useCase.apply({ queue: [entry("b", "to-left"), entry("a", "to-right", "keep")], left, right, dryRun: false, maps, scope: "sessions" })
+    expect(syncs.map((input) => [input.source.opencodeDb, input.target.opencodeDb, input.sessions, input.preferFor, input.prefer, input.context, input.maps])).toEqual([
+      ["/data/left/opencode/opencode.db", "/data/right/opencode/opencode.db", ["a"], { a: "keep" }, "further", "sessions", maps],
+      ["/data/right/opencode/opencode.db", "/data/left/opencode/opencode.db", ["b"], {}, "further", "sessions", maps],
     ])
     expect(events).toEqual(["open right", "close right", "open left", "close left"])
-    expect(outcome.changed).toBe(true)
-    expect(outcome.left?.catalog.sessions[0]?.id).toBe("new")
-    expect(outcome.right?.catalog.sessions[0]?.id).toBe("new")
-    expect(outcome.result.length).toBe(8)
+    expect(result.changed).toBe(true)
+    expect(result.left?.catalog.sessions[0]?.id).toBe("new")
+    expect(result.right?.catalog.sessions[0]?.id).toBe("new")
+    expect(result.result[0]).toBe("→ Applied: 1 copied, 0 replaced, 0 kept, 0 skipped → /data/right/opencode/opencode.db")
+    expect(result.planned).toEqual({
+      a: { action: "copy", relation: "missing", reason: null, context: null },
+      b: { action: "copy", relation: "missing", reason: null, context: null },
+    })
   })
 
   it("only checks on a dry run, and skips a direction with nothing queued", () => {
     const { useCase, syncs, events } = setup()
-    const outcome = useCase.apply({ queue: [entry("a", "to-right", "replace")], left, right, dryRun: true })
+    const result = useCase.apply({ queue: [entry("a", "to-right")], left, right, dryRun: true, maps: [], scope: "all" })
     expect(syncs.length).toBe(1)
     expect(events).toEqual([])
-    expect(outcome).toMatchObject({ changed: false })
-    expect(outcome.result[0]).toStartWith("Dry run:")
+    expect(result).toMatchObject({ changed: false })
+    expect(result.result[0]).toStartWith("→ Dry run:")
   })
 
-  it("explains an empty queue, undecided conflicts and a failure, keeping what was applied", () => {
-    expect(setup().useCase.apply({ queue: [], left, right, dryRun: false }).result).toEqual(["The queue is empty."])
-    expect(setup().useCase.apply({ queue: [entry("a", "to-right", null, true)], left, right, dryRun: false }).result).toEqual([
-      "Decide every conflict first: r or s on each, or R or S for all.",
-    ])
-    const partial = setup("/data/left/").useCase.apply({ queue: [entry("a", "to-right", "replace"), entry("b", "to-left", "replace")], left, right, dryRun: false })
+  it("explains an empty queue and a failure, keeping what was applied", () => {
+    expect(setup().useCase.apply({ queue: [], left, right, dryRun: false, maps: [], scope: "all" })).toEqual({ result: ["The queue is empty."], changed: false, planned: {} })
+    const partial = setup("/data/left/").useCase.apply({ queue: [entry("a", "to-right"), entry("b", "to-left")], left, right, dryRun: false, maps: [], scope: "all" })
     expect(partial.changed).toBe(true)
     expect(partial.result.at(-1)).toBe("Not applied: cannot write /data/left/")
-    expect(setup("string").useCase.apply({ queue: [entry("a", "to-right", "replace")], left, right, dryRun: false }).result).toEqual([
-      "Not applied: plain failure",
-    ])
+    expect(setup("string").useCase.apply({ queue: [entry("a", "to-right")], left, right, dryRun: false, maps: [], scope: "all" }).result).toEqual(["Not applied: plain failure"])
   })
 })

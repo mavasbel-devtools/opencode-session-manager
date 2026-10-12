@@ -49,8 +49,8 @@ const QUEUE: Readonly<Record<string, Command>> = {
   k: { type: "queue-move", delta: -1 },
   down: { type: "queue-move", delta: 1 },
   j: { type: "queue-move", delta: 1 },
-  r: { type: "resolve", resolution: "replace" },
-  s: { type: "resolve", resolution: "skip" },
+  r: { type: "prefer" },
+  t: { type: "scope" },
   x: { type: "unqueue" },
   delete: { type: "unqueue" },
   c: { type: "queue-clear" },
@@ -61,8 +61,7 @@ const QUEUE: Readonly<Record<string, Command>> = {
 }
 
 const QUEUE_TYPED: Readonly<Record<string, Command>> = {
-  R: { type: "resolve", resolution: "replace", all: true },
-  S: { type: "resolve", resolution: "skip", all: true },
+  R: { type: "prefer", all: true },
   Q: { type: "view", view: "list" },
 }
 

@@ -190,7 +190,7 @@ export const SKIP_TEXT: Readonly<Record<SkipReason, string>> = {
   "authority-managed": "Magic Context's own module manages the memory of the session's project on the target; its notes and memories cannot be written from outside",
 }
 
-const SKIP_SHORT: Readonly<Record<SkipReason, string>> = {
+export const SKIP_SHORT: Readonly<Record<SkipReason, string>> = {
   "resolution-skip": "kept by choice",
   "target-further": "target further",
   "not-on-source": "not on the source",
@@ -212,22 +212,5 @@ export function projectLines(report: { readonly projects: readonly ProjectMergeR
   const managed = report.projects.length - merged.length
   return [
     `Projects: ${merged.length} merged — ${sum("memories_copied")} memories · ${sum("notes")} notes · ${sum("primers")} primers · ${sum("dream_runs")} dreamer runs · ${report.user_memories_copied} user memories${managed > 0 ? ` (${managed} managed by Magic Context, left alone)` : ""}`,
-  ]
-}
-
-/** A sync report in four or five lines, for a person. */
-export function syncSummary(report: SyncReport): string[] {
-  const copied = report.sessions.filter((session) => session.counts !== null)
-  const sum = (key: keyof SessionCopyCounts) => copied.reduce((total, session) => total + session.counts![key], 0)
-  const skipped = new Map<SkipReason, number>()
-  for (const session of report.sessions) if (session.reason !== null) skipped.set(session.reason, (skipped.get(session.reason) ?? 0) + 1)
-  return [
-    `${report.dry_run ? "Dry run" : "Applied"}: ${copied.length} of ${report.sessions.length} sessions copied into ${report.target_context_db}`,
-    `${sum("compartments")} summaries · ${sum("tags")} tags · ${sum("notes")} notes · ${sum("history_rows")} history rows · ${sum("memories_copied")} memories copied (${sum("memories_already_there")} already there)`,
-    ...projectLines(report),
-    skipped.size === 0 ? "Nothing skipped." : `Skipped: ${[...skipped].map(([reason, count]) => `${count} ${SKIP_SHORT[reason]}`).join(", ")}`,
-    report.backup_dir === null
-      ? "The target store was not changed."
-      : `Original kept in ${report.backup_dir} (undo: opencode-session-manager rollback ${report.backup_dir} --db ${report.target_context_db})`,
   ]
 }

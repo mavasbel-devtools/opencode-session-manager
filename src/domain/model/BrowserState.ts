@@ -1,4 +1,6 @@
-import type { CatalogedSession, MagicContextSessionStats, ProfileCatalog } from "@session-manager/domain/model/SessionCatalog"
+import type { ContextScope } from "@session-manager/domain/model/MagicContextSync"
+import type { CatalogedSession, ProfileCatalog } from "@session-manager/domain/model/SessionCatalog"
+import type { Prefer, SessionAction, SessionRelation, SessionSkipReason } from "@session-manager/domain/model/SessionSync"
 
 /**
  * The session browser's state, as plain data: two profiles, how they are laid out, where each
@@ -58,19 +60,27 @@ export interface PaneState extends ListPosition {
 
 export type Direction = "to-right" | "to-left"
 
-/** What to do when the target already has Magic Context state for the session. */
-export type Resolution = "replace" | "skip"
+/** What the last dry run or apply did with a queued session. */
+export interface PlannedSync {
+  readonly action: SessionAction
+  readonly relation: SessionRelation | null
+  readonly reason: SessionSkipReason | null
+  /** What happened to its Magic Context state, in a few words (null: not part of the sync). */
+  readonly context: string | null
+}
 
-/** Copy one session's Magic Context state to the other side. */
+/** Sync one whole session (its OpenCode rows, sub-agent sessions and Magic Context state) to the other side. */
 export interface QueueEntry {
   readonly id: string
   readonly title: string | null
   readonly direction: Direction
-  readonly source: MagicContextSessionStats
-  /** The target has its own state for this session. */
-  readonly conflict: boolean
-  /** Null while a conflict is undecided; "replace" for an entry without conflict. */
-  readonly resolution: Resolution | null
+  readonly source: CatalogedSession
+  /** The target's copy of the session, or null when the target does not have it. */
+  readonly target: CatalogedSession | null
+  /** Whose Magic Context state wins when both sides hold the same history. */
+  readonly prefer: Prefer
+  /** Null until a dry run or an apply. */
+  readonly planned: PlannedSync | null
 }
 
 export interface BrowserState {
@@ -86,6 +96,8 @@ export interface BrowserState {
   /** Marked session ids; a mark covers the session on both sides. */
   readonly marked: readonly string[]
   readonly queue: readonly QueueEntry[]
+  /** How much Magic Context state goes with the queued sessions. */
+  readonly scope: ContextScope
   readonly view: "list" | "queue"
   readonly queueCursor: number
   /** One line about what the last action did, until the next action. */
@@ -109,7 +121,8 @@ export type BrowserAction =
   | { readonly type: "enqueue"; readonly direction: Direction }
   | { readonly type: "view"; readonly view?: "list" | "queue" }
   | { readonly type: "queue-move"; readonly delta: number }
-  | { readonly type: "resolve"; readonly resolution: Resolution; readonly all?: boolean }
+  | { readonly type: "prefer"; readonly all?: boolean }
+  | { readonly type: "scope" }
   | { readonly type: "unqueue" }
   | { readonly type: "queue-clear" }
   | { readonly type: "filter-start" }
@@ -124,6 +137,8 @@ export type BrowserAction =
       readonly result: readonly string[]
       /** True when the target changed: the queue is done. */
       readonly changed: boolean
+      /** What the run did with each queued session, by id. */
+      readonly planned?: Readonly<Record<string, PlannedSync>>
       readonly left?: OpenedProfile
       readonly right?: OpenedProfile
     }

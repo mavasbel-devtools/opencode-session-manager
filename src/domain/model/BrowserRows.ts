@@ -95,11 +95,21 @@ export function indexOfId(state: BrowserState, list: ListId, id: string): number
   return rowsOf(state, list).findIndex((row) => (row.kind === "pair" ? row.id : row.kind === "session" ? row.session.id : null) === id)
 }
 
+/**
+ * One session per id: its OpenCode 2 row, or its OpenCode 1 row when it has no other (a session
+ * moved to OpenCode 2 keeps its OpenCode 1 row beside the new one), in the catalog's order.
+ */
+export function sessionsById(sessions: readonly CatalogedSession[]): Map<string, CatalogedSession> {
+  const map = new Map<string, CatalogedSession>()
+  for (const session of sessions) if (session.generation === "v2" || !map.has(session.id)) map.set(session.id, session)
+  return map
+}
+
 function itemsOf(state: BrowserState, list: ListId): Item[] {
   if (list !== "paired") {
     const pane = paneOf(state, list)!
     const other = paneOf(state, list === "left" ? "right" : "left")
-    const otherTimes = other === null ? null : new Map(other.catalog.sessions.map((session) => [session.id, session.timeUpdated]))
+    const otherTimes = other === null ? null : new Map([...sessionsById(other.catalog.sessions)].map(([id, session]) => [id, session.timeUpdated]))
     return pane.catalog.sessions.map((session) => ({
       id: session.id,
       directory: session.directory,
@@ -107,12 +117,12 @@ function itemsOf(state: BrowserState, list: ListId): Item[] {
       row: (marked) => ({ kind: "session", session, match: matchOf(session, otherTimes), marked }),
     }))
   }
-  const right = new Map(state.right!.catalog.sessions.map((session) => [session.id, session]))
-  const pairs: Array<{ id: string; left: CatalogedSession | null; right: CatalogedSession | null }> = state.left.catalog.sessions.map(
+  const right = sessionsById(state.right!.catalog.sessions)
+  const pairs: Array<{ id: string; left: CatalogedSession | null; right: CatalogedSession | null }> = [...sessionsById(state.left.catalog.sessions).values()].map(
     (session) => ({ id: session.id, left: session, right: right.get(session.id) ?? null }),
   )
   const onLeft = new Set(pairs.map((pair) => pair.id))
-  for (const session of state.right!.catalog.sessions) if (!onLeft.has(session.id)) pairs.push({ id: session.id, left: null, right: session })
+  for (const session of right.values()) if (!onLeft.has(session.id)) pairs.push({ id: session.id, left: null, right: session })
   const newest = (pair: (typeof pairs)[number]) => Math.max(pair.left?.timeUpdated ?? 0, pair.right?.timeUpdated ?? 0)
   return pairs
     .sort((a, b) => newest(b) - newest(a) || a.id.localeCompare(b.id))

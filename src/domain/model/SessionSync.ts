@@ -1,5 +1,5 @@
 import type { StaleLock } from "@session-manager/domain/model/StoreLock"
-import type { ContextScope, HistoryRelation, ProjectMergeResult, SessionOutcome, SyncChecks, SyncSide } from "@session-manager/domain/model/MagicContextSync"
+import { projectLines, SKIP_SHORT, type ContextScope, type HistoryRelation, type ProjectMergeResult, type SessionOutcome, type SyncChecks, type SyncSide } from "@session-manager/domain/model/MagicContextSync"
 
 /**
  * Syncing whole sessions from one profile to another: the OpenCode session (its rows in
@@ -27,6 +27,8 @@ export interface SessionSyncInput {
   readonly sessions: readonly string[] | "all"
   readonly maps: readonly MapRule[]
   readonly prefer: Prefer
+  /** `prefer` for single sessions (by root session id), over the one above. */
+  readonly preferFor?: Readonly<Record<string, Prefer>>
   /** How much Magic Context state goes with each session. */
   readonly context: ContextScope
   readonly dryRun: boolean
@@ -111,4 +113,35 @@ export const SESSION_SKIP_TEXT: Readonly<Record<SessionSkipReason, string>> = {
   "not-on-source": "the session is not in the source's OpenCode store",
   diverged: "the two histories differ after a shared beginning; nothing is copied",
   "hidden-run": "a session a plugin ran for its own work (Magic Context's historian or dreamer); --all leaves it out, --session takes it",
+}
+
+const SESSION_SKIP_SHORT: Readonly<Record<SessionSkipReason, string>> = {
+  "not-on-source": "not on the source",
+  diverged: "diverged",
+  "hidden-run": "plugin run",
+}
+
+/** What happened to a session's Magic Context state, in a few words (null: not part of the sync). */
+export function contextOutcomeText(outcome: SessionOutcome | null): string | null {
+  if (outcome === null) return null
+  return outcome.status === "copied" ? "Magic Context copied" : `Magic Context kept (${SKIP_SHORT[outcome.reason!]})`
+}
+
+/** A whole-session sync report in a few lines, for a person. */
+export function sessionSyncLines(report: SessionSyncReport): string[] {
+  const count = (action: SessionAction) => report.sessions.filter((session) => session.action === action).length
+  const contexts = report.sessions.map((session) => session.context).filter((outcome) => outcome !== null)
+  const copied = contexts.filter((outcome) => outcome.status === "copied")
+  const sum = (key: "compartments" | "tags" | "memories_copied") => copied.reduce((total, outcome) => total + (outcome.counts?.[key] ?? 0), 0)
+  const skipped = new Map<string, number>()
+  for (const session of report.sessions) if (session.reason !== null) skipped.set(SESSION_SKIP_SHORT[session.reason], (skipped.get(SESSION_SKIP_SHORT[session.reason]) ?? 0) + 1)
+  return [
+    `${report.dry_run ? "Dry run" : "Applied"}: ${count("copy")} copied, ${count("replace")} replaced, ${count("keep")} kept, ${count("skip")} skipped → ${report.target_opencode_db}`,
+    ...(report.target_context_db === null
+      ? []
+      : [`Magic Context: state copied for ${copied.length} of ${contexts.length} sessions (${sum("compartments")} summaries · ${sum("tags")} tags · ${sum("memories_copied")} memories)`]),
+    ...projectLines(report),
+    ...(skipped.size === 0 ? [] : [`Skipped: ${[...skipped].map(([reason, total]) => `${total} ${reason}`).join(", ")}`]),
+    report.rollback === null ? "The target stores were not changed." : `Originals kept; undo: ${report.rollback}`,
+  ]
 }

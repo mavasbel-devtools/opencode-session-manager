@@ -83,14 +83,23 @@ export function pairedTitle(state: BrowserState): string {
 }
 
 export function queueTitle(state: BrowserState): string {
-  const { entries, conflicts, undecided } = queueSummary(state.queue)
-  return ` Queue · ${entries} Magic Context ${entries === 1 ? "copy" : "copies"} · ${conflicts} conflicts (${undecided} undecided) `
+  const { entries, new: fresh, diverged } = queueSummary(state.queue)
+  const scope = state.scope === "all" ? "Magic Context: sessions and their projects" : "Magic Context: sessions only"
+  return ` Queue · ${entries} session ${entries === 1 ? "sync" : "syncs"} · ${fresh} new on the target${diverged === 0 ? "" : ` · ${diverged} diverged`} · ${scope} `
+}
+
+/** What a queued sync does: the dry run's answer once there is one, else what the two catalogs suggest. */
+export function plannedText(entry: QueueEntry): string {
+  const planned = entry.planned
+  if (planned === null) return entry.target === null ? "new: copy" : "both: d to check"
+  if (planned.action === "skip") return planned.reason === "diverged" ? "diverged: skipped" : `skipped (${planned.reason})`
+  if (planned.action === "keep") return planned.context === "Magic Context copied" ? "same: context only" : "same: nothing"
+  return planned.action === "copy" ? "copy" : "replace (target behind)"
 }
 
 /** One queue line, exactly `width` columns wide. */
 export function queueText(entry: QueueEntry, width: number): string {
-  const resolution = entry.conflict ? `conflict: ${entry.resolution ?? "undecided"}` : "new on target"
-  const right = ` ${counts(entry.source)} N${String(entry.source.notes).padStart(2)} M${String(entry.source.memoriesOriginated).padStart(3)}  ${fit(resolution, 19)}`
+  const right = ` ${String(entry.source.entries).padStart(5)}m ${counts(entry.source.magicContext)}  ${fit(entry.prefer, 7)} ${fit(plannedText(entry), 24)}`
   const left = `${entry.direction === "to-right" ? "→" : "←"} ${entry.title ?? UNTITLED}`
   const room = width - [...right].length
   return room < 8 ? fit(left, width) : fit(left, room) + right
@@ -124,17 +133,25 @@ function contextText(context: MagicContextSessionStats | null): string {
   return context === null ? "no Magic Context" : `${context.compartments} summaries, ${context.tags} tags`
 }
 
+const PREFER_TEXT = {
+  further: "the side whose summaries reach further",
+  keep: "the target's own",
+  replace: "the source's",
+} as const
+
 function queueDetail(entry: QueueEntry | undefined): string[] {
-  if (entry === undefined) return ["The queue is empty: mark sessions (Space) and queue copies with > or <."]
+  if (entry === undefined) return ["The queue is empty: mark sessions (Space) and queue syncs with > or <."]
   const [from, to] = entry.direction === "to-right" ? ["left", "right"] : ["right", "left"]
-  const { source } = entry
+  const side = (session: CatalogedSession | null) => (session === null ? "—" : `${session.entries} messages · ${contextText(session.magicContext)} · updated ${stamp(session.timeUpdated)}`)
+  const planned = entry.planned
   return [
     entry.title ?? UNTITLED,
-    `${entry.id} · copy Magic Context state from the ${from} to the ${to}`,
-    `${source.compartments} summaries · ${source.tags} tags · ${source.notes} notes · ${source.memoriesOriginated} memories created · ${source.project ?? "no project"}`,
-    entry.conflict
-      ? `The ${to} has its own state for this session: ${entry.resolution === null ? "undecided" : entry.resolution === "replace" ? "replace it" : "skip this copy"} (r replace · s skip)`
-      : `The ${to} has no state for this session yet.`,
+    `${entry.id} · sync the session and its Magic Context state from the ${from} to the ${to}`,
+    `${from}: ${side(entry.source)}`,
+    `${to}: ${side(entry.target)}`,
+    planned === null
+      ? `Not checked yet (d). Same history on both sides → Magic Context state from ${PREFER_TEXT[entry.prefer]} (r changes)`
+      : `${plannedText(entry)}${planned.relation === null ? "" : ` · histories: ${planned.relation}`}${planned.context === null ? "" : ` · ${planned.context}`}`,
   ]
 }
 
@@ -160,11 +177,11 @@ function sessionDetail(row: SessionRow): string[] {
 export function footerText(state: BrowserState): string {
   if (state.editingFilter) return `filter: ${state.filter}▏  Enter keep · Esc clear`
   const notice = state.notice === null ? "" : `${state.notice}   `
-  if (state.view === "queue") return `${notice}a apply · d dry run · r/s replace/skip · R/S all · x remove · c clear · Esc back · q quit`
+  if (state.view === "queue") return `${notice}d dry run · a apply · r/R Magic Context preference (one/all) · t scope · x remove · c clear · Esc back · q quit`
   const filter = state.filter === "" ? "" : `filter "${state.filter}" · `
   if (state.right === null) return `${notice}${filter}↑↓ move · PgUp/PgDn · Enter fold · Space mark · / filter · q quit`
   const layout = state.layout === "panes" ? "Tab pane · p pair" : "p panes"
-  return `${notice}${filter}↑↓ · Enter fold · Space/* mark · >/< queue copy · Q queue · ${layout} · / filter · q quit`
+  return `${notice}${filter}↑↓ · Enter fold · Space/* mark · >/< queue sync · Q queue · ${layout} · / filter · q quit`
 }
 
 /** The details panel's title; with two profiles it carries the legend of the match marks. */

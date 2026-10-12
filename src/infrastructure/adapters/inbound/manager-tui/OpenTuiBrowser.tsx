@@ -67,9 +67,16 @@ export function BrowserView(props: BrowserViewProps) {
     busy = true
     dispatch({ type: "notice", text: dryRun ? "Checking the queue on copies…" : "Applying the queue…" })
     await new Promise((resolve) => setTimeout(resolve, PAINT_BEFORE_WORK_MS))
-    const outcome = props.controls.apply(state().queue, dryRun)
+    const outcome = props.controls.apply(state().queue, dryRun, state().scope)
     const { left, right } = outcome
-    dispatch({ type: "applied", result: outcome.result, changed: outcome.changed, ...(left === undefined ? {} : { left }), ...(right === undefined ? {} : { right }) })
+    dispatch({
+      type: "applied",
+      result: outcome.result,
+      changed: outcome.changed,
+      planned: outcome.planned,
+      ...(left === undefined ? {} : { left }),
+      ...(right === undefined ? {} : { right }),
+    })
     busy = false
   }
 
@@ -161,7 +168,7 @@ function Queue(props: { readonly state: BrowserState; readonly width: number }) 
       <Index each={visible()}>
         {(entry, index) => (
           <box height={1} backgroundColor={start() + index === props.state.queueCursor ? COLORS.cursor : "transparent"}>
-            <text fg={entry().resolution === null ? COLORS.folder : COLORS.text}>{queueText(entry(), props.width)}</text>
+            <text fg={entry().planned?.action === "skip" ? COLORS.folder : COLORS.text}>{queueText(entry(), props.width)}</text>
           </box>
         )}
       </Index>

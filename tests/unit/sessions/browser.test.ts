@@ -5,6 +5,7 @@ import {
   queueSummary,
   queueWindowStart,
   reduce,
+  requestsFor,
   rowsOf,
   selectedRow,
   type BrowserAction,
@@ -205,58 +206,105 @@ describe("Browser marks", () => {
   })
 })
 
+describe("Browser rows across OpenCode generations", () => {
+  it("pairs a session moved to OpenCode 2 once, by its OpenCode 2 row, and compares the panes by it", () => {
+    const v1 = (id: string, updated: number) => ({ ...session({ id, directory: "/old", updated }), generation: "v1" as const })
+    const a = opened("left", [v1("ses_m", 1), session({ id: "ses_m", directory: "/w", updated: 5 }), v1("ses_v1", 2)])
+    const b = opened("right", [session({ id: "ses_m", directory: "/w", updated: 5 }), v1("ses_m", 9)])
+    const state = run(createBrowser(a, b, 20), { type: "layout" })
+    expect(labels(state, "paired")).toEqual(["[/w]", "ses_msame", "[/old]", "ses_v1left-only"])
+    expect(labels(run(state, { type: "layout" }), "right")).toEqual(["[/old]", "ses_mnewer-here", "[/w]", "ses_msame"])
+  })
+})
+
 describe("Browser queue", () => {
-  it("queues copies of Magic Context state, skipping what cannot be copied, and clears the marks", () => {
+  it("queues whole-session syncs, the target's copy beside each, and clears the marks", () => {
     const state = run(paired(), { type: "mark-all" }, { type: "enqueue", direction: "to-right" })
     expect(state.marked).toEqual([])
-    expect(state.notice).toBe(
-      "Queued 2 Magic Context copies →; skipped 1 not on the left, 1 not on the right (sync the session first), 1 with no Magic Context state.",
-    )
-    expect(state.queue.map((entry) => [entry.id, entry.direction, entry.conflict, entry.resolution])).toEqual([
-      ["ses_c", "to-right", false, "replace"],
-      ["ses_a", "to-right", true, null],
+    expect(state.notice).toBe("Queued 4 session syncs →; skipped 1 not on the left. Q shows the queue; d checks it on copies.")
+    expect(state.queue.map((entry) => [entry.id, entry.direction, entry.target?.timeUpdated ?? null, entry.prefer, entry.planned])).toEqual([
+      ["ses_c", "to-right", 99, "further", null],
+      ["ses_a", "to-right", 50, "further", null],
+      ["ses_b", "to-right", 10, "further", null],
+      ["ses_d", "to-right", null, "further", null],
     ])
-    expect(state.queue[0]!.source.compartments).toBe(4)
-    expect(queueSummary(state.queue)).toEqual({ entries: 2, conflicts: 1, undecided: 1 })
+    expect(state.queue[0]!.source.magicContext?.compartments).toBe(4)
+    expect(queueSummary(state.queue)).toEqual({ entries: 4, new: 1, diverged: 0 })
     const again = run(state, { type: "move", delta: 2 }, { type: "enqueue", direction: "to-left" })
-    expect(again.notice).toBe("Queued 1 Magic Context copy ←.")
+    expect(again.notice).toBe("Queued 1 session sync ←. Q shows the queue; d checks it on copies.")
     expect(again.queue.map((entry) => [entry.id, entry.direction])).toEqual([
       ["ses_c", "to-right"],
+      ["ses_b", "to-right"],
+      ["ses_d", "to-right"],
       ["ses_a", "to-left"],
+    ])
+  })
+
+  it("queues a sub-agent session's root once, and takes a session's OpenCode 2 row over its OpenCode 1 row", () => {
+    const sub = opened("left", [
+      session({ id: "ses_root", directory: "/w", updated: 9 }),
+      session({ id: "ses_kid", directory: "/w", updated: 8, parent: "ses_root" }),
+      session({ id: "ses_grandkid", directory: "/w", updated: 7, parent: "ses_kid" }),
+      session({ id: "ses_x", directory: "/w", updated: 6, parent: "ses_y" }),
+      session({ id: "ses_y", directory: "/w", updated: 5, parent: "ses_x" }),
+      session({ id: "ses_orphan", directory: "/w", updated: 4, parent: "ses_gone" }),
+    ])
+    const v1 = { ...session({ id: "ses_root", directory: "/old", updated: 1 }), generation: "v1" as const }
+    const target = opened("right", [v1, session({ id: "ses_root", directory: "/w", updated: 3 })])
+    const state = run(createBrowser(sub, target, 20), { type: "mark-all" }, { type: "enqueue", direction: "to-right" })
+    // A parent loop (OpenCode never writes one) stops where it closes, so the walk always ends.
+    expect(state.queue.map((entry) => [entry.id, entry.target?.directory ?? null])).toEqual([
+      ["ses_root", "/w"],
+      ["ses_y", null],
+      ["ses_x", null],
+      ["ses_orphan", null],
     ])
   })
 
   it("explains a queue request it cannot act on", () => {
     expect(run(createBrowser(left, null, 5), { type: "enqueue", direction: "to-right" }).notice).toBe(
-      "Open a second profile with --right to copy between sides.",
+      "Open a second profile with --right to sync between sides.",
     )
     expect(run(two(), { type: "filter-input", text: "zz" }, { type: "enqueue", direction: "to-right" }).notice).toBe("Nothing selected.")
-    expect(run(two(), { type: "move", delta: 4 }, { type: "enqueue", direction: "to-right" }).notice).toBe(
-      "Queued 0 Magic Context copies →; skipped 1 with no Magic Context state.",
-    )
   })
 
-  it("is edited in its own view: move, resolve one or all conflicts, remove, clear", () => {
+  it("is edited in its own view: move, Magic Context preference for one or all, scope, remove, clear", () => {
     const base = run(paired(2), { type: "mark-all" }, { type: "enqueue", direction: "to-right" }, { type: "view" })
     expect(base.view).toBe("queue")
     expect(run(base, { type: "view" }).view).toBe("list")
     expect(run(base, { type: "view", view: "list" }).view).toBe("list")
-    expect(run(base, { type: "queue-move", delta: 5 }).queueCursor).toBe(1)
+    expect(run(base, { type: "queue-move", delta: 5 }).queueCursor).toBe(3)
     expect(run(base, { type: "queue-move", delta: -5 }).queueCursor).toBe(0)
-    expect(run(base, { type: "resolve", resolution: "skip" }).notice).toBe(
-      "No conflict: the target has no Magic Context state for this session.",
-    )
-    const replaced = run(base, { type: "queue-move", delta: 1 }, { type: "resolve", resolution: "replace" })
-    expect(replaced.queue[1]!.resolution).toBe("replace")
-    expect(replaced.notice).toBeNull()
-    expect(run(base, { type: "resolve", resolution: "skip", all: true }).queue.map((entry) => entry.resolution)).toEqual(["replace", "skip"])
-    const removed = run(base, { type: "queue-move", delta: 1 }, { type: "unqueue" })
-    expect([removed.queue.map((entry) => entry.id), removed.queueCursor]).toEqual([["ses_c"], 0])
-    expect(run(removed, { type: "unqueue" }, { type: "unqueue" }).queue).toEqual([])
+    const planned = { action: "keep" as const, relation: "same" as const, reason: null, context: "Magic Context copied" }
+    const checked = { ...base, queue: base.queue.map((entry) => ({ ...entry, planned })) }
+    const one = run(checked, { type: "queue-move", delta: 1 }, { type: "prefer" })
+    expect(one.queue.map((entry) => [entry.prefer, entry.planned === null])).toEqual([
+      ["further", false],
+      ["keep", true],
+      ["further", false],
+      ["further", false],
+    ])
+    expect(run(one, { type: "prefer" }, { type: "prefer" }).queue[1]!.prefer).toBe("further")
+    expect(run(one, { type: "prefer", all: true }).queue.map((entry) => entry.prefer)).toEqual(["replace", "replace", "replace", "replace"])
+    const scoped = run(checked, { type: "scope" })
+    expect([scoped.scope, scoped.queue.every((entry) => entry.planned === null), run(scoped, { type: "scope" }).scope]).toEqual(["sessions", true, "all"])
+    const removed = run(base, { type: "queue-move", delta: 3 }, { type: "unqueue" })
+    expect([removed.queue.map((entry) => entry.id), removed.queueCursor]).toEqual([["ses_c", "ses_a", "ses_b"], 2])
     expect(run(base, { type: "queue-clear" })).toMatchObject({ queue: [], queueCursor: 0 })
     const empty = run(base, { type: "queue-clear" })
-    expect(run(empty, { type: "resolve", resolution: "replace" })).toEqual({ ...empty, notice: null })
+    expect(run(empty, { type: "prefer" })).toEqual({ ...empty, notice: null })
+    expect(run(empty, { type: "unqueue" }).queue).toEqual([])
     expect(queueWindowStart(run(base, { type: "queue-move", delta: 1 }))).toBe(0)
     expect(queueWindowStart({ ...base, listHeight: 1, queueCursor: 1 })).toBe(1)
+  })
+
+  it("turns the queue into requests per direction, and takes each entry's result from a run", () => {
+    const state = run(paired(), { type: "mark-all" }, { type: "enqueue", direction: "to-right" }, { type: "view" }, { type: "queue-move", delta: 1 }, { type: "prefer" })
+    const toLeft = run(state, { type: "view" }, { type: "home" }, { type: "move", delta: 1 }, { type: "enqueue", direction: "to-left" })
+    expect(requestsFor(toLeft.queue, "to-right")).toEqual({ ids: ["ses_a", "ses_b", "ses_d"], preferFor: { ses_a: "keep" } })
+    expect(requestsFor(toLeft.queue, "to-left")).toEqual({ ids: ["ses_c"], preferFor: {} })
+    const diverged = { action: "skip" as const, relation: "diverged" as const, reason: "diverged" as const, context: null }
+    const result = reduce(state, { type: "applied", result: ["Dry run: …"], changed: false, planned: { ses_c: diverged } })
+    expect([result.queue[0]!.planned, result.queue[1]!.planned, queueSummary(result.queue).diverged]).toEqual([diverged, null, 1])
   })
 })

@@ -132,7 +132,7 @@ export class SyncSessionsUseCase implements SyncSessionsPort {
             readableTargetContextDb: read.targetContext,
             sourceOpencodeDb: workSource,
             targetOpencodeDb: workTarget,
-            sessions: contextRequests(families, input.prefer),
+            sessions: contextRequests(families, input.prefer, input.preferFor ?? {}),
             scope: input.context,
             workDir: work,
             mappingFor: (from) => families.find((family) => family.ids.includes(from.id))?.mapping ?? null,
@@ -317,13 +317,16 @@ function withRelocation(base: PathMapping | null, from: string, to: string, home
     : { ...base, relocations: [...base.relocations, relocation] }
 }
 
-/** The Magic Context requests the families imply: written sessions take the source's state; kept ones follow `prefer`. */
-function contextRequests(families: readonly FamilyPlan[], prefer: Prefer): SyncRequest[] {
+/**
+ * The Magic Context requests the families imply: written sessions take the source's state; kept ones
+ * follow their root's entry in `preferFor`, else `prefer`.
+ */
+function contextRequests(families: readonly FamilyPlan[], prefer: Prefer, preferFor: Readonly<Record<string, Prefer>>): SyncRequest[] {
   const resolution: Record<Prefer, Resolution> = { further: "further", keep: "skip", replace: "replace" }
   return families.flatMap((family) => {
     const action = family.outcome.action
     if (action === "skip") return []
-    const chosen: Resolution = action === "keep" ? resolution[prefer] : "replace"
+    const chosen: Resolution = action === "keep" ? resolution[preferFor[family.outcome.id] ?? prefer] : "replace"
     return family.ids.map((id) => ({ id, resolution: chosen }))
   })
 }
