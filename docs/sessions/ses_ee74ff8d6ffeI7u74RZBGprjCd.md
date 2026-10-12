@@ -20,6 +20,7 @@ fast-forwarded into `main` (`a68b4d1`) and deleted.
 | B TUI | queue = whole-session sync; health per session; Magic Context version header; `context wrapup\|recomp` and `W`/`R` | de9d128, ee90081, 12d29bd, 66c11d9 |
 | C fork | `fork` and `F` through the running OpenCode; `sync --diverged fork` and the queue's `f`/`F` | e62bcbf |
 | E (part) | one OpenCode git identity for both project resolvers, fixed to OpenCode's rules | 5a3af58 |
+| relocate | `relocate`: sessions whose folders moved, with their text and Magic Context state; `JointSwapService` shared with `sync` | 858cff1 |
 
 Gates at 5a3af58: typecheck, docs lint, unit 403 and e2e 95 tests at 100 % lines and functions per
 file, component 9, live 37 (+1 opt-in rebuild that spends tokens).
@@ -40,8 +41,9 @@ file, component 9, live 37 (+1 opt-in rebuild that spends tokens).
 - Deferred by the user (2026-10-12), needs the Windows machine: a refresh script, and syncing the real Windows profile (its OpenCode
   store is at migration `20260923013825_project_time_active`, this machine's at
   `20261007190000_azure_cli_external_credential`; `sync` refuses different migrations).
-- 82 sessions point at `~/Documents/Work/ITAM/Cursos/{relational-dbs,non-relational-dbs}`, emptied
-  on 2026-10-12; the repositories are now `~/Dev/repos/ITAM/2026-02-*`. `sync --map` can move them
-  (the user's decision).
-- Magic Context 0.48.0 is published; `opencode-magic-context-patches` is checked against it
-  (74267b1 there). Updating is the user's decision.
+- The user runs `~/.local/share/opencode/maintenance-2026-10-12.sh` from a plain terminal (OpenCode
+  closed): it backs up both stores and configs, relocates the 84 sessions of
+  `~/Documents/Work/ITAM/Cursos/{relational-dbs,non-relational-dbs}` (and the older `2026-02-*`
+  names) to `~/Dev/repos/ITAM/2026-02-*` (dry run on the live profile: 84 sessions, 31,713 + 106 rows,
+  merges `git:e4df455b…` → `git:061ecb…` and `git:5f407f03…` → `git:3eb1e20…`), pins Magic Context
+  0.48.0 and re-applies the threshold patch. Then validate with `--check`.
