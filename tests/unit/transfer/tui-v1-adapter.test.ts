@@ -22,7 +22,8 @@ function makeContainer() {
     db,
     home: new FakeHomeDirectoryAdapter(),
     transferSession: new TransferSessionUseCase(db, resolver, fs),
-    buildDirectoryOptions: new BuildDirectoryOptionsUseCase(db, fs),
+    // Every listed folder exists: these tests are about the dialogs, not the folder filter.
+    buildDirectoryOptions: new BuildDirectoryOptionsUseCase(db, fs, { isDirectory: () => true, subdirectories: () => [] }),
   }
   return { db, fs, container }
 }
@@ -89,7 +90,7 @@ describe("SessionTransferV1TuiAdapter", () => {
     expect(commands.length).toBe(1)
     expect(commands[0].name).toBe("session.transfer")
     expect(commands[0].slashName).toBe("transfer-session")
-    expect(commands[0].slashAliases).toContain("relocate")
+    expect(commands[0].slashAliases).toBeUndefined()
   })
 
   it("opens the directory picker with the custom-path entry first for an active session", async () => {

@@ -71,7 +71,7 @@ export function fakeTuiContext(muted: HostColor = "#808080") {
           disposed.push(claim)
         }
       },
-      dialog: { select: async () => undefined, prompt: async () => undefined },
+      dialog: { show: () => undefined, set: () => undefined, clear: () => undefined, select: async () => undefined },
       toast: { show: () => undefined },
       router: { current: () => ({ type: "home" }) },
     },

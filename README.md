@@ -26,9 +26,9 @@ The plugin:
 1. **Session ID in the sidebar** — the active session's ID is the first row of
    the session sidebar, directly under the title, in the theme's muted colour.
 2. **The `session-id` tool** — returns the running session's ID to the agent.
-3. **`/transfer-session`** (alias `/relocate`, palette "Transfer session") —
-   moves a session to any folder: another project, a plain folder, or a folder
-   that does not exist yet (it is created).
+3. **`/transfer-session`** (palette "Transfer session") — moves a session to
+   any folder: another project, a plain folder, or a folder that does not exist
+   yet (it is created after a second Enter).
 
 ```
 ┌ sidebar ─────────────────────────────┐
@@ -54,9 +54,39 @@ The plugin:
 
 The move goes through the host's `session.move` API — no database writes — so
 the host re-resolves the project and tells the agent about the new directory.
-Over the built-in `/cd` and `/worktrees`, the plugin adds a picker over every
-project root, worktree and session directory across projects, moving a session
-other than the open one, and creating a destination that does not exist yet.
+Over the built-in `/cd` and `/worktrees`, the plugin adds a folder browser over
+every project root, worktree and session folder across projects, moving a
+session other than the open one, and creating a destination that does not exist
+yet.
+
+The folder browser is a path box over a list:
+
+```
+Transfer session (tiqP1s5d)                                      esc
+~/Dev/repos/
+› ~/Dev/repos  · this folder
+  ~/Dev/repos/inference-router
+  ~/Dev/repos/ITAM
+  ~/Dev/repos/opencode
+↑↓ select   → open folder   ← parent folder   enter move here   esc cancel
+```
+
+- Empty, it lists the known folders that still exist, each once, in display
+  order (under `~` first, a parent before its children, ignoring case); text
+  that is not a path filters them.
+- A path (`~/…`, `/…`) lists that folder first, then the folders inside it
+  whose names start with what is typed; the first completion is highlighted.
+  Hidden folders appear once the name starts with `.`.
+- **→** opens the highlighted folder, **←** goes to the parent folder (the name
+  being typed first), **↑/↓** (PgUp/PgDn) select, **Enter** moves the session
+  there, **Esc** closes. A folder that does not exist is marked `· new folder`
+  and needs a second Enter, which creates it.
+- Long paths are shortened in the middle, so their end stays visible.
+
+Magic Context follows the move on the session's next prompt (it links the
+session to the project of its new folder). Memories the session created stay
+with the old project, and old paths in its history are not rewritten: for a
+whole folder that moved, use the program's `relocate`.
 
 ### OpenCode 1
 
@@ -75,9 +105,8 @@ The plugin:
   (`opencode.jsonc` or `cli.json`) shows the session ID.
 - The sidebar only appears when the terminal is wide enough
   (`session.sidebar: "auto"` in `cli.json`).
-- The transfer dialog cannot autocomplete paths live or drill into folders with
-  the arrow keys: the plugin dialog API exposes no filter handle or bindings. It
-  lists every known directory instead, plus "Enter custom path…" (`~` works).
+- On OpenCode 1 the transfer keeps the host's list dialog: the known folders
+  plus "Enter custom path…" (`~` works), without the folder browser.
 
 The program:
 
@@ -567,6 +596,10 @@ flowchart LR
     T1 --> TS[TransferSessionUseCase]
     T2 --> BD[BuildDirectoryOptionsUseCase]
     T1 --> BD
+    T2 -->|ui.dialog.show + modal keymap layer| FB[FolderBrowserDialogV2Adapter]
+    FB --> BF[BrowseFoldersUseCase]
+    BF --> DL[DirectoryListingPort -> NodeDirectoryListingAdapter]
+    BD --> DL
     RE --> TP[ThemePalettePort / SidebarViewPort]
     MS --> HP[SessionHostPort -> OpenCode2HostAdapter]
     TS --> DB[SessionDbPort -> SqliteSessionDbAdapter]

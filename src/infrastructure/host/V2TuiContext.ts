@@ -32,17 +32,39 @@ export interface V2SelectOption<Value> {
   readonly category?: string
 }
 
+export interface V2KeymapCommand {
+  /** Stable command id; omitted for a key bound only while its layer is active. */
+  readonly id?: string
+  readonly title: string
+  readonly group: string
+  /** A key the command is bound to (`up`, `left`, `return`, …). */
+  readonly bind?: string
+  readonly palette?: true
+  readonly slash?: { readonly name: string; readonly aliases?: string[] }
+  readonly run: () => void
+}
+
+/** `global`: always reachable; `modal`: while a dialog is open (the host's own dialogs use it). */
 export interface V2KeymapLayer {
-  readonly mode: "global"
-  readonly commands: ReadonlyArray<{
-    readonly id: string
-    readonly title: string
-    readonly description: string
-    readonly group: string
-    readonly palette: true
-    readonly slash: { readonly name: string; readonly aliases: string[] }
-    readonly run: () => void
-  }>
+  readonly mode: "global" | "modal"
+  /** Wins over the host's layers of the same mode with a lower priority (its text input among them). */
+  readonly priority?: number
+  readonly commands: ReadonlyArray<V2KeymapCommand>
+}
+
+/**
+ * The theme tokens this plugin reads (`@opencode/theme/tui` `ResolvedTheme`). Only `text.muted`
+ * is guaranteed by every host; the rest is read with a fallback. `surface("dialog")` gives the
+ * tokens of a dialog, as the host's own dialogs use.
+ */
+export interface V2ThemeTokens {
+  readonly text: {
+    readonly muted: HostColor
+    readonly base?: HostColor
+    readonly action?: { readonly primary?: { readonly focused?: HostColor } }
+  }
+  readonly background?: { readonly action?: { readonly primary?: { readonly focused?: HostColor } } }
+  readonly surface?: (name: string) => V2ThemeTokens
 }
 
 /**
@@ -51,7 +73,7 @@ export interface V2KeymapLayer {
  * structurally so the bundle carries no `@opencode/*` runtime import.
  */
 export interface V2TuiContext {
-  readonly theme: { readonly text: { readonly muted: HostColor } }
+  readonly theme: V2ThemeTokens
   readonly client: V2Client
   readonly keymap: {
     layer(input: () => V2KeymapLayer): void
@@ -59,16 +81,15 @@ export interface V2TuiContext {
   readonly ui: {
     slot(claim: V2SlotClaim): () => void
     readonly dialog: {
+      /** Shows a dialog drawn by the plugin; `onClose` runs when the host closes it (Esc, a click outside). */
+      show(render: () => JSX.Element, onClose?: () => void): void
+      set(options: { readonly size?: "medium" | "large" | "xlarge" }): void
+      clear(): void
       select<Value>(options: {
         readonly title: string
         readonly placeholder?: string
         readonly options: ReadonlyArray<V2SelectOption<Value>>
       }): Promise<Value | undefined>
-      prompt(options: {
-        readonly title: string
-        readonly description?: string
-        readonly placeholder?: string
-      }): Promise<string | undefined>
     }
     readonly toast: {
       show(options: {

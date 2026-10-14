@@ -4,7 +4,7 @@
  * separator is used when one has to be added.
  */
 
-function separatorOf(home: string): string {
+export function separatorOf(home: string): string {
   return home.includes("\\") && !home.includes("/") ? "\\" : "/"
 }
 

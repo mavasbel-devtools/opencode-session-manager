@@ -322,6 +322,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `Sidecars.ts` | maintenance | a database's `-wal`/`-shm`/`-journal` sidecars |
 | `StoreLock.ts` | maintenance, sessions | a store's lock: its owner (pid, command, start), a stale lock removed, `lockFileOf` |
 | `Paths.ts` | plugin | `~` expansion and abbreviation |
+| `FolderBrowser.ts` | plugin | the folder browser's rules: path or filter, completion split, parent folder, display order (`compareLabels`), `fitMiddle`, scrolling |
 | `Session.ts` | plugin | session summaries, projects, transfer and move results, picker options |
 | `SessionId.ts` | plugin | the session-id guard and sidebar text |
 | `SidebarEntry.ts` | plugin | one sidebar line |
@@ -365,7 +366,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
 `MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`,
-`MoveSessionPort.ts`, `TransferSessionPort.ts`, `BuildDirectoryOptionsPort.ts`
+`MoveSessionPort.ts`, `TransferSessionPort.ts`, `BuildDirectoryOptionsPort.ts`, `BrowseFoldersPort.ts`
 (plugin).
 
 **`src/domain/ports/outbound`** — what the inner layers need from outside:
@@ -378,7 +379,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts`, `RelocationStorePort.ts`,
 `MagicContextRelocationStorePort.ts` (sessions); `SessionHostPort.ts`,
 `SessionDbPort.ts`, `ProjectResolverPort.ts`, `FileSystemPort.ts`,
-`KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`,
+`KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`, `DirectoryListingPort.ts`,
 `SidebarViewPort.ts` (plugin).
 
 **`src/application`** — use cases and the services they compose.
@@ -411,7 +412,8 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `RenderSidebarEntryUseCase.ts` | plugin | the sidebar line |
 | `MoveSessionUseCase.ts` | plugin | v2 transfer through the host |
 | `TransferSessionUseCase.ts` | plugin | v1 transfer through the store |
-| `BuildDirectoryOptionsUseCase.ts` | plugin | the transfer picker's options |
+| `BuildDirectoryOptionsUseCase.ts` | plugin | the known folders the transfer offers: once each, existing only, no filesystem root, in display order |
+| `BrowseFoldersUseCase.ts` | plugin | the folder browser's steps (type, ↑/↓, →, ←, Enter) over the listing port |
 
 **`src/infrastructure/adapters/inbound`**
 
@@ -435,6 +437,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `server/SessionIdToolV2Adapter.ts` | registers the `session-id` tool (v2) |
 | `tui/SessionIdSidebarSlotV2Adapter.ts` | the sidebar slot (v2) |
 | `tui/SessionTransferV2TuiAdapter.ts`, `tui/SessionTransferV1TuiAdapter.ts` | `/transfer-session` (v2, v1) |
+| `tui/FolderBrowserDialogV2Adapter.tsx` | the v2 folder browser dialog: path box, rows, keys (modal keymap layer) |
 
 **`src/infrastructure/adapters/outbound`**
 
@@ -468,6 +471,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `fs/NodeMaintenanceFileSystemAdapter.ts` | the program's file operations |
 | `fs/FsStoreLockAdapter.ts` | `<store>.session-manager.lock` files: exclusive create, stale-owner check (`kill(pid, 0)`), release only by the owner |
 | `fs/NodeFileSystemAdapter.ts` | the plugin's file operations |
+| `fs/NodeDirectoryListingAdapter.ts` | the folder browser's reads: is a folder, folders inside one |
 | `fs/JsonReportAdapter.ts` | JSON evidence files |
 | `system/ConsoleOutputAdapter.ts` | the program's stdout |
 | `system/SystemClockAdapter.ts` | time, process id, platform, temp and home folders |
@@ -504,9 +508,14 @@ program's entry), `cli/platform.ts` (loads one platform's container).
   through `opentui:runtime-module:*`. `scripts/build.mjs` keeps those external
   and fails if the bundle imports `solid-js` or `@opentui/*` by name. Node
   built-ins (`node:fs`, `node:path`, …) are allowed: the TUI runs on Bun.
-- **Dialog limits.** The plugin select dialog exposes no filter handle or key
-  bindings, so live path autocomplete and arrow-key drill-down are impossible
-  from a plugin; do not re-mount the dialog per keystroke (it clears the filter).
+- **Folder browser (v2).** The host's select dialog gives a plugin no keys, so
+  v2's `/transfer-session` draws its own dialog (`ui.dialog.show`) and binds its
+  keys with a `modal` keymap layer at `priority: 1` (above the host's text-input
+  layer, as the host's own dialogs do): ↑/↓/PgUp/PgDn select, → opens the
+  folder, ← goes to the parent folder, Enter moves (a folder that does not exist
+  needs a second Enter), Esc is the host's. Tab is left to the host. Verified in
+  the real 2.0.26 TUI (`tests/live/tui-transfer.test.ts`). v1 keeps the host's
+  list dialog plus "Enter custom path…".
 - `plugin.list` does not wait for activation; `integration.list` does, so tests
   call it first. The CLI `session list` can answer `[]` for a just-created
   session; tests use `api session.list`.
@@ -528,7 +537,8 @@ in-process real-host tier and "live" is the real external process.
 | File | What it gives a test |
 |---|---|
 | `source-files.ts` | every `src` file, for the architecture and completeness gates |
-| `fakes/hosts.ts`, `fakes/transfer-ports.ts` | stand-ins for the OpenCode hosts and the transfer ports |
+| `fakes/hosts.ts`, `fakes/transfer-ports.ts` | stand-ins for the OpenCode hosts and the transfer ports (`FakeDirectoryListingAdapter`: folders in memory) |
+| `fakes/dialog-host.tsx` | the host's dialog stack and keymap as a plugin dialog sees them: paints with OpenTUI's test renderer, runs the command a modal layer binds to a key, types, clicks, Esc |
 | `fixtures/host-2.0.14/` | verbatim OpenCode 2.0.14 host sources (re-extracted, never edited), so tests run the host's own rules |
 | `fixtures/legacy-session-id-index.js`, `fixtures/legacy-session-id-index.d.ts` | the hand-written tool this plugin replaced, kept verbatim |
 | `live/process.ts` | runs processes, finds OpenCode, `removeTemporary()`/`removeTemporarySync()` |

@@ -1,5 +1,6 @@
 import type { SessionSummary } from "@session-manager/domain/model/Session"
 import { expandHome } from "@session-manager/domain/model/Paths"
+import type { DirectoryListingPort } from "@session-manager/domain/ports/outbound/DirectoryListingPort"
 import type { FileSystemPort } from "@session-manager/domain/ports/outbound/FileSystemPort"
 import type { HomeDirectoryPort } from "@session-manager/domain/ports/outbound/HomeDirectoryPort"
 import type { ProjectResolverPort, ResolvedProject } from "@session-manager/domain/ports/outbound/ProjectResolverPort"
@@ -96,5 +97,28 @@ export class FakeHomeDirectoryAdapter implements HomeDirectoryPort {
 
   homeDirectory(): string {
     return this.home
+  }
+}
+
+/** Folders in memory: every path listed is a directory, and so is every parent of one. */
+export class FakeDirectoryListingAdapter implements DirectoryListingPort {
+  private readonly folders = new Set<string>()
+
+  constructor(folders: readonly string[] = []) {
+    for (const folder of folders) this.add(folder)
+  }
+
+  add(folder: string): void {
+    const parts = folder.split("/")
+    for (let index = 1; index <= parts.length; index++) this.folders.add(parts.slice(0, index).join("/") || "/")
+  }
+
+  isDirectory(path: string): boolean {
+    return this.folders.has(path)
+  }
+
+  subdirectories(directory: string): string[] {
+    const prefix = directory.endsWith("/") ? directory : `${directory}/`
+    return [...this.folders].filter((folder) => folder.startsWith(prefix) && folder.length > prefix.length && !folder.slice(prefix.length).includes("/")).map((folder) => folder.slice(prefix.length))
   }
 }

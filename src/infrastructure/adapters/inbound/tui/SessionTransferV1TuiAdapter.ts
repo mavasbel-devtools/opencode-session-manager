@@ -1,4 +1,5 @@
 import type { TuiPluginApi, TuiDialogSelectOption } from "@opencode-ai/plugin/tui"
+import { abbreviateHome } from "@session-manager/domain/model/Paths"
 import type { BuildDirectoryOptionsPort } from "@session-manager/domain/ports/inbound/BuildDirectoryOptionsPort"
 import type { TransferSessionPort } from "@session-manager/domain/ports/inbound/TransferSessionPort"
 import type { HomeDirectoryPort } from "@session-manager/domain/ports/outbound/HomeDirectoryPort"
@@ -41,7 +42,6 @@ export class SessionTransferV1TuiAdapter {
           category: "Session",
           namespace: "palette",
           slashName: "transfer-session",
-          slashAliases: ["relocate"],
           run: () => this.open(api),
         },
       ],
@@ -68,7 +68,7 @@ export class SessionTransferV1TuiAdapter {
       const options: TuiDialogSelectOption<string>[] = sessions.map((session) => ({
         title: session.title || session.id,
         value: session.id,
-        description: session.directory,
+        description: abbreviateHome(session.directory, this.container.home.homeDirectory()),
         footer: session.id.slice(-8),
         onSelect: () => {
           void this.openDirectoryPicker(api, session.id)
@@ -96,7 +96,6 @@ export class SessionTransferV1TuiAdapter {
         title: entry.title,
         value: entry.custom ? CUSTOM_PATH : entry.directory,
         category: entry.category,
-        ...(entry.description ? { description: entry.description } : {}),
         onSelect: () => {
           if (entry.custom) {
             this.promptCustomPath(api, sessionId)

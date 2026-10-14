@@ -1,11 +1,17 @@
+import { abbreviateHome } from "@session-manager/domain/model/Paths"
 import type { BuildDirectoryOptionsPort } from "@session-manager/domain/ports/inbound/BuildDirectoryOptionsPort"
 import type { MoveSessionPort } from "@session-manager/domain/ports/inbound/MoveSessionPort"
 import type { HomeDirectoryPort } from "@session-manager/domain/ports/outbound/HomeDirectoryPort"
 import type { SessionHostPort } from "@session-manager/domain/ports/outbound/SessionHostPort"
 import { APP_SLOT, type V2KeymapLayer, type V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
+import type { FolderBrowserRequest } from "@session-manager/infrastructure/adapters/inbound/tui/FolderBrowserDialogV2Adapter"
 
-const CUSTOM_PATH = "__transfer_custom_path__"
 const TITLE = "Transfer session"
+
+/** Picks the destination folder (the folder browser dialog). */
+export interface V2FolderPicker {
+  pick(context: V2TuiContext, request: FolderBrowserRequest): Promise<string | undefined>
+}
 
 /** The ports the v2 transfer command drives, wired by the TUI composition root. */
 export interface V2TransferServices {
@@ -13,6 +19,7 @@ export interface V2TransferServices {
   readonly home: HomeDirectoryPort
   readonly moveSession: MoveSessionPort
   readonly buildDirectoryOptions: BuildDirectoryOptionsPort
+  readonly folders: V2FolderPicker
 }
 
 function errorMessage(error: unknown): string {
@@ -20,12 +27,14 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * OpenCode 2 inbound adapter for `/transfer-session` (alias `/relocate`).
+ * OpenCode 2 inbound adapter for `/transfer-session`.
  *
  * What it adds over the builtin v2 move surfaces (`/cd <path>` and the
- * `/worktrees` picker): a picker over *every* registered project, worktree and
- * session directory across projects, moving a session other than the open
- * one, and creating a destination folder that does not exist yet.
+ * `/worktrees` picker): a folder browser over *every* registered project,
+ * worktree and session folder across projects, with typed paths completed
+ * from disk (→ into a folder, ← up), moving a session other than the open
+ * one, and creating a destination folder that does not exist yet (after a
+ * second Enter).
  */
 export class SessionTransferV2TuiAdapter {
   constructor(private readonly services: V2TransferServices) {}
@@ -43,10 +52,9 @@ export class SessionTransferV2TuiAdapter {
         {
           id: "session.transfer",
           title: TITLE,
-          description: "Move a session to any folder, including another project",
           group: "Session",
           palette: true,
-          slash: { name: "transfer-session", aliases: ["relocate"] },
+          slash: { name: "transfer-session" },
           run: () => {
             void this.open(context)
           },
@@ -86,7 +94,7 @@ export class SessionTransferV2TuiAdapter {
       options: sessions.map((session) => ({
         title: session.title || session.id,
         value: session.id,
-        description: session.directory,
+        description: abbreviateHome(session.directory, this.services.home.homeDirectory()),
         footer: session.id.slice(-8),
       })),
     })
@@ -94,19 +102,12 @@ export class SessionTransferV2TuiAdapter {
 
   private async pickDirectory(context: V2TuiContext, sessionId: string): Promise<void> {
     const home = this.services.home.homeDirectory()
-    const entries = await this.services.buildDirectoryOptions.execute(home)
-    const selected = await context.ui.dialog.select({
+    const known = await this.services.buildDirectoryOptions.execute(home)
+    const directory = await this.services.folders.pick(context, {
       title: `${TITLE} (${sessionId.slice(-8)})`,
-      placeholder: "Pick a directory, or “Enter custom path…”",
-      options: entries.map((entry) => ({
-        title: entry.title,
-        value: entry.custom ? CUSTOM_PATH : entry.directory,
-        category: entry.category,
-        ...(entry.description ? { description: entry.description } : {}),
-      })),
+      home,
+      roots: known.filter((entry) => !entry.custom).map((entry) => entry.directory),
     })
-    if (selected === undefined) return
-    const directory = selected === CUSTOM_PATH ? await this.promptCustomPath(context) : selected
     if (directory === undefined) return
 
     const result = await this.services.moveSession.execute(sessionId, directory, home).catch((error: unknown) => {
@@ -119,14 +120,6 @@ export class SessionTransferV2TuiAdapter {
       title: "Session transferred",
       message: `Moved to ${result.newDirectory}`,
       duration: 4000,
-    })
-  }
-
-  private promptCustomPath(context: V2TuiContext): Promise<string | undefined> {
-    return context.ui.dialog.prompt({
-      title: "Enter destination directory",
-      description: "Created when missing. Any folder works, including other projects.",
-      placeholder: "e.g. ~/work/repos/HomeLab or C:\\path\\to\\dir",
     })
   }
 }

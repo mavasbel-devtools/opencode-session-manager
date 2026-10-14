@@ -1,11 +1,12 @@
 // LIVE tier: `/transfer-session` in the real OpenCode 2 TUI, in a real
 // pseudo-terminal, attached to an isolated host (private XDG dirs, never the
 // user's opencode.db) with the plugin installed as in production. The real
-// keymap, slash command, select dialog, prompt dialog and `session.move` run
-// here; the result is read back from the real server.
+// keymap, slash command, the plugin's own folder-browser dialog (its arrow keys
+// through the host's modal keymap layers) and `session.move` run here; the
+// result is read back from the real server.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"
 import { existsSync } from "node:fs"
-import { writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { MODEL, startIsolatedHost, type IsolatedHost } from "@test/support/live/isolated-host"
 import { requireOpenCode, run, stripAnsi } from "@test/support/live/process"
@@ -21,25 +22,43 @@ describe("real TUI /transfer-session", () => {
     await host?.stop()
   }, 60_000)
 
-  it("moves the open session to a new folder created on the way", async () => {
+  it("browses folders with the arrows and a typed path, then moves the open session to a folder it creates", async () => {
     const turn = await host.opencode(["run", "--model", `mock/${MODEL}`, "Hello."])
     expect(turn.exitCode).toBe(0)
     const sessionID = (await host.sessions())[0]!.id
-    const destination = path.join(host.workspace, "..", "moved", "here")
+    const tree = path.resolve(host.workspace, "..", "tree")
+    for (const name of ["alpha", "beta", "Gamma", ".hidden"]) await mkdir(path.join(tree, name), { recursive: true })
     const envFile = path.join(host.workspace, "..", "tui-env.json")
     await writeFile(envFile, JSON.stringify(host.environment))
     const node = Bun.which("node")
     if (!node) throw new Error("node executable not found")
 
     const driven = await run(
-      [node, "tests/support/live/drive-transfer.mjs", requireOpenCode(), host.url, sessionID, envFile, host.workspace, destination],
+      [node, "tests/support/live/drive-transfer.mjs", requireOpenCode(), host.url, sessionID, envFile, host.workspace, tree, "fresh"],
       { timeoutMs: 180_000 },
     )
     const result = JSON.parse(driven.stdout.trim().split("\n").at(-1)!)
     expect({ steps: result.steps, screen: result.screen }).toEqual({
-      steps: { sidebar: true, picker: true, prompt: true, toast: true },
+      steps: { sidebar: true, browser: true, listed: true, entered: true, confirm: true, toast: true },
       screen: undefined,
     })
+    const rows = (lines: string[]) => lines.slice(2, -1)
+    const footer = "↑↓ select   → open folder   ← parent folder   enter move here   esc cancel"
+    // The known folders: the workspace, once, with no second grey copy of the path.
+    expect(result.checkpoints.opened.filter((line: string) => line.includes("workspace")).map((line: string) => line.replace(/^› /, ""))).toEqual([host.workspace])
+    expect(result.checkpoints.opened.at(-1)).toBe(footer)
+    // A typed folder: itself first, then its folders by name, ignoring case; hidden ones left out.
+    expect(rows(result.checkpoints.tree)).toEqual([`› ${tree}  · this folder`, `${tree}/alpha`, `${tree}/beta`, `${tree}/Gamma`])
+    // Completing `al`: the completion is highlighted; → goes into it; ← twice is the tree's parent.
+    expect(rows(result.checkpoints.completing)).toEqual([`${tree}/al  · new folder`, `› ${tree}/alpha`])
+    expect(result.checkpoints.entered[1]).toBe(`${tree}/alpha/`)
+    expect(rows(result.checkpoints.entered)).toEqual([`› ${tree}/alpha  · this folder`])
+    expect(result.checkpoints.up[1]).toBe(`${path.dirname(tree)}/`)
+    expect(rows(result.checkpoints.up)).toContain(tree)
+    // A folder that does not exist: a second Enter creates it.
+    expect(rows(result.checkpoints.typedNew)).toEqual([`› ${tree}/alpha/fresh  · new folder`])
+    expect(result.checkpoints.confirm.at(-1)).toStartWith("Enter again to create ")
+    const destination = path.join(tree, "alpha", "fresh")
     expect(existsSync(destination)).toBe(true)
 
     const listed = await run([requireOpenCode(), "api", "session.list", "--server", host.url], { env: host.environment, cwd: host.workspace })
@@ -47,6 +66,6 @@ describe("real TUI /transfer-session", () => {
     const moved = (JSON.parse(listed.stdout) as { data: Array<{ id: string; location: { directory: string } }> }).data.find(
       (entry) => entry.id === sessionID,
     )
-    expect(stripAnsi(moved!.location.directory)).toBe(path.resolve(destination))
+    expect(stripAnsi(moved!.location.directory)).toBe(destination)
   }, 300_000)
 })

@@ -28,7 +28,6 @@ export interface MoveResult {
 export interface DirectoryOption {
   readonly title: string
   readonly directory: string
-  readonly description?: string
   readonly category: string
   /** Marks the sentinel entry that opens the free-form path prompt. */
   readonly custom?: boolean

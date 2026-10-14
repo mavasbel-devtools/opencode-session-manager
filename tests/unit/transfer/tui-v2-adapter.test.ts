@@ -1,6 +1,4 @@
 import { describe, it, expect } from "bun:test"
-import os from "node:os"
-import path from "node:path"
 import {
   SessionTransferV2TuiAdapter,
   type V2TransferServices,
@@ -9,31 +7,37 @@ import type { V2KeymapLayer, V2TuiContext } from "@session-manager/infrastructur
 import { fakeV2Client } from "@test/support/fakes/hosts"
 import { MoveSessionUseCase } from "@session-manager/application/MoveSessionUseCase"
 import { BuildDirectoryOptionsUseCase } from "@session-manager/application/BuildDirectoryOptionsUseCase"
-import { FakeFileSystemAdapter, FakeHomeDirectoryAdapter, FakeSessionHostAdapter } from "@test/support/fakes/transfer-ports"
+import type { FolderBrowserRequest } from "@session-manager/infrastructure/adapters/inbound/tui/FolderBrowserDialogV2Adapter"
+import {
+  FakeDirectoryListingAdapter,
+  FakeFileSystemAdapter,
+  FakeHomeDirectoryAdapter,
+  FakeSessionHostAdapter,
+} from "@test/support/fakes/transfer-ports"
 
-const CUSTOM = "__transfer_custom_path__"
-
-function makeServices() {
+function makeServices(folders: Array<string | undefined> = []) {
   const host = new FakeSessionHostAdapter()
   const fs = new FakeFileSystemAdapter()
+  const listing = new FakeDirectoryListingAdapter()
+  const picks: FolderBrowserRequest[] = []
   const services: V2TransferServices = {
     host,
     home: new FakeHomeDirectoryAdapter(),
     moveSession: new MoveSessionUseCase(host, fs),
-    buildDirectoryOptions: new BuildDirectoryOptionsUseCase(host, fs),
+    buildDirectoryOptions: new BuildDirectoryOptionsUseCase(host, fs, listing),
+    folders: {
+      pick: async (_context, request) => {
+        picks.push(request)
+        return folders.shift()
+      },
+    },
   }
-  return { host, fs, services }
+  return { host, fs, listing, picks, services }
 }
 
-function makeContext(input: {
-  route: { type: string; sessionID?: string }
-  selects?: unknown[]
-  prompts?: Array<string | undefined>
-}) {
+function makeContext(input: { route: { type: string; sessionID?: string }; selects?: unknown[] }) {
   const selects = [...(input.selects ?? [])]
-  const prompts = [...(input.prompts ?? [])]
   const selectCalls: any[] = []
-  const promptCalls: any[] = []
   const toasts: any[] = []
   const layers: Array<() => V2KeymapLayer> = []
   const slots: any[] = []
@@ -45,13 +49,12 @@ function makeContext(input: {
     keymap: { layer: (layer) => void layers.push(layer) },
     ui: {
       dialog: {
+        show: () => undefined,
+        set: () => undefined,
+        clear: () => undefined,
         select: async (options: any) => {
           selectCalls.push(options)
           return selects.shift() as any
-        },
-        prompt: async (options) => {
-          promptCalls.push(options)
-          return prompts.shift()
         },
       },
       toast: { show: (toast) => void toasts.push(toast) },
@@ -64,7 +67,7 @@ function makeContext(input: {
       },
     },
   }
-  return { context, selectCalls, promptCalls, toasts, layers, slots, unregistered: () => unregistered }
+  return { context, selectCalls, toasts, layers, slots, unregistered: () => unregistered }
 }
 
 function seedSession(host: FakeSessionHostAdapter, id: string, directory: string, title = id) {
@@ -74,9 +77,9 @@ function seedSession(host: FakeSessionHostAdapter, id: string, directory: string
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 describe("SessionTransferV2TuiAdapter", () => {
-  it("registers /transfer-session from an app slot render (in-tree keymap layer)", async () => {
-    const { host, services } = makeServices()
-    seedSession(host, "ses_abc", "C:\\work\\alpha")
+  it("registers /transfer-session (no alias, no description) from an app slot render (in-tree keymap layer)", async () => {
+    const { host, services, picks } = makeServices()
+    seedSession(host, "ses_abc", "/work/alpha")
     const adapter = new SessionTransferV2TuiAdapter(services)
     const ctx = makeContext({ route: { type: "session", sessionID: "ses_abc" } })
 
@@ -90,137 +93,86 @@ describe("SessionTransferV2TuiAdapter", () => {
 
     const layer = ctx.layers[0]!()
     expect(layer.mode).toBe("global")
-    expect(layer.commands.length).toBe(1)
-    const command = layer.commands[0]!
-    expect(command.id).toBe("session.transfer")
-    expect(command.palette).toBe(true)
-    expect(command.slash).toEqual({ name: "transfer-session", aliases: ["relocate"] })
+    expect(layer.commands).toEqual([
+      { id: "session.transfer", title: "Transfer session", group: "Session", palette: true, slash: { name: "transfer-session" }, run: expect.any(Function) },
+    ])
 
-    command.run()
+    layer.commands[0]!.run()
     await tick()
-    expect(ctx.selectCalls.length).toBe(1)
+    expect(picks.length).toBe(1)
 
     unregister()
     expect(ctx.unregistered()).toBe(1)
   })
 
-  it("moves the open session to a picked directory from another project", async () => {
-    const { host, fs, services } = makeServices()
-    host.directories = ["C:\\repo-b", "C:\\repo-a"]
-    const ctx = makeContext({ route: { type: "session", sessionID: "ses_abc" }, selects: ["C:\\repo-b"] })
+  it("opens the folder browser over the known folders that exist, then moves the open session to the chosen one", async () => {
+    const { host, fs, listing, picks, services } = makeServices(["/repo-b"])
+    host.directories = ["/repo-b", "/gone", "/", "/home/user/repo-a"]
+    listing.add("/repo-b")
+    listing.add("/home/user/repo-a")
+    const ctx = makeContext({ route: { type: "session", sessionID: "ses_abc" } })
+
+    await new SessionTransferV2TuiAdapter(services).open(ctx.context)
+
+    expect(picks).toEqual([{ title: "Transfer session (ses_abc)", home: "/home/user", roots: ["/home/user/repo-a", "/repo-b"] }])
+    expect(fs.ensured).toEqual(["/repo-b"])
+    expect(host.moves).toEqual([{ sessionId: "ses_abc", directory: "/repo-b" }])
+    expect(ctx.toasts).toEqual([{ variant: "success", title: "Session transferred", message: "Moved to /repo-b", duration: 4000 }])
+  })
+
+  it("asks for a session first when no session is open, showing folders under the home as ~", async () => {
+    const { host, services } = makeServices(["/work/one"])
+    seedSession(host, "ses_home_1", "/home/user/one", "One")
+    seedSession(host, "ses_home_2", "/work/two", "")
+    const ctx = makeContext({ route: { type: "home" }, selects: ["ses_home_2"] })
 
     await new SessionTransferV2TuiAdapter(services).open(ctx.context)
 
     expect(ctx.selectCalls.length).toBe(1)
-    expect(ctx.selectCalls[0].title).toContain("ses_abc")
-    expect(ctx.selectCalls[0].options[0]).toEqual({ title: "Enter custom path…", value: CUSTOM, category: "Directories" })
-    expect(ctx.selectCalls[0].options.map((option: any) => option.value)).toEqual([CUSTOM, "C:\\repo-a", "C:\\repo-b"])
-    expect(ctx.selectCalls[0].options[1].description).toBe("C:\\repo-a")
-    expect(fs.ensured).toEqual(["C:\\repo-b"])
-    expect(host.moves).toEqual([{ sessionId: "ses_abc", directory: "C:\\repo-b" }])
-    expect(ctx.toasts).toEqual([
-      { variant: "success", title: "Session transferred", message: "Moved to C:\\repo-b", duration: 4000 },
-    ])
-  })
-
-  it("asks for a session first when no session is open", async () => {
-    const { host, services } = makeServices()
-    seedSession(host, "ses_home_1", "C:\\work\\one", "One")
-    seedSession(host, "ses_home_2", "C:\\work\\two", "")
-    host.directories = ["C:\\work\\one"]
-    const ctx = makeContext({ route: { type: "home" }, selects: ["ses_home_2", "C:\\work\\one"] })
-
-    await new SessionTransferV2TuiAdapter(services).open(ctx.context)
-
-    expect(ctx.selectCalls.length).toBe(2)
     expect(ctx.selectCalls[0].options).toEqual([
-      { title: "One", value: "ses_home_1", description: "C:\\work\\one", footer: "ses_home_1".slice(-8) },
-      { title: "ses_home_2", value: "ses_home_2", description: "C:\\work\\two", footer: "ses_home_2".slice(-8) },
+      { title: "One", value: "ses_home_1", description: "~/one", footer: "ses_home_1".slice(-8) },
+      { title: "ses_home_2", value: "ses_home_2", description: "/work/two", footer: "ses_home_2".slice(-8) },
     ])
-    expect(host.moves).toEqual([{ sessionId: "ses_home_2", directory: "C:\\work\\one" }])
+    expect(host.moves).toEqual([{ sessionId: "ses_home_2", directory: "/work/one" }])
   })
 
   it("warns when there are no sessions to transfer", async () => {
-    const { services } = makeServices()
+    const { services, picks } = makeServices()
     const ctx = makeContext({ route: { type: "home" } })
 
     await new SessionTransferV2TuiAdapter(services).open(ctx.context)
 
-    expect(ctx.selectCalls.length).toBe(0)
+    expect([ctx.selectCalls.length, picks.length]).toEqual([0, 0])
     expect(ctx.toasts).toEqual([{ variant: "warning", title: "Transfer session", message: "No sessions found." }])
   })
 
   it("stops when the session picker is dismissed", async () => {
-    const { host, services } = makeServices()
-    seedSession(host, "ses_1", "C:\\a")
+    const { host, services, picks } = makeServices()
+    seedSession(host, "ses_1", "/a")
     const ctx = makeContext({ route: { type: "home" }, selects: [undefined] })
 
     await new SessionTransferV2TuiAdapter(services).open(ctx.context)
 
-    expect(ctx.selectCalls.length).toBe(1)
-    expect(host.moves).toEqual([])
+    expect([ctx.selectCalls.length, picks.length, host.moves]).toEqual([1, 0, []])
   })
 
-  it("stops when the directory picker is dismissed", async () => {
-    const { host, services } = makeServices()
-    const ctx = makeContext({ route: { type: "session", sessionID: "ses_1" }, selects: [undefined] })
+  it("stops when the folder browser is closed", async () => {
+    const { host, services } = makeServices([undefined])
+    const ctx = makeContext({ route: { type: "session", sessionID: "ses_1" } })
 
     await new SessionTransferV2TuiAdapter(services).open(ctx.context)
 
-    expect(host.moves).toEqual([])
-    expect(ctx.toasts).toEqual([])
-  })
-
-  it("moves to a free-form custom path, expanding ~", async () => {
-    const { host, fs, services } = makeServices()
-    const ctx = makeContext({
-      route: { type: "session", sessionID: "ses_1" },
-      selects: [CUSTOM],
-      prompts: ["  ~/brand-new/folder  "],
-    })
-
-    await new SessionTransferV2TuiAdapter(services).open(ctx.context)
-
-    const expected = "/home/user/brand-new/folder"
-    expect(ctx.promptCalls.length).toBe(1)
-    expect(ctx.promptCalls[0].title).toBe("Enter destination directory")
-    expect(fs.ensured).toEqual([expected])
-    expect(host.moves).toEqual([{ sessionId: "ses_1", directory: expected }])
-  })
-
-  it("stops when the custom path prompt is cancelled", async () => {
-    const { host, services } = makeServices()
-    const ctx = makeContext({ route: { type: "session", sessionID: "ses_1" }, selects: [CUSTOM], prompts: [undefined] })
-
-    await new SessionTransferV2TuiAdapter(services).open(ctx.context)
-
-    expect(host.moves).toEqual([])
-    expect(ctx.toasts).toEqual([])
-  })
-
-  it("rejects an empty custom path through the use case's validation", async () => {
-    const { host, services } = makeServices()
-    const ctx = makeContext({ route: { type: "session", sessionID: "ses_1" }, selects: [CUSTOM], prompts: ["   "] })
-
-    await new SessionTransferV2TuiAdapter(services).open(ctx.context)
-
-    expect(host.moves).toEqual([])
-    expect(ctx.toasts).toEqual([
-      { variant: "error", title: "Transfer failed", message: 'Invalid directory "   ": Directory path cannot be empty' },
-    ])
+    expect([host.moves, ctx.toasts]).toEqual([[], []])
   })
 
   it("reports a failed host move", async () => {
-    const { host, services } = makeServices()
-    host.directories = ["C:\\gone"]
-    host.moveError = new Error("Directory is unavailable: C:\\gone")
-    const ctx = makeContext({ route: { type: "session", sessionID: "ses_1" }, selects: ["C:\\gone"] })
+    const { host, services } = makeServices(["/gone"])
+    host.moveError = new Error("Directory is unavailable: /gone")
+    const ctx = makeContext({ route: { type: "session", sessionID: "ses_1" } })
 
     await new SessionTransferV2TuiAdapter(services).open(ctx.context)
 
-    expect(ctx.toasts).toEqual([
-      { variant: "error", title: "Transfer failed", message: "Directory is unavailable: C:\\gone" },
-    ])
+    expect(ctx.toasts).toEqual([{ variant: "error", title: "Transfer failed", message: "Directory is unavailable: /gone" }])
   })
 
   it("reports unexpected failures, including non-Error values", async () => {

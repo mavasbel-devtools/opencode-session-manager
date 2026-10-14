@@ -1,8 +1,11 @@
+import { BrowseFoldersUseCase } from "@session-manager/application/BrowseFoldersUseCase"
 import { BuildDirectoryOptionsUseCase } from "@session-manager/application/BuildDirectoryOptionsUseCase"
 import { MoveSessionUseCase } from "@session-manager/application/MoveSessionUseCase"
 import { RenderSidebarEntryUseCase } from "@session-manager/application/RenderSidebarEntryUseCase"
 import { SessionIdSidebarSlotV2Adapter } from "@session-manager/infrastructure/adapters/inbound/tui/SessionIdSidebarSlotV2Adapter"
+import { FolderBrowserDialogV2Adapter } from "@session-manager/infrastructure/adapters/inbound/tui/FolderBrowserDialogV2Adapter"
 import { SessionTransferV2TuiAdapter } from "@session-manager/infrastructure/adapters/inbound/tui/SessionTransferV2TuiAdapter"
+import { NodeDirectoryListingAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeDirectoryListingAdapter"
 import { NodeFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeFileSystemAdapter"
 import { OpenCode2HostAdapter } from "@session-manager/infrastructure/adapters/outbound/opencode2/OpenCode2HostAdapter"
 import { HostThemePaletteV2Adapter } from "@session-manager/infrastructure/adapters/outbound/tui/HostThemePaletteV2Adapter"
@@ -27,6 +30,7 @@ export interface TuiContainer {
 export function createTuiContainer(client: V2Client): TuiContainer {
   const host = new OpenCode2HostAdapter(client)
   const fs = new NodeFileSystemAdapter()
+  const listing = new NodeDirectoryListingAdapter()
   return {
     sidebar: new SessionIdSidebarSlotV2Adapter(
       (context) => new RenderSidebarEntryUseCase(new HostThemePaletteV2Adapter(context), new OpenTuiSidebarViewAdapter()),
@@ -35,7 +39,8 @@ export function createTuiContainer(client: V2Client): TuiContainer {
       host,
       home: new SystemHomeDirectoryAdapter(),
       moveSession: new MoveSessionUseCase(host, fs),
-      buildDirectoryOptions: new BuildDirectoryOptionsUseCase(host, fs),
+      buildDirectoryOptions: new BuildDirectoryOptionsUseCase(host, fs, listing),
+      folders: new FolderBrowserDialogV2Adapter(new BrowseFoldersUseCase(listing)),
     }),
   }
 }

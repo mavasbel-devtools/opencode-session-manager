@@ -3,9 +3,10 @@
 // `@opencode/plugin/host`), in this process so coverage is measured. Real
 // filesystem; the destination folders are really created.
 //
-// Stand-ins, both unavoidable in-process: the TUI surface (dialogs, toasts,
-// router, keymap — owned by the host's TUI app) and the client (owned by the
-// host's server). The client stand-in keeps the v2.0.14 response shapes of
+// Stand-ins, both unavoidable in-process: the TUI surface (the dialog stack,
+// toasts, router, keymap — owned by the host's TUI app; the folder browser is
+// painted by OpenTUI's test renderer and its keys run through the layer it
+// registers) and the client (owned by the host's server). The client stand-in keeps the v2.0.14 response shapes of
 // `session.list`, `project.list` and `session.move`; the live tier drives the
 // real ones.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test"
@@ -14,20 +15,23 @@ import os from "node:os"
 import path from "node:path"
 import { Host } from "@opencode/plugin/host"
 import type { V2Client, V2Project, V2Session } from "@session-manager/infrastructure/host/V2Client"
-import type { V2KeymapLayer, V2SlotClaim, V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
+import type { V2SlotClaim, V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
+import { dialogHost } from "@test/support/fakes/dialog-host"
 import { removeTemporary } from "@test/support/live/process"
 
-const CUSTOM = "__transfer_custom_path__"
 const entries = Host.resolve({ directory: path.resolve(import.meta.dir, "../../../src/main/v2") })
 
 type Loaded = { default: { id: string; setup: (context: V2TuiContext) => () => void } }
+type Browser = ReturnType<typeof dialogHost>
 
 interface Script {
   readonly route: { type: string; sessionID?: string }
   readonly sessions?: V2Session[]
   readonly projects?: V2Project[]
+  /** The session picker's answer. */
   readonly selects?: unknown[]
-  readonly prompts?: Array<string | undefined>
+  /** Drives the folder browser once it is shown (none: the browser is not expected). */
+  readonly browse?: (browser: Browser) => Promise<void>
   readonly listError?: unknown
   readonly moveError?: unknown
 }
@@ -39,13 +43,14 @@ function session(id: string, directory: string, extra: Partial<V2Session> = {}):
   return { id, projectID: "p", time: { updated: 1 }, location: { directory }, ...extra }
 }
 
+const settle = () => new Promise((resolve) => setTimeout(resolve, 40))
+
 /** Loads the TUI entry through the real host, registers it, and runs `/transfer-session` once. */
 async function run(script: Script) {
   const selects = [...(script.selects ?? [])]
-  const prompts = [...(script.prompts ?? [])]
-  const shown = { selects: [] as any[], prompts: [] as any[], toasts: [] as any[], moves: [] as any[], lists: [] as any[] }
+  const shown = { selects: [] as any[], moves: [] as any[], lists: [] as any[], frames: [] as string[] }
   const claims: V2SlotClaim[] = []
-  const layers: Array<() => V2KeymapLayer> = []
+  const browser = dialogHost({ route: script.route })
 
   const client: V2Client = {
     session: {
@@ -62,26 +67,21 @@ async function run(script: Script) {
     project: { list: async () => script.projects ?? [] },
   }
   const context: V2TuiContext = {
-    theme: { text: { muted: "#808080" } },
+    ...browser.context,
     client,
-    keymap: { layer: (layer) => void layers.push(layer) },
     ui: {
+      ...browser.context.ui,
       slot: (claim) => {
         claims.push(claim)
         return () => undefined
       },
       dialog: {
+        ...browser.context.ui.dialog,
         select: async (options: any) => {
           shown.selects.push(options)
           return selects.shift() as any
         },
-        prompt: async (options) => {
-          shown.prompts.push(options)
-          return prompts.shift()
-        },
       },
-      toast: { show: (toast) => void shown.toasts.push(toast) },
-      router: { current: () => script.route },
     },
   }
 
@@ -89,11 +89,18 @@ async function run(script: Script) {
   const dispose = plugin.default.setup(context)
   // The host renders the `app` slot inside its component tree; that is where the keymap layer is registered.
   for (const claim of claims) if ("append" in claim) claim.render()
-  const command = layers[0]!().commands.find((entry) => entry.id === "session.transfer")!
+  const command = browser.layers()[0]!().commands.find((entry) => entry.id === "session.transfer")!
   command.run()
-  await new Promise((resolve) => setTimeout(resolve, 40))
+  await settle()
+  if (script.browse !== undefined) {
+    await browser.ready()
+    shown.frames.push(await browser.frame())
+    await script.browse(browser)
+    await settle()
+  }
+  browser.destroy()
   dispose()
-  return { shown, command }
+  return { shown, command, toasts: browser.toasts }
 }
 
 beforeAll(() => {
@@ -116,81 +123,129 @@ afterEach(async () => {
 })
 
 describe("v2 /transfer-session, loaded by the real 2.0.14 Host", () => {
-  it("is offered on the palette and as /transfer-session (alias /relocate)", async () => {
+  it("is offered on the palette and as /transfer-session, with no alias and no description", async () => {
     const { command } = await run({ route: { type: "home" } })
-    expect(command).toMatchObject({ title: "Transfer session", group: "Session", palette: true, slash: { name: "transfer-session", aliases: ["relocate"] } })
+    expect(command).toEqual({ id: "session.transfer", title: "Transfer session", group: "Session", palette: true, slash: { name: "transfer-session" }, run: expect.any(Function) })
   })
 
-  it("moves the open session to a directory known from projects, worktrees and other sessions", async () => {
+  it("browses the known folders that exist (projects, worktrees, other sessions) and moves the open session to one", async () => {
     const target = path.join(root, "home", "work", "target")
     fs.mkdirSync(target, { recursive: true })
-    const { shown } = await run({
+    fs.mkdirSync(path.join(root, "sandbox"))
+    const { shown, toasts } = await run({
       route: { type: "session", sessionID: "ses_open" },
-      projects: [{ id: "p1", canonical: target, sandboxes: [path.join(root, "sandbox")] }],
-      sessions: [session("ses_other", root), session("ses_child", path.join(root, "child"), { parentID: "ses_other" })],
-      selects: [target],
+      projects: [{ id: "p1", canonical: target, sandboxes: [path.join(root, "sandbox"), path.join(root, "gone")] }],
+      sessions: [session("ses_other", root), session("ses_child", path.join(root, "child"), { parentID: "ses_other" }), session("ses_root", "/")],
+      browse: async (browser) => {
+        await browser.press("down")
+        await browser.press("return")
+      },
     })
     expect(shown.lists).toEqual([{ limit: 200, order: "desc" }])
-    expect(shown.selects[0].options.map((entry: any) => entry.title)).toEqual([
-      "Enter custom path…",
-      root,
-      "~/work/target",
-      path.join(root, "sandbox"),
-    ])
-    expect(shown.moves).toEqual([{ sessionID: "ses_open", directory: target }])
-    expect(shown.toasts).toEqual([{ variant: "success", title: "Session transferred", message: `Moved to ${target}`, duration: 4000 }])
+    const rows = shown.frames[0]!.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("› ") || line.startsWith("~/") || line.startsWith(root))
+    expect(rows).toEqual([`› ~/work/target`, root, path.join(root, "sandbox")])
+    expect(shown.moves).toEqual([{ sessionID: "ses_open", directory: root }])
+    expect(toasts).toEqual([{ variant: "success", title: "Session transferred", message: `Moved to ${root}`, duration: 4000 }])
   })
 
-  it("picks a session first on the home screen, then creates a ~/ custom destination", async () => {
+  it("picks a session first on the home screen, then completes a typed path from disk and creates a new folder after a second Enter", async () => {
+    fs.mkdirSync(path.join(root, "home", "brand", "older"), { recursive: true })
     const { shown } = await run({
       route: { type: "home" },
-      sessions: [session("ses_titled", root, { title: "Titled" }), session("ses_untitled", root)],
-      selects: ["ses_untitled", CUSTOM],
-      prompts: ["  ~/brand/new  "],
+      sessions: [session("ses_titled", root, { title: "Titled" }), session("ses_untitled", path.join(root, "home", "x"))],
+      selects: ["ses_untitled"],
+      browse: async (browser) => {
+        await browser.type("~/br")
+        await browser.waitFor("› ~/brand")
+        await browser.press("right")
+        await browser.waitFor("~/brand  · this folder")
+        await browser.type("new")
+        await browser.waitFor("~/brand/new  · new folder")
+        await browser.press("return")
+        await browser.waitFor("Enter again to create ~/brand/new")
+        await browser.press("return")
+      },
     })
-    expect(shown.selects[0].options.map((entry: any) => [entry.title, entry.footer])).toEqual([
-      ["Titled", "s_titled"],
-      ["ses_untitled", "untitled"],
+    expect(shown.selects[0].options.map((entry: any) => [entry.title, entry.description, entry.footer])).toEqual([
+      ["Titled", root, "s_titled"],
+      ["ses_untitled", "~/x", "untitled"],
     ])
     const created = path.join(root, "home", "brand", "new")
     expect(fs.statSync(created).isDirectory()).toBe(true)
     expect(shown.moves).toEqual([{ sessionID: "ses_untitled", directory: created }])
   })
 
-  it("does nothing when a picker or the prompt is cancelled", async () => {
+  it("scrolls a long folder, fits long paths, goes up with ←, skips a folder it cannot read, and takes a click", async () => {
+    const long = path.join(root, "home", "projects")
+    for (let index = 0; index < 20; index++) fs.mkdirSync(path.join(long, `p${String(index).padStart(2, "0")}`), { recursive: true })
+    const deep = path.join(root, "home", "a-very-long-folder-name-that-will-not-fit", "and-another-long-folder-name-below-it", "leaf")
+    fs.mkdirSync(deep, { recursive: true })
+    const locked = path.join(root, "home", "locked")
+    fs.mkdirSync(locked)
+    fs.chmodSync(locked, 0o000)
+    let frames: string[] = []
+    const { shown } = await run({
+      route: { type: "session", sessionID: "ses_open" },
+      browse: async (browser) => {
+        await browser.type("~/projects/")
+        await browser.waitFor("~/projects  · this folder")
+        await browser.press("pagedown")
+        await browser.press("pagedown")
+        frames.push(await browser.frame())
+        await browser.press("pageup")
+        await browser.press("up")
+        await browser.press("left")
+        await browser.waitFor("› ~  · this folder")
+        await browser.type("locked/")
+        frames.push(await browser.waitFor("~/locked  · this folder"))
+        await browser.backspace(7)
+        await browser.type(`${deep.slice(path.join(root, "home").length + 1)}`)
+        frames.push(await browser.waitFor("leaf  · this folder"))
+        await browser.click("leaf  · this folder")
+      },
+    })
+    fs.chmodSync(locked, 0o755)
+    // Twelve rows at a time, scrolled to the highlight.
+    const scrolled = frames[0]!.split("\n").filter((line) => line.includes("~/projects") && line.trim() !== "~/projects/")
+    expect(scrolled.length).toBe(12)
+    expect(scrolled.some((line) => line.includes("› ~/projects/p"))).toBe(true)
+    // A folder it cannot read lists only itself.
+    expect(frames[1]!.split("\n").filter((line) => line.includes("~/locked")).map((line) => line.trim())).toEqual(["~/locked/", "› ~/locked  · this folder"])
+    // A path longer than the dialog keeps its end.
+    expect(frames[2]).toContain("…")
+    expect(shown.moves).toEqual([{ sessionID: "ses_open", directory: deep }])
+  })
+
+  it("does nothing when the session picker or the folder browser is closed", async () => {
     for (const script of [
       { route: { type: "home" }, sessions: [session("ses_a", root)], selects: [undefined] },
-      { route: { type: "session", sessionID: "ses_a" }, selects: [undefined] },
-      { route: { type: "session", sessionID: "ses_a" }, selects: [CUSTOM], prompts: [undefined] },
+      { route: { type: "session", sessionID: "ses_a" }, browse: async (browser: Browser) => browser.escape() },
     ] satisfies Script[]) {
-      const { shown } = await run(script)
-      expect({ moves: shown.moves, toasts: shown.toasts }).toEqual({ moves: [], toasts: [] })
+      const { shown, toasts } = await run(script)
+      expect({ moves: shown.moves, toasts }).toEqual({ moves: [], toasts: [] })
     }
   })
 
   it("warns when there is no session to transfer", async () => {
-    const { shown } = await run({ route: { type: "home" } })
-    expect(shown.toasts).toEqual([{ variant: "warning", title: "Transfer session", message: "No sessions found." }])
+    const { toasts } = await run({ route: { type: "home" } })
+    expect(toasts).toEqual([{ variant: "warning", title: "Transfer session", message: "No sessions found." }])
   })
 
-  it("reports an empty custom path and an empty session id as failed transfers", async () => {
-    const empty = await run({ route: { type: "session", sessionID: "ses_a" }, selects: [CUSTOM], prompts: ["   "] })
-    expect(empty.shown.toasts).toEqual([
-      { variant: "error", title: "Transfer failed", message: 'Invalid directory "   ": Directory path cannot be empty' },
-    ])
-    const blank = await run({ route: { type: "session", sessionID: "" }, selects: [root] })
-    expect(blank.shown.toasts).toEqual([{ variant: "error", title: "Transfer failed", message: "Session not found: " }])
+  it("reports an empty session id as a failed transfer", async () => {
+    const blank = await run({ route: { type: "session", sessionID: "" }, browse: (browser) => browser.press("return"), projects: [{ id: "p", canonical: root, sandboxes: [] }] })
+    expect(blank.toasts).toEqual([{ variant: "error", title: "Transfer failed", message: "Session not found: " }])
   })
 
   it("reports a move the host rejects, whatever it rejects with", async () => {
-    const failed = await run({ route: { type: "session", sessionID: "ses_a" }, selects: [root], moveError: new Error("Directory is unavailable") })
-    expect(failed.shown.toasts).toEqual([{ variant: "error", title: "Transfer failed", message: "Directory is unavailable" }])
-    const odd = await run({ route: { type: "session", sessionID: "ses_a" }, selects: [root], moveError: "busy" })
-    expect(odd.shown.toasts).toEqual([{ variant: "error", title: "Transfer failed", message: "busy" }])
+    const projects = [{ id: "p", canonical: root, sandboxes: [] }]
+    const failed = await run({ route: { type: "session", sessionID: "ses_a" }, projects, browse: (browser) => browser.press("return"), moveError: new Error("Directory is unavailable") })
+    expect(failed.toasts).toEqual([{ variant: "error", title: "Transfer failed", message: "Directory is unavailable" }])
+    const odd = await run({ route: { type: "session", sessionID: "ses_a" }, projects, browse: (browser) => browser.press("return"), moveError: "busy" })
+    expect(odd.toasts).toEqual([{ variant: "error", title: "Transfer failed", message: "busy" }])
   })
 
   it("reports a host that cannot list sessions", async () => {
-    const { shown } = await run({ route: { type: "home" }, listError: new Error("server unreachable") })
-    expect(shown.toasts).toEqual([{ variant: "error", title: "Transfer session", message: "server unreachable" }])
+    const { toasts } = await run({ route: { type: "home" }, listError: new Error("server unreachable") })
+    expect(toasts).toEqual([{ variant: "error", title: "Transfer session", message: "server unreachable" }])
   })
 })

@@ -1,6 +1,7 @@
 import { BuildDirectoryOptionsUseCase } from "@session-manager/application/BuildDirectoryOptionsUseCase"
 import { TransferSessionUseCase } from "@session-manager/application/TransferSessionUseCase"
 import { SessionTransferV1TuiAdapter } from "@session-manager/infrastructure/adapters/inbound/tui/SessionTransferV1TuiAdapter"
+import { NodeDirectoryListingAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeDirectoryListingAdapter"
 import { NodeFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeFileSystemAdapter"
 import { ProjectResolverAdapter } from "@session-manager/infrastructure/adapters/outbound/project/ProjectResolverAdapter"
 import { OpenCodeGitIdentity } from "@session-manager/infrastructure/adapters/outbound/project/OpenCodeGitIdentity"
@@ -26,7 +27,7 @@ export function createV1Container(customDbPath?: string): V1Container {
       db,
       home: new SystemHomeDirectoryAdapter(),
       transferSession: new TransferSessionUseCase(db, new ProjectResolverAdapter(new OpenCodeGitIdentity()), fs),
-      buildDirectoryOptions: new BuildDirectoryOptionsUseCase(db, fs),
+      buildDirectoryOptions: new BuildDirectoryOptionsUseCase(db, fs, new NodeDirectoryListingAdapter()),
     }),
   }
 }

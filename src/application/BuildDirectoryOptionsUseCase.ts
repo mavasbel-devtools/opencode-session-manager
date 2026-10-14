@@ -1,44 +1,37 @@
 import type { DirectoryOption } from "@session-manager/domain/model/Session"
+import { compareLabels, isFileSystemRoot } from "@session-manager/domain/model/FolderBrowser"
 import { abbreviateHome } from "@session-manager/domain/model/Paths"
 import type { BuildDirectoryOptionsPort } from "@session-manager/domain/ports/inbound/BuildDirectoryOptionsPort"
+import type { DirectoryListingPort } from "@session-manager/domain/ports/outbound/DirectoryListingPort"
 import type { FileSystemPort } from "@session-manager/domain/ports/outbound/FileSystemPort"
 import type { KnownDirectoriesPort } from "@session-manager/domain/ports/outbound/KnownDirectoriesPort"
 
 /**
- * Builds the flat option list shown by the transfer dialog.
- *
- * A plugin cannot drive live filesystem autocompletion from the filter box
- * (`DialogSelect` exposes neither a filter handle nor custom bindings to
- * plugins), so instead we surface every known session directory — nested
- * projects included — plus a sentinel entry that opens the free-form path
- * prompt. `DialogSelect`'s own fuzzy filter then matches the user's query
- * against the abbreviated titles.
+ * The known folders the transfer offers: every project root, worktree and session folder, once
+ * each, only those that exist (never a filesystem root), in display order (`compareLabels`),
+ * after the sentinel that opens the free-form path prompt (OpenCode 1's list dialog; OpenCode 2's
+ * folder browser lists the folders and takes typed paths itself).
  */
 export class BuildDirectoryOptionsUseCase implements BuildDirectoryOptionsPort {
   constructor(
     private readonly db: KnownDirectoriesPort,
     private readonly fs: FileSystemPort,
+    private readonly listing: DirectoryListingPort,
   ) {}
 
   async execute(home: string): Promise<DirectoryOption[]> {
     const known = await this.db.listRecentDirectories()
-
     const directories = Array.from(
       new Set(
         known
           .filter((directory) => Boolean(directory && directory.trim()))
-          .map((directory) => this.fs.canonical(directory, home)),
+          .map((directory) => this.fs.canonical(directory, home))
+          .filter((directory) => !isFileSystemRoot(directory) && this.listing.isDirectory(directory)),
       ),
-    ).sort((a, b) => a.localeCompare(b))
+    )
+      .map((directory) => ({ title: abbreviateHome(directory, home), directory, category: "Directories" }))
+      .sort((left, right) => compareLabels(left.title, right.title))
 
-    return [
-      { title: "Enter custom path…", directory: "", category: "Directories", custom: true },
-      ...directories.map((directory) => ({
-        title: abbreviateHome(directory, home),
-        directory,
-        description: directory,
-        category: "Directories",
-      })),
-    ]
+    return [{ title: "Enter custom path…", directory: "", category: "Directories", custom: true }, ...directories]
   }
 }
