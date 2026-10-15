@@ -24,6 +24,12 @@ fast-forwarded into `main` (`a68b4d1`) and deleted.
 
 Gates at 5a3af58: typecheck, docs lint, unit 403 and e2e 95 tests at 100 % lines and functions per
 file, component 9, live 37 (+1 opt-in rebuild that spends tokens).
+- 2026-10-14: the OpenCode 1 plugin lane removed (user decision; commit `be7d432`); the program keeps
+  reading the OpenCode 1 sessions a store holds. Live fixtures moved out of `/tmp` into
+  `~/.cache/opencode-session-manager/live/` (`bun run fixtures:live`); the live tier passes on Magic
+  Context 0.49.2 (37 pass; skipped only the opt-in rebuild and the relocate test without its map, which
+  passes with the four ITAM rules). The legacy `opencode-db-manager` repository was deleted from GitHub,
+  its history kept in `~/Dev/repos/opencode/docs/archive/2026-10-14-22-42-opencode-db-manager.bundle`.
 
 ## Decisions (with their evidence)
 
@@ -45,5 +51,5 @@ file, component 9, live 37 (+1 opt-in rebuild that spends tokens).
   closed): it backs up both stores and configs, relocates the 84 sessions of
   `~/Documents/Work/ITAM/Cursos/{relational-dbs,non-relational-dbs}` (and the older `2026-02-*`
   names) to `~/Dev/repos/ITAM/2026-02-*` (dry run on the live profile: 84 sessions, 31,713 + 106 rows,
-  merges `git:e4df455b…` → `git:061ecb…` and `git:5f407f03…` → `git:3eb1e20…`), pins Magic Context
-  0.48.0 and re-applies the threshold patch. Then validate with `--check`.
+  merges `git:e4df455b…` → `git:061ecb…` and `git:5f407f03…` → `git:3eb1e20…`). Since 2026-10-13 it
+  does the move only (Magic Context is updated separately, now 0.49.2). Then validate with `--check`.
