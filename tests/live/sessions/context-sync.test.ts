@@ -7,16 +7,17 @@ import { fileURLToPath } from "node:url"
 import { defaultDataHome, profileAt } from "@session-manager/domain/model/Profile"
 import { InstalledMagicContextAdapter } from "@session-manager/infrastructure/adapters/outbound/magic-context/InstalledMagicContextAdapter"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { liveOtherProfile } from "@test/support/live/fixtures"
 
 /**
  * A real sync into a copy of this machine's profile (the live stores are only read, with
- * `VACUUM INTO`), from another machine's profile named by OPENCODE_SM_LIVE_OTHER_PROFILE (a data
+ * `VACUUM INTO`), from another machine's profile named by OPENCODE_SM_LIVE_OTHER_PROFILE (else the folder `bun run fixtures:live` fills) (a data
  * home, for example a copy of a Windows machine's). The result must open in the installed Magic
  * Context, through its own schema fence and migration guard.
  */
 const home = process.env["HOME"] ?? homedir()
 const live = profileAt("live", defaultDataHome({ XDG_DATA_HOME: process.env["XDG_DATA_HOME"] }, home))
-const other = process.env["OPENCODE_SM_LIVE_OTHER_PROFILE"]
+const other = liveOtherProfile
 const cli = fileURLToPath(new URL("../../../src/main/cli/cli.ts", import.meta.url))
 
 let directory = ""

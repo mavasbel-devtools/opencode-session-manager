@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
 import { spawnSync } from "node:child_process"
-import { mkdirSync, readdirSync, realpathSync } from "node:fs"
+import { mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 import { buildContainer } from "@session-manager/main/cli-container"
@@ -175,6 +175,26 @@ describe("relocate (real stores and folders, the wired container)", () => {
     expect(run.json.sessions.map((session: { id: string }) => session.id)).toEqual(["ses_a", "ses_a_child"])
     expect(run.json.skipped).toEqual([{ id: "ses_other", directory: join(at("home"), "elsewhere"), reason: "not-mapped", to_directory: null }])
     expect(query(opencodeDb(), "select data from session_message where id = 'ses_other-m0'")[0]).toMatchObject({ data: expect.stringContaining(`${old}/README.md`) })
+  })
+
+  it("names the destination project as OpenCode does: a repository's stored id, else its first root commit; a plain folder by its real path", async () => {
+    const { home, old } = makeProfile()
+    const stored = join(home, "repos", "stored")
+    makeRepository(stored, { commit: true })
+    writeFileSync(join(stored, ".git", "opencode"), "stored-project-id\n")
+    const local = join(home, "repos", "local")
+    makeRepository(local, { commit: true })
+    const localRoot = spawnSync("git", ["-C", local, "rev-list", "--max-parents=0", "HEAD"], { encoding: "utf8" }).stdout.trim()
+    const plain = join(home, "plain")
+    for (const folder of [stored, local, plain]) mkdirSync(join(folder, "sub"), { recursive: true })
+    const projectOf = async (target: string) => {
+      const dry = await cli(["relocate", "--data", at("data"), ...mapOf(old, target), "--session", "ses_a", "--dry-run", "--json"])
+      expect(dry.code).toBe(0)
+      return dry.json.sessions.find((session: { id: string }) => session.id === "ses_a").to_project
+    }
+    expect(await projectOf(stored)).toBe("stored-project-id")
+    expect(await projectOf(local)).toBe(localRoot)
+    expect(await projectOf(plain)).toBe(sha1(`directory:${realpathSync(plain)}`))
   })
 
   it("refuses copies that fail a check (a text the rule cannot rewrite safely); a dry run reports it", async () => {

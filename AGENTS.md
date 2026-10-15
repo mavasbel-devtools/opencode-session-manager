@@ -10,13 +10,11 @@ code is wrong until one of them is deliberately changed.
 |---|---|---|
 | package name | `opencode-session-manager` | — |
 | v2 plugin id | `session-manager` (server and TUI entries) | — |
-| v1 TUI plugin id | `session-manager-tui` | — |
 | tool name | `session-id` | the global AGENTS.md startup routine invokes the tool by this name |
 | v2 host | `@opencode/plugin` 2.0.14 contract | types-only; never a runtime import in `src` |
-| v1 host | `@opencode-ai/plugin` 1.18.32 | `/transfer-session` only |
+| OpenCode 1 | not supported by the plugin (dropped 2026-10-14) | the program still reads and copies the OpenCode 1 sessions an OpenCode 2 store keeps |
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
-| deployed at (v1) | `<plugins>/session-manager.js`, `<plugins>/session-manager.tui.js` | v1.18.32 forbids `server` and `tui` in one module |
-| build outputs | `dist/v2/{server,tui}.js`, `dist/v1/session-manager{,.tui}.js` | the entrypoints the hosts load |
+| build outputs | `dist/v2/{server,tui}.js` | the entrypoints the host loads |
 | CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `relocate [--data <dataHome>] --map <from>=<to>... (--session <id>... \| --all) [--dry-run] [--json]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
@@ -185,8 +183,8 @@ aborts a write or moves a summary's anchor.
 
 ### One composition root per runtime
 
-`src/main/server-container.ts` (v2 server), `src/main/tui-container.ts` (v2 TUI),
-`src/main/v1-container.ts` (v1 TUI) and `src/main/cli-container.ts` (the CLI),
+`src/main/server-container.ts` (v2 server), `src/main/tui-container.ts` (v2 TUI)
+and `src/main/cli-container.ts` (the CLI),
 plus the CLI's per-platform halves `src/main/linux-container.ts` and
 `src/main/win32-container.ts`. Measured: a shared root made the server
 entry import the TUI view adapter, and `Bun.build` of the server entry then
@@ -345,7 +343,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `ParityPolicy.ts` | maintenance | whether a build passed (strict offline, drift-tolerant rehearsal) |
 | `RequiredSpacePolicy.ts` | maintenance | free space a compaction needs |
 
-**`src/domain/errors`** — one class per file: `DatabaseError.ts`,
+**`src/domain/errors`** — one class per file:
 `DatabaseHeldError.ts`, `DatabaseNotFoundError.ts`, `InsufficientSpaceError.ts`,
 `MissingOriginalError.ts`, `ProcessRunningError.ts`, `SwapFailedError.ts`,
 `TargetExistsError.ts`, `UnsupportedPlatformError.ts`, `StoreLockedError.ts` (maintenance);
@@ -355,8 +353,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `InvalidMapRuleError.ts`, `OpenCodeFormatMismatchError.ts`,
 `UnknownStoreSchemaError.ts`, `BusySessionsError.ts`, `ServerNotFoundError.ts`,
 `ServerRefusedError.ts`, `RelocateBusyError.ts`, `RelocateVerificationError.ts` (sessions);
-`InvalidDirectoryError.ts`, `MissingSessionIdError.ts`,
-`SessionNotFoundError.ts` (plugin).
+`MissingSessionIdError.ts`, `SessionNotFoundError.ts` (plugin).
 
 **`src/domain/tool`** — `SessionIdToolDefinition.ts`, the frozen tool surface.
 
@@ -366,7 +363,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
 `MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`,
-`MoveSessionPort.ts`, `TransferSessionPort.ts`, `BuildDirectoryOptionsPort.ts`, `BrowseFoldersPort.ts`
+`MoveSessionPort.ts`, `BuildDirectoryOptionsPort.ts`, `BrowseFoldersPort.ts`
 (plugin).
 
 **`src/domain/ports/outbound`** — what the inner layers need from outside:
@@ -377,8 +374,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextSyncStorePort.ts`, `SessionSyncStorePort.ts`, `MagicContextReleasePort.ts`,
 `MagicContextIdentityPort.ts`, `MagicContextConfigPort.ts`, `PublishedVersionPort.ts`, `OpencodeServerPort.ts`,
 `MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts`, `RelocationStorePort.ts`,
-`MagicContextRelocationStorePort.ts` (sessions); `SessionHostPort.ts`,
-`SessionDbPort.ts`, `ProjectResolverPort.ts`, `FileSystemPort.ts`,
+`MagicContextRelocationStorePort.ts` (sessions); `SessionHostPort.ts`, `FileSystemPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`, `DirectoryListingPort.ts`,
 `SidebarViewPort.ts` (plugin).
 
@@ -410,8 +406,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `MagicContextVersionsUseCase.ts` | sessions | the Magic Context OpenCode loads here and the newest on npm (the browser's header) |
 | `ResolveSessionIdToolUseCase.ts` | plugin | the `session-id` tool |
 | `RenderSidebarEntryUseCase.ts` | plugin | the sidebar line |
-| `MoveSessionUseCase.ts` | plugin | v2 transfer through the host |
-| `TransferSessionUseCase.ts` | plugin | v1 transfer through the store |
+| `MoveSessionUseCase.ts` | plugin | the transfer through the host |
 | `BuildDirectoryOptionsUseCase.ts` | plugin | the known folders the transfer offers: once each, existing only, no filesystem root, in display order |
 | `BrowseFoldersUseCase.ts` | plugin | the folder browser's steps (type, ↑/↓, →, ←, Enter) over the listing port |
 
@@ -436,7 +431,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `manager-tui/controls.ts` | `BrowserControls`: what the view asks of the program |
 | `server/SessionIdToolV2Adapter.ts` | registers the `session-id` tool (v2) |
 | `tui/SessionIdSidebarSlotV2Adapter.ts` | the sidebar slot (v2) |
-| `tui/SessionTransferV2TuiAdapter.ts`, `tui/SessionTransferV1TuiAdapter.ts` | `/transfer-session` (v2, v1) |
+| `tui/SessionTransferV2TuiAdapter.ts` | `/transfer-session` |
 | `tui/FolderBrowserDialogV2Adapter.tsx` | the v2 folder browser dialog: path box, rows, keys (modal keymap layer) |
 
 **`src/infrastructure/adapters/outbound`**
@@ -454,7 +449,6 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `sqlite/BunSessionStoreAdapter.ts` | reads `opencode.db` sessions and their message ids |
 | `sqlite/BunMagicContextStoreAdapter.ts` | reads a `context.db`'s counts and format |
 | `sqlite/BunMagicContextSyncStoreAdapter.ts` | reads and writes session state in `context.db` working copies |
-| `sqlite/SqliteSessionDbAdapter.ts` | the OpenCode 1 store, for the v1 transfer |
 | `magic-context/InstalledMagicContextAdapter.ts` | finds the installed Magic Context and runs its store code in a sandboxed child process |
 | `magic-context/OpencodeMagicContextConfigAdapter.ts` | the spec `opencode.jsonc` pins and the copy OpenCode installed for it |
 | `opencode2/HttpOpencodeServerAdapter.ts` | the server `service.json` records, and its command endpoint (HTTP Basic `opencode`) |
@@ -463,9 +457,8 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `system/SystemTimerAdapter.ts` | waiting between looks at a running rebuild (tests pass a timer that does not wait) |
 | `npm/NpmRegistryAdapter.ts` | a package's `latest` dist-tag on an npm registry (time-limited) |
 | `magic-context/MagicContextIdentityAdapter.ts` | Magic Context's project identity of a folder |
-| `project/OpenCodeGitIdentity.ts` | how OpenCode 1.18.32 and 2.0.26 both name a git repository's project (`origin` remote only, the id stored in `<git-common-dir>/opencode`, the first root commit in sorted order); shared by the two below |
+| `project/OpenCodeGitIdentity.ts` | how OpenCode 2.0.26 names a git repository's project (`origin` remote only, the id stored in `<git-common-dir>/opencode`, the first root commit in sorted order) |
 | `project/GitProjectIdentityAdapter.ts` | OpenCode 2's project id of a folder (outside a repository: `sha1("directory:" + realpath)`) |
-| `project/ProjectResolverAdapter.ts` | OpenCode 1.18.32's project resolution (outside a repository: `global`) |
 | `platform/linux/ProcProcessListAdapter.ts`, `platform/linux/ProcFdHoldersAdapter.ts`, `platform/linux/ProcFs.ts` | Linux: running processes and file holders from `/proc` |
 | `platform/win32/TasklistAdapter.ts`, `platform/win32/RenameProbeHoldersAdapter.ts` | Windows: `tasklist` and the rename probe |
 | `fs/NodeMaintenanceFileSystemAdapter.ts` | the program's file operations |
@@ -483,9 +476,9 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `V2ServerContext.ts`, `V2TuiContext.ts`, `V2Client.ts`.
 
 **`src/main`** — composition roots and entries: `server-container.ts`,
-`tui-container.ts`, `v1-container.ts`, `cli-container.ts`,
+`tui-container.ts`, `cli-container.ts`,
 `linux-container.ts`, `win32-container.ts`, `plugin-id.ts` (plugin ids);
-`v2/server.ts`, `v2/tui.ts`, `v1/server.ts`, `v1/tui.ts`; `cli/cli.ts` (the
+`v2/server.ts`, `v2/tui.ts`; `cli/cli.ts` (the
 program's entry), `cli/platform.ts` (loads one platform's container).
 
 ## 5. Host behaviour this plugin relies on
@@ -499,11 +492,6 @@ program's entry), `cli/platform.ts` (loads one platform's container).
 - **v2 move.** `session.move` re-resolves the project and informs the agent,
   but rejects a missing folder; the use case creates it first. No database write
   on v2.
-- **v1 move.** No move API: the v1 lane writes the store and must compute the
-  project id exactly like v1.18.32 (`packages/core/src/project.ts` and
-  `git.ts`): origin remote of any scheme except `file:` → `sha1("git-remote:<host>/<path>")`,
-  else `<git-common-dir>/opencode`, else the first sorted root commit, else
-  `global`; outside any repository → `global` at `/`.
 - **Shared runtime.** The v2 TUI shares one Solid/OpenTUI runtime with plugins
   through `opentui:runtime-module:*`. `scripts/build.mjs` keeps those external
   and fails if the bundle imports `solid-js` or `@opentui/*` by name. Node
@@ -514,8 +502,7 @@ program's entry), `cli/platform.ts` (loads one platform's container).
   layer, as the host's own dialogs do): ↑/↓/PgUp/PgDn select, → opens the
   folder, ← goes to the parent folder, Enter moves (a folder that does not exist
   needs a second Enter), Esc is the host's. Tab is left to the host. Verified in
-  the real 2.0.26 TUI (`tests/live/tui-transfer.test.ts`). v1 keeps the host's
-  list dialog plus "Enter custom path…".
+  the real 2.0.26 TUI (`tests/live/tui-transfer.test.ts`).
 - `plugin.list` does not wait for activation; `integration.list` does, so tests
   call it first. The CLI `session list` can answer `[]` for a just-created
   session; tests use `api session.list`.
@@ -526,7 +513,7 @@ program's entry), `cli/platform.ts` (loads one platform's container).
 |---|---|---|
 | unit | one class at a time with stand-ins; the architecture, SOLID, platform, host-fixture and coverage-completeness gates | **measured, 100%** |
 | component | the wired plugin painted by the real OpenTUI renderer; tool parity; real SQLite compacting real databases | not gated |
-| e2e | `src` driven end to end in-process: the v2 entries through the real 2.0.14 `Host.resolve`/`Host.load` and slot resolver; the v1 entries over a real SQLite store, real directories and real git repositories; the CLI container over real databases (OpenCode 2.0.24's schema), Magic Context stores, folders and git repositories, legacy parity, and the browser applying its queue in OpenTUI's test renderer | **measured, 100%, per platform** |
+| e2e | `src` driven end to end in-process: the v2 entries through the real 2.0.14 `Host.resolve`/`Host.load` and slot resolver; the CLI container over real databases (OpenCode 2.0.24's schema), Magic Context stores, folders and git repositories, legacy parity, and the browser applying its queue in OpenTUI's test renderer | **measured, 100%, per platform** |
 | live | the real `opencode` executable, the built bundles, the installers, the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`); the CLI on a snapshot of the real `opencode.db`; the compiled browser in a pseudo-terminal; the installed Magic Context upgrading and opening real store copies; a real `sync` and `context sync` into a copy of this machine's profile, listed afterwards by a sandboxed OpenCode (when `OPENCODE_SM_LIVE_OTHER_PROFILE` is set). Variables: README, *Environment variables* | not measurable |
 
 Coverage tools only see code executed in the test process, so "e2e" is the
@@ -543,6 +530,7 @@ in-process real-host tier and "live" is the real external process.
 | `fixtures/legacy-session-id-index.js`, `fixtures/legacy-session-id-index.d.ts` | the hand-written tool this plugin replaced, kept verbatim |
 | `live/process.ts` | runs processes, finds OpenCode, `removeTemporary()`/`removeTemporarySync()` |
 | `live/sandbox-opencode.ts` | a sandboxed `opencode serve` on copied stores (`serveSandbox`, `sandboxEnvironment`), for the live `fork` and `relocate` tests |
+| `live/fixtures.ts` | the real stores of the live tier: OPENCODE_SM_LIVE_OTHER_PROFILE / OPENCODE_SM_LIVE_OLD_CONTEXT, else the folder `bun run fixtures:live` (`scripts/live-fixtures.mjs`, live-tested) fills |
 | `live/isolated-host.ts` | an OpenCode with every XDG folder, its home and server password private to the test |
 | `live/load-built-tui.ts` | loads the built v2 TUI bundle |
 | `live/drive-tui.mjs`, `live/drive-transfer.mjs`, `live/drive-browser.mjs` | drive a real TUI (OpenCode's, or the compiled browser) in a pseudo-terminal with `node-pty` and a headless terminal |
@@ -592,10 +580,10 @@ resolves to the working directory — and deleted a repository, `.git` included.
 
 ## 8. Deployment
 
-`bun run install:plugin:v2` / `install:plugin:v1` build, then copy the lane's
-files into `<plugins>` (temp + rename). `<plugins>` is `OPENCODE_V2_PLUGIN_DIR`
-/ `OPENCODE_V1_PLUGIN_DIR`, else `$XDG_CONFIG_HOME/opencode/plugins`. Installing
-a lane removes the other lane's files and the predecessors' (`session-id/`,
+`bun run install:plugin:v2` builds, then copies `server.js` and `tui.js` into
+`<plugins>/session-manager/` (temp + rename). `<plugins>` is `OPENCODE_V2_PLUGIN_DIR`,
+else `$XDG_CONFIG_HOME/opencode/plugins`. Installing removes the retired OpenCode 1
+form's files (`session-manager{,.tui}.js`) and the predecessors' (`session-id/`,
 `sessions-transfer/`, `sessions-transfer{,.tui}.js`), exact names only; a
 non-empty folder is never removed and no configuration is edited.
 `bun run install:cli` builds, then copies `dist/cli/opencode-session-manager`
@@ -603,8 +591,8 @@ to `OPENCODE_SESSION_MANAGER_BIN_DIR` (default `~/.local/bin`) under a temporary
 name and renames it into place (a copy, never a link, so a rebuild cannot break
 the command in use); `validate:installed:cli` byte-compares it and runs
 `--version` (`scripts/install-cli.mjs`, live-tested in a throwaway folder).
-`validate:installed:v2` / `validate:installed:v1` byte-compare the installed
-files with `dist/`, check the module shapes, and fail if another form is present.
+`validate:installed:v2` byte-compares the installed files with `dist/`, checks
+the module shapes, and fails if a retired form is present.
 
 ## 9. Documents
 

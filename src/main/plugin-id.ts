@@ -4,6 +4,3 @@
  * opencode-session-id and opencode-sessions-transfer merged.
  */
 export const V2_PLUGIN_ID = "session-manager"
-
-/** OpenCode 1 TUI plugin id (`{ id, tui }` shape). */
-export const V1_TUI_PLUGIN_ID = "session-manager-tui"

@@ -8,9 +8,8 @@ import type { KnownDirectoriesPort } from "@session-manager/domain/ports/outboun
 
 /**
  * The known folders the transfer offers: every project root, worktree and session folder, once
- * each, only those that exist (never a filesystem root), in display order (`compareLabels`),
- * after the sentinel that opens the free-form path prompt (OpenCode 1's list dialog; OpenCode 2's
- * folder browser lists the folders and takes typed paths itself).
+ * each, only those that exist (never a filesystem root), in display order (`compareLabels`): the
+ * folder browser's starting list (it takes typed paths itself).
  */
 export class BuildDirectoryOptionsUseCase implements BuildDirectoryOptionsPort {
   constructor(
@@ -21,7 +20,7 @@ export class BuildDirectoryOptionsUseCase implements BuildDirectoryOptionsPort {
 
   async execute(home: string): Promise<DirectoryOption[]> {
     const known = await this.db.listRecentDirectories()
-    const directories = Array.from(
+    return Array.from(
       new Set(
         known
           .filter((directory) => Boolean(directory && directory.trim()))
@@ -31,7 +30,5 @@ export class BuildDirectoryOptionsUseCase implements BuildDirectoryOptionsPort {
     )
       .map((directory) => ({ title: abbreviateHome(directory, home), directory, category: "Directories" }))
       .sort((left, right) => compareLabels(left.title, right.title))
-
-    return [{ title: "Enter custom path…", directory: "", category: "Directories", custom: true }, ...directories]
   }
 }

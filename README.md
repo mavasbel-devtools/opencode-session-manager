@@ -43,7 +43,9 @@ The plugin:
 | Host | Tested plugin SDK | Features | Built entrypoints |
 |---|---|---|---|
 | OpenCode 2 (2.0.14 contract; verified on 2.0.24) | `@opencode/plugin@2.0.14` | all three | `dist/v2/server.js`, `dist/v2/tui.js` |
-| OpenCode 1.18.32 | `@opencode-ai/plugin@1.18.32` | `/transfer-session` | `dist/v1/session-manager.js`, `dist/v1/session-manager.tui.js` |
+
+The plugin is for OpenCode 2 only. The program still reads and copies the OpenCode 1
+sessions (`session`, `message`, `part`) an OpenCode 2 store keeps beside its own.
 
 ### OpenCode 2
 
@@ -88,14 +90,6 @@ session to the project of its new folder). Memories the session created stay
 with the old project, and old paths in its history are not rewritten: for a
 whole folder that moved, use the program's `relocate`.
 
-### OpenCode 1
-
-v1 has no session-move API, so `/transfer-session` writes the v1 SQLite store
-directly and resolves the destination project exactly as the v1.18.32 host does
-(`sha1("git-remote:<host>/<path>")` of `origin`, else the id cached in
-`<git-common-dir>/opencode`, else the first root commit, else `global`), then
-leaves a synthetic reminder so the agent adopts the new directory.
-
 ## What it can and cannot do
 
 The plugin:
@@ -105,8 +99,7 @@ The plugin:
   (`opencode.jsonc` or `cli.json`) shows the session ID.
 - The sidebar only appears when the terminal is wide enough
   (`session.sidebar: "auto"` in `cli.json`).
-- On OpenCode 1 the transfer keeps the host's list dialog: the known folders
-  plus "Enter custom path…" (`~` works), without the folder browser.
+- It does not load in OpenCode 1.
 
 The program:
 
@@ -150,16 +143,15 @@ The program:
 
 ```
 bun install --frozen-lockfile
-bun run install:plugin:v2      # or install:plugin:v1 for an OpenCode 1 host
+bun run install:plugin:v2
 ```
 
-The v2 installer builds, then writes the folder `<plugins>/session-manager/`
-(`server.js`, `tui.js`); the v1 installer writes `session-manager.js` and
-`session-manager.tui.js`. `<plugins>` is `OPENCODE_V2_PLUGIN_DIR` /
-`OPENCODE_V1_PLUGIN_DIR`, else `$XDG_CONFIG_HOME/opencode/plugins` (default
-`~/.config/opencode/plugins`), where the host auto-discovers it. Either lane
-removes the other lane's files and those of the two plugins this one replaces
-(`session-id/`, `sessions-transfer/`, `sessions-transfer{,.tui}.js`). No
+The installer builds, then writes the folder `<plugins>/session-manager/`
+(`server.js`, `tui.js`). `<plugins>` is `OPENCODE_V2_PLUGIN_DIR`, else
+`$XDG_CONFIG_HOME/opencode/plugins` (default `~/.config/opencode/plugins`), where
+the host auto-discovers it. It removes the files of this plugin's retired
+OpenCode 1 form (`session-manager{,.tui}.js`) and those of the two plugins this
+one replaces (`session-id/`, `sessions-transfer/`, `sessions-transfer{,.tui}.js`). No
 configuration is written. A running v2 host activates the plugin as soon as it
 lands; restart the TUI to see the sidebar line.
 
@@ -589,24 +581,17 @@ flowchart LR
     SRV[OpenCode 2 server] -->|tool.transform| TA[SessionIdToolV2Adapter]
     TUI2[OpenCode 2 TUI] -->|slot prepend sidebar.content| SB[SessionIdSidebarSlotV2Adapter]
     TUI2 -->|slot append app + keymap| T2[SessionTransferV2TuiAdapter]
-    TUI1[OpenCode 1 TUI] -->|keymap.registerLayer| T1[SessionTransferV1TuiAdapter]
     TA --> RU[ResolveSessionIdToolUseCase]
     SB --> RE[RenderSidebarEntryUseCase]
     T2 --> MS[MoveSessionUseCase]
-    T1 --> TS[TransferSessionUseCase]
     T2 --> BD[BuildDirectoryOptionsUseCase]
-    T1 --> BD
     T2 -->|ui.dialog.show + modal keymap layer| FB[FolderBrowserDialogV2Adapter]
     FB --> BF[BrowseFoldersUseCase]
     BF --> DL[DirectoryListingPort -> NodeDirectoryListingAdapter]
     BD --> DL
     RE --> TP[ThemePalettePort / SidebarViewPort]
     MS --> HP[SessionHostPort -> OpenCode2HostAdapter]
-    TS --> DB[SessionDbPort -> SqliteSessionDbAdapter]
-    TS --> PR[ProjectResolverPort -> ProjectResolverAdapter]
-    PR --> OGI2[OpenCodeGitIdentity]
     MS --> FS[FileSystemPort -> NodeFileSystemAdapter]
-    TS --> FS
 ```
 
 The CLI has its own composition root, `src/main/cli-container.ts`, plus one
@@ -699,17 +684,15 @@ flowchart LR
 ```
 
 Composition roots: `src/main/server-container.ts` (v2 server),
-`src/main/tui-container.ts` (v2 TUI), `src/main/v1-container.ts` (v1 TUI).
-Entrypoints: `src/main/v2/server.ts`, `src/main/v2/tui.ts`,
-`src/main/v1/server.ts`, `src/main/v1/tui.ts`. `scripts/build.mjs` binds the v2
-TUI bundle to the host's shared Solid/OpenTUI runtime.
+`src/main/tui-container.ts` (v2 TUI). Entrypoints: `src/main/v2/server.ts`,
+`src/main/v2/tui.ts`. `scripts/build.mjs` binds the v2 TUI bundle to the host's shared Solid/OpenTUI runtime.
 
 ## Build and test
 
 ```
 bun install --frozen-lockfile
 bun run typecheck                 # tsc --noEmit
-bun run build                     # dist/v2, dist/v1 and the compiled dist/cli/opencode-session-manager
+bun run build                     # dist/v2 and the compiled dist/cli/opencode-session-manager
 bun run test                      # the four tiers in order; or one tier:
 bun run test:unit
 bun run test:component
@@ -720,9 +703,10 @@ bun run lint:diagrams             # docs lint (fences, mermaid, paths, scripts, 
 bun run schema -- fixture <store.db> <out.sql>          # a real store's CREATE statements
 bun run schema -- generate <fixture.sql> <out.ts> <title>  # its Drizzle tables
 bun run cli -- <command>          # the program from the checkout
-bun run install:plugin:v2         # or bun run install:plugin:v1
-bun run validate:installed:v2     # or bun run validate:installed:v1
+bun run install:plugin:v2
+bun run validate:installed:v2
 bun run install:cli
+bun run fixtures:live -- --other <folder> --old-context <context.db>   # keep the live tier's real stores (see below)
 bun run validate:installed:cli
 ```
 
@@ -734,8 +718,7 @@ The four tiers live under `tests/{unit,component,e2e,live}`:
   tool's parity with the hand-written plugin it replaced, and real SQLite
   compacting real databases.
 - **e2e** — the real entries in-process: the v2 TUI loaded by the real 2.0.14
-  `Host`, the v1 entries over a real SQLite store and real git repositories, and
-  the CLI's container over real databases, including a same-behaviour comparison
+  `Host`, and the CLI's container over real databases, including a same-behaviour comparison
   with the frozen original compactor (`tests/support/maintenance/fixtures/legacy/`),
   session and Magic Context syncs between real stores with OpenCode 2.0.24's
   schema over real folders and git repositories, and the browser applying its queue
@@ -748,6 +731,13 @@ The four tiers live under `tests/{unit,component,e2e,live}`:
   opening real store copies, and a real profile synced into a copy of this
   machine's that a sandboxed OpenCode then lists. Invisible to coverage by construction.
 
+The live `sync`, `context sync`, browser and `context copy` tests need real stores
+of another profile and an older Magic Context store. `bun run fixtures:live` copies
+them into the live fixtures folder (`scripts/live-fixtures.mjs`): `--other` takes a
+folder holding `opencode.db` and `context.db` side by side (a backup) or as a data
+home, `--old-context` an older `context.db`. Each must be standalone (a backup or a
+`VACUUM INTO` copy); a store with a non-empty `-wal` beside it is refused.
+
 `bun run coverage` requires 100 % lines and functions on every `src` file, in the
 unit and the e2e tier separately. The e2e gate is per platform: each platform's
 run gates every file except the other platforms' adapters and containers. The
@@ -757,26 +747,26 @@ live tier needs `node` (for the pseudo-terminal).
 
 | Variable | Read by | Meaning |
 |---|---|---|
-| `XDG_DATA_HOME` | the program, the v1 plugin | default data home (`~/.local/share`) |
+| `XDG_DATA_HOME` | the program | default data home (`~/.local/share`) |
 | `XDG_CACHE_HOME` | the program | where OpenCode's package cache, and so the installed Magic Context, is found (`~/.cache`) |
 | `XDG_CONFIG_HOME` | the installers, `tui` | the plugins folder (`~/.config/opencode/plugins`); the browser reads `opencode/opencode.jsonc` there for the Magic Context OpenCode loads |
 | `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` | `InstalledMagicContextAdapter` | pointed into a throwaway sandbox for the child process that runs Magic Context's code |
 | `XDG_STATE_HOME` | `context wrapup`, `context recomp`, the browser's `W`/`R` | where `opencode/service.json` (the running OpenCode server's URL and password) is found (`~/.local/state`) |
-| `OPENCODE_DB_PATH` | the v1 plugin | the OpenCode 1 store, as the v1 host reads it |
 | `OPENCODE_DB_COMPACT_IMAGE` | `preflight`, `run`, `rollback` | the OpenCode process name: `preflight` reports it, the others refuse while it runs (`opencode`, `opencode.exe` on Windows) |
 | `OPENCODE_DB_COMPACT_REHEARSAL_DIR` | `rehearse` | rehearsal folder (`<temp>/opencode/compact-rehearsal`) |
 | `OPENCODE_SESSION_MANAGER_MAGIC_CONTEXT` | `context copy`, `context sync`, `sync` | a Magic Context package folder, instead of the newest in OpenCode's cache |
 | `OPENCODE_SESSION_MANAGER_BIN_DIR` | `install:cli` | install folder (`~/.local/bin`) |
 | `OPENCODE_SESSION_MANAGER_OFFLINE` | `tui` | non-empty: npm is never asked for the newest Magic Context (as `--offline`) |
 | `OPENCODE_SESSION_MANAGER_NPM_REGISTRY` | `tui` | the registry asked for the newest Magic Context (`https://registry.npmjs.org`) |
-| `OPENCODE_V2_PLUGIN_DIR`, `OPENCODE_V1_PLUGIN_DIR` | the plugin installers | the plugins folder of each lane |
+| `OPENCODE_V2_PLUGIN_DIR` | the plugin installer | the plugins folder |
 | `OPENCODE_V2_EXECUTABLE` | live tier | the OpenCode 2 executable (else `~/.opencode/bin/opencode`, `~/.local/bin/opencode.exe` on Windows, else `PATH`) |
 | `OPENCODE_BIN` | live `sync` test | the `opencode` that lists the synced copy (default `opencode` on `PATH`) |
-| `OPENCODE_SM_LIVE_OLD_CONTEXT` | live `context copy` test | an older `context.db` to upgrade with the installed Magic Context |
+| `OPENCODE_SM_LIVE_OLD_CONTEXT` | live `context copy` test | an older `context.db` to upgrade with the installed Magic Context (default: `old-context/context.db` in the live fixtures folder, if there) |
 | `OPENCODE_SM_LIVE_RELOCATE_MAP` | live `relocate` test | the folder moves to check on a copy of this machine's profile, `<from>=<to>` separated by `;` (unset: the test is skipped) |
 | `OPENCODE_SM_LIVE_FORK_SESSION` | live `fork` test | the session forked in the sandbox (default: the smallest with 5–80 messages whose folder exists) |
 | `OPENCODE_SM_LIVE_REBUILD_SESSION` | live `context recomp` test | a session of this machine to rebuild with `/ctx-recomp` through the running OpenCode (spends historian tokens); skipped without it |
-| `OPENCODE_SM_LIVE_OTHER_PROFILE` | live `sync` and `context sync` tests | another profile's data home to sync into a copy of this machine's; skipped without it |
+| `OPENCODE_SM_LIVE_OTHER_PROFILE` | live `sync` and `context sync` tests | another profile's data home to sync into a copy of this machine's (default: `other-profile/` in the live fixtures folder, if there); skipped without either |
+| `OPENCODE_SM_LIVE_FIXTURES` | `fixtures:live`, the live tests | the live fixtures folder (`$XDG_CACHE_HOME/opencode-session-manager/live`, a folder a reboot keeps) |
 | `OPENCODE_TEST_HOME`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_SERVER_PASSWORD` | `tests/support/live/isolated-host.ts` | set for the isolated OpenCode the live tier starts: its home, no self-update, a fixed server password |
 
 ## License

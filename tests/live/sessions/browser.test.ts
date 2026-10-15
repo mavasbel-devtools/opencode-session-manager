@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { defaultDataHome, profileAt } from "@session-manager/domain/model/Profile"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { liveOtherProfile } from "@test/support/live/fixtures"
 
 /**
  * The session browser in a real pseudo-terminal, on this machine's real profile (read-only, so safe
@@ -18,7 +19,7 @@ const driver = join(project, "tests", "support", "live", "drive-browser.mjs")
 const compiled = join(project, "dist", "cli", process.platform === "win32" ? "opencode-session-manager.exe" : "opencode-session-manager")
 const live = profileAt("live", defaultDataHome({ XDG_DATA_HOME: process.env["XDG_DATA_HOME"] }, process.env["HOME"] ?? homedir()))
 const node = Bun.which("node")
-const other = process.env["OPENCODE_SM_LIVE_OTHER_PROFILE"]
+const other = liveOtherProfile
 
 let directory = ""
 let steps = ""

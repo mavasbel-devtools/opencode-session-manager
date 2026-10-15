@@ -50,7 +50,7 @@ describe("install-plugin.mjs v2 contract", () => {
     expect(JSON.parse(installed.stdout).directory).toBe(path.join(configHome, "opencode", "plugins", "session-manager"))
     const unknown = await installer(["deploy-v2"], base())
     expect(unknown.exitCode).not.toBe(0)
-    expect(unknown.stderr).toContain("usage: bun scripts/install-plugin.mjs <v1|v2|validate-v1|validate-v2>")
+    expect(unknown.stderr).toContain("usage: bun scripts/install-plugin.mjs <v2|validate-v2>")
   }, 120_000)
 
   it("rejects a tampered installed artifact", async () => {

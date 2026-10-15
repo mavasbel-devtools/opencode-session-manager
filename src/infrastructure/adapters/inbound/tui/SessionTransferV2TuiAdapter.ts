@@ -106,7 +106,7 @@ export class SessionTransferV2TuiAdapter {
     const directory = await this.services.folders.pick(context, {
       title: `${TITLE} (${sessionId.slice(-8)})`,
       home,
-      roots: known.filter((entry) => !entry.custom).map((entry) => entry.directory),
+      roots: known.map((entry) => entry.directory),
     })
     if (directory === undefined) return
 

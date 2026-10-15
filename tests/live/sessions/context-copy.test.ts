@@ -6,15 +6,16 @@ import { fileURLToPath } from "node:url"
 import { defaultDataHome, profileAt } from "@session-manager/domain/model/Profile"
 import { fileSha } from "@test/support/maintenance/database"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { liveOldContext } from "@test/support/live/fixtures"
 
 /**
  * The installed Magic Context, run for real on copies. This machine's store is copied as is (it is
- * already in the installed format); an older store named by OPENCODE_SM_LIVE_OLD_CONTEXT (for
+ * already in the installed format); an older store named by OPENCODE_SM_LIVE_OLD_CONTEXT (else the folder `bun run fixtures:live` fills) (for
  * example a copy of a Windows machine's context.db) is upgraded by the release's own migrations.
  */
 const home = process.env["HOME"] ?? homedir()
 const live = profileAt("live", defaultDataHome({ XDG_DATA_HOME: process.env["XDG_DATA_HOME"] }, home)).contextDb
-const older = process.env["OPENCODE_SM_LIVE_OLD_CONTEXT"]
+const older = liveOldContext
 const cli = fileURLToPath(new URL("../../../src/main/cli/cli.ts", import.meta.url))
 
 let directory = ""

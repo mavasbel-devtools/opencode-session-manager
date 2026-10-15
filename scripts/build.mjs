@@ -1,5 +1,4 @@
-// Builds dist/v2/{server,tui}.js for the OpenCode 2 host and
-// dist/v1/session-manager{,.tui}.js for the OpenCode 1.18.32 host.
+// Builds dist/v2/{server,tui}.js for the OpenCode 2 host and the compiled CLI.
 //
 // The TUI bundle must bind the host's single Solid/OpenTUI runtime: the host
 // registers `opentui:runtime-module:*` virtual modules process-wide
@@ -16,7 +15,6 @@ import { isCoreRuntimeModuleSpecifier, runtimeModuleIdForSpecifier } from "@open
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const dist = path.join(project, "dist")
 const outdir = path.join(dist, "v2")
-const v1outdir = path.join(dist, "v1")
 
 // The specifiers @opentui/solid 0.5.10 `ensureRuntimePluginSupport` registers by
 // default, plus the one OpenCode 2.0.14 adds (`additional`).
@@ -115,10 +113,6 @@ if (import.meta.main) {
       resolvePath: (specifier) => (hostRuntimeSpecifier(specifier) ? runtimeModuleIdForSpecifier(specifier) : null),
     }),
   ])
-  // OpenCode 1.18.32 forbids `server` and `tui` in one module, so the v1 lane
-  // ships two files; neither renders JSX, so no runtime binding is needed.
-  await bundle(path.join("v1", "server.ts"), "session-manager.js", [], v1outdir)
-  await bundle(path.join("v1", "tui.ts"), "session-manager.tui.js", [], v1outdir)
   const imports = await assertRuntimeImports(path.join(outdir, "tui.js"))
   const cli = await compileCli()
   console.log(JSON.stringify({ outdir: dist, runtimeImports: imports, cli }, null, 2))

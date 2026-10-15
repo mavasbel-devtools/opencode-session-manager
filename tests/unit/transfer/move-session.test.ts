@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { MoveSessionUseCase } from "@session-manager/application/MoveSessionUseCase"
 import { FakeFileSystemAdapter, FakeSessionHostAdapter } from "@test/support/fakes/transfer-ports"
-import { InvalidDirectoryError } from "@session-manager/domain/errors/InvalidDirectoryError"
 import { SessionNotFoundError } from "@session-manager/domain/errors/SessionNotFoundError"
 
 const HOME = "/home/user"
@@ -19,12 +18,6 @@ describe("MoveSessionUseCase", () => {
 
   it("rejects an empty session id without touching the host", async () => {
     await expect(useCase.execute("  ", "C:\\dest", HOME)).rejects.toThrow(SessionNotFoundError)
-    expect(host.moves).toEqual([])
-    expect(fs.ensured).toEqual([])
-  })
-
-  it("rejects an empty directory without touching the host", async () => {
-    await expect(useCase.execute("ses_1", "   ", HOME)).rejects.toThrow(InvalidDirectoryError)
     expect(host.moves).toEqual([])
     expect(fs.ensured).toEqual([])
   })

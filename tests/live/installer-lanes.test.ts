@@ -16,7 +16,7 @@ afterAll(async () => {
 
 function environment(extra: Record<string, string>) {
   return Object.fromEntries(
-    Object.entries({ ...process.env, OPENCODE_V1_PLUGIN_DIR: "", OPENCODE_V2_PLUGIN_DIR: "", ...extra }).filter(
+    Object.entries({ ...process.env, OPENCODE_V2_PLUGIN_DIR: "", ...extra }).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
     ),
   )
@@ -35,26 +35,15 @@ async function must(arguments_: string[], env: Record<string, string>) {
 }
 
 describe("plugins-directory installer contract", () => {
-  test("v2 deposits one folder; v1 replaces it with its two files; v2 takes the slot back", async () => {
+  test("install deposits one folder that matches the build and validates", async () => {
     const plugins = path.join(temporaryRoot, "slot", "plugins")
-    const env = environment({ OPENCODE_V1_PLUGIN_DIR: plugins, OPENCODE_V2_PLUGIN_DIR: plugins })
+    const env = environment({ OPENCODE_V2_PLUGIN_DIR: plugins })
 
     await must(["run", "install:plugin:v2"], env)
     expect(await readdir(plugins)).toEqual(["session-manager"])
     expect((await readdir(path.join(plugins, "session-manager"))).sort()).toEqual(["server.js", "tui.js"])
     expect(await Bun.file(path.join(plugins, "session-manager", "tui.js")).bytes()).toEqual(await Bun.file(path.join(project, "dist", "v2", "tui.js")).bytes())
     expect(await Bun.file(path.join(plugins, "session-manager", "server.js")).bytes()).toEqual(await Bun.file(path.join(project, "dist", "v2", "server.js")).bytes())
-    await must(["run", "validate:installed:v2"], env)
-    expect((await run(["run", "validate:installed:v1"], env)).exitCode).not.toBe(0)
-
-    await must(["run", "install:plugin:v1"], env)
-    expect((await readdir(plugins)).sort()).toEqual(["session-manager.js", "session-manager.tui.js"])
-    expect(await Bun.file(path.join(plugins, "session-manager.tui.js")).bytes()).toEqual(await Bun.file(path.join(project, "dist", "v1", "session-manager.tui.js")).bytes())
-    await must(["run", "validate:installed:v1"], env)
-    expect((await run(["run", "validate:installed:v2"], env)).exitCode).not.toBe(0)
-
-    await must(["run", "install:plugin:v2"], env)
-    expect(await readdir(plugins)).toEqual(["session-manager"])
     await must(["run", "validate:installed:v2"], env)
   }, 120_000)
 
@@ -74,21 +63,30 @@ describe("plugins-directory installer contract", () => {
     expect(result.stderr).toContain("differs from")
   }, 60_000)
 
-  test("either lane retires the two plugins this one replaces, and validation refuses them", async () => {
-    for (const lane of ["v2", "v1"]) {
-      const plugins = path.join(temporaryRoot, `legacy-${lane}`, "plugins")
-      const env = environment({ OPENCODE_V1_PLUGIN_DIR: plugins, OPENCODE_V2_PLUGIN_DIR: plugins })
-      for (const file of ["session-id/server.js", "session-id/tui.js", "sessions-transfer/server.js", "sessions-transfer/tui.js", "sessions-transfer.js", "sessions-transfer.tui.js"])
-        await Bun.write(path.join(plugins, file), "export default {}\n")
-      await Bun.write(path.join(plugins, "unrelated.js"), "export default {}\n")
-      await must(["scripts/install-plugin.mjs", lane], env)
-      const expected = lane === "v2" ? ["session-manager", "unrelated.js"] : ["session-manager.js", "session-manager.tui.js", "unrelated.js"]
-      expect((await readdir(plugins)).sort()).toEqual(expected)
+  test("install retires the OpenCode 1 form and the two plugins this one replaces, and validation refuses them", async () => {
+    const plugins = path.join(temporaryRoot, "legacy", "plugins")
+    const env = environment({ OPENCODE_V2_PLUGIN_DIR: plugins })
+    const retired = [
+      "session-manager.js",
+      "session-manager.tui.js",
+      "session-id/server.js",
+      "session-id/tui.js",
+      "sessions-transfer/server.js",
+      "sessions-transfer/tui.js",
+      "sessions-transfer.js",
+      "sessions-transfer.tui.js",
+    ]
+    for (const file of retired) await Bun.write(path.join(plugins, file), "export default {}\n")
+    await Bun.write(path.join(plugins, "unrelated.js"), "export default {}\n")
+    await must(["scripts/install-plugin.mjs", "v2"], env)
+    expect((await readdir(plugins)).sort()).toEqual(["session-manager", "unrelated.js"])
 
-      await Bun.write(path.join(plugins, "session-id", "server.js"), "export default {}\n")
-      const refused = await run(["scripts/install-plugin.mjs", `validate-${lane}`], env)
+    for (const file of ["session-id/server.js", "session-manager.tui.js"]) {
+      await Bun.write(path.join(plugins, file), "export default {}\n")
+      const refused = await run(["scripts/install-plugin.mjs", "validate-v2"], env)
       expect(refused.exitCode).not.toBe(0)
-      expect(refused.stderr).toContain(`${path.join(plugins, "session-id", "server.js")} must not coexist`)
+      expect(refused.stderr).toContain(`${path.join(plugins, file)} must not coexist`)
+      await rm(path.join(plugins, file))
     }
   }, 120_000)
 
@@ -97,7 +95,6 @@ describe("plugins-directory installer contract", () => {
     const config = path.join(configHome, "opencode", "opencode.jsonc")
     await Bun.write(config, '{ "plugins": ["unrelated"] }\n')
     await must(["scripts/install-plugin.mjs", "v2"], environment({ XDG_CONFIG_HOME: configHome }))
-    await must(["scripts/install-plugin.mjs", "v1"], environment({ XDG_CONFIG_HOME: configHome }))
     expect(await Bun.file(config).text()).toBe('{ "plugins": ["unrelated"] }\n')
     expect((await readdir(path.join(configHome, "opencode"))).sort()).toEqual(["opencode.jsonc", "plugins"])
   }, 60_000)

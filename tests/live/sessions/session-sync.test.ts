@@ -8,17 +8,18 @@ import { fileURLToPath } from "node:url"
 import { defaultDataHome, profileAt } from "@session-manager/domain/model/Profile"
 import { query } from "@test/support/maintenance/repositories"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { liveOtherProfile } from "@test/support/live/fixtures"
 
 /**
  * A real whole-session sync into a copy of this machine's profile (the live stores are only read,
- * with `VACUUM INTO`), from another profile named by OPENCODE_SM_LIVE_OTHER_PROFILE (a data home,
+ * with `VACUUM INTO`), from another profile named by OPENCODE_SM_LIVE_OTHER_PROFILE (else the folder `bun run fixtures:live` fills) (a data home,
  * for example a copy of a Windows machine's). Then a sandboxed OpenCode (OPENCODE_BIN, default
  * `opencode` on PATH) must list, from the synced copy, every session the sync wrote under this
  * home, and a second sync must find nothing left to write.
  */
 const home = process.env["HOME"] ?? homedir()
 const live = profileAt("live", defaultDataHome({ XDG_DATA_HOME: process.env["XDG_DATA_HOME"] }, home))
-const other = process.env["OPENCODE_SM_LIVE_OTHER_PROFILE"]
+const other = liveOtherProfile
 const opencode = process.env["OPENCODE_BIN"] ?? "opencode"
 const cli = fileURLToPath(new URL("../../../src/main/cli/cli.ts", import.meta.url))
 

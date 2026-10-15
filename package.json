@@ -1,7 +1,7 @@
 {
   "name": "opencode-session-manager",
   "version": "0.3.0",
-  "description": "OpenCode session manager: the in-app plugin (session ID under the sidebar title, the session-id tool, /transfer-session) and an offline maintenance CLI for opencode.db (verified compaction, migration, rollback); strict hexagonal, Bun, v2 and v1 hosts",
+  "description": "OpenCode session manager: the in-app plugin (session ID under the sidebar title, the session-id tool, /transfer-session) and an offline maintenance CLI for opencode.db (verified compaction, migration, rollback); strict hexagonal, Bun, OpenCode 2",
   "type": "module",
   "main": "./dist/v2/server.js",
   "scripts": {
@@ -16,18 +16,16 @@
     "coverage:e2e": "bun scripts/coverage.mjs e2e",
     "typecheck": "tsc --noEmit",
     "lint:diagrams": "bun scripts/lint-diagrams.mjs",
-    "install:plugin:v1": "bun run build && bun scripts/install-plugin.mjs v1",
     "install:plugin:v2": "bun run build && bun scripts/install-plugin.mjs v2",
-    "validate:installed:v1": "bun scripts/install-plugin.mjs validate-v1",
     "validate:installed:v2": "bun scripts/install-plugin.mjs validate-v2",
     "install:cli": "bun run build && bun scripts/install-cli.mjs install",
+    "fixtures:live": "bun scripts/live-fixtures.mjs",
     "validate:installed:cli": "bun scripts/install-cli.mjs validate",
     "cli": "bun src/main/cli/cli.ts",
     "schema": "bun scripts/schema.ts"
   },
   "devDependencies": {
     "@lydell/node-pty": "1.2.0-beta.12",
-    "@opencode-ai/plugin": "1.18.32",
     "@opencode/plugin": "2.0.14",
     "@opentui/core": "0.5.10",
     "@opentui/solid": "0.5.10",

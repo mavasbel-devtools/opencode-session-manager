@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { defaultDataHome, profileAt } from "@session-manager/domain/model/Profile"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { liveOtherProfile } from "@test/support/live/fixtures"
 
 /**
  * `verify` on this machine's profile (read-only), and a whole-session `sync` from another profile
@@ -14,7 +15,7 @@ import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/t
  */
 const home = process.env["HOME"] ?? homedir()
 const live = profileAt("live", defaultDataHome({ XDG_DATA_HOME: process.env["XDG_DATA_HOME"] }, home))
-const other = process.env["OPENCODE_SM_LIVE_OTHER_PROFILE"]
+const other = liveOtherProfile
 const cli = fileURLToPath(new URL("../../../src/main/cli/cli.ts", import.meta.url))
 const opencode = join(home, ".opencode", "bin", "opencode")
 
