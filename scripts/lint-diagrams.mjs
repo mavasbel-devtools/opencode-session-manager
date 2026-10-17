@@ -7,7 +7,7 @@
  *     docs/reference/, which holds frozen snapshots of the predecessors' docs and their old paths
  *  4. every package.json script named in README.md/AGENTS.md as `bun run <name>` exists
  *  5. README.md and AGENTS.md together name every package.json script as `bun run <name>`, every
- *     environment variable the code reads (OPENCODE_*, XDG_*, MAGIC_CONTEXT_*), and AGENTS.md names
+ *     environment variable the code reads (OPENCODE_*, XDG_*, MAGIC_CONTEXT_*, HERDR_*), and AGENTS.md names
  *     every file under src/ and tests/support/ (by its path below the layer or support folder, or by
  *     its file name when that is unique, or through a mentioned folder written as `dir/` or `dir/*`)
  */
@@ -66,7 +66,7 @@ const tracked = (folder) =>
 const variables = new Set()
 for (const file of [...tracked("src"), ...tracked("tests"), ...tracked("scripts")]) {
   if (!/\.(tsx?|mjs|js)$/.test(file)) continue
-  for (const match of readFileSync(join(ROOT, file), "utf8").matchAll(/\b(?:OPENCODE|XDG|MAGIC_CONTEXT)_[A-Z0-9_]+\b/g)) variables.add(match[0])
+  for (const match of readFileSync(join(ROOT, file), "utf8").matchAll(/\b(?:OPENCODE|XDG|MAGIC_CONTEXT|HERDR)_[A-Z0-9_]+\b/g)) variables.add(match[0])
 }
 for (const variable of [...variables].sort()) if (!both.includes(variable)) failures.push(`README.md/AGENTS.md: environment variable ${variable} is never named`)
 

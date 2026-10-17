@@ -72,6 +72,7 @@ function recordingTuiContext(muted: () => HostColor) {
       },
     },
     client: fakeV2Client(),
+    data: { session: { get: () => undefined } },
     keymap: { layer: () => undefined },
     ui: {
       slot(claim) {

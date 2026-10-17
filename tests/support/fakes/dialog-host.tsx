@@ -35,6 +35,7 @@ export function dialogHost(options: { readonly theme?: V2ThemeTokens; readonly r
   const context: V2TuiContext = {
     theme: options.theme ?? DIALOG_THEME,
     client: fakeV2Client(),
+    data: { session: { get: () => undefined } },
     keymap: { layer: (layer) => void layers.push(layer) },
     ui: {
       slot: () => () => undefined,

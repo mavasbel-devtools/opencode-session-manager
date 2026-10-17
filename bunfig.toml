@@ -3,7 +3,7 @@
 preload = ["@opentui/solid/preload"]
 
 [test]
-preload = ["@opentui/solid/preload"]
+preload = ["@opentui/solid/preload", "./tests/support/no-herdr.ts"]
 # Coverage is requested per tier (`coverage:unit`, `coverage:e2e`), because each
 # measured tier must reach the threshold on its own: see bunfig.coverage.toml.
 coverage = false

@@ -1,5 +1,6 @@
 import type { RGBA } from "@opentui/core"
 import type { JSX } from "@opentui/solid"
+import type { SessionLink } from "@session-manager/domain/model/PaneTitle"
 import type { SidebarSlotInput } from "@session-manager/domain/ports/inbound/RenderSidebarEntryPort"
 import type { V2Client } from "@session-manager/infrastructure/host/V2Client"
 
@@ -75,6 +76,12 @@ export interface V2ThemeTokens {
 export interface V2TuiContext {
   readonly theme: V2ThemeTokens
   readonly client: V2Client
+  /** The TUI's synced copy of the server's sessions (`Data.session.get`: `SessionInfo`, or `undefined` while not loaded). */
+  readonly data: {
+    readonly session: {
+      get(sessionID: string): SessionLink | undefined
+    }
+  }
   readonly keymap: {
     layer(input: () => V2KeymapLayer): void
   }

@@ -1,3 +1,4 @@
+import type { SessionLink } from "@session-manager/domain/model/PaneTitle"
 import type { SidebarEntry } from "@session-manager/domain/model/SidebarEntry"
 import type { RenderSidebarEntryPort, SidebarSlotInput } from "@session-manager/domain/ports/inbound/RenderSidebarEntryPort"
 import type { SidebarViewPort } from "@session-manager/domain/ports/outbound/SidebarViewPort"
@@ -41,13 +42,16 @@ export function fakeV2Client(): V2Client & { moves: Array<{ sessionID: string; d
 /**
  * Records slot claims and their disposals, like the v2.0.14 `ui.slot`: sidebar
  * claims in `claims`, app claims in `appClaims`, every disposal in `disposed`.
- * The dialog, toast and router members answer "nothing" unless a test needs more.
+ * The dialog and toast members answer "nothing" unless a test needs more.
+ * `route` and `sessions` stand for the host's router and its synced session
+ * data; tests change them to open another session or rename one.
  */
 export function fakeTuiContext(muted: HostColor = "#808080") {
   const claims: RecordedClaim[] = []
   const appClaims: V2AppClaim[] = []
   const disposed: V2SlotClaim[] = []
   const layers: Array<() => V2KeymapLayer> = []
+  const sessions = new Map<string, SessionLink>()
   const theme = { text: { muted } }
   const context: V2TuiContext & {
     claims: RecordedClaim[]
@@ -55,13 +59,18 @@ export function fakeTuiContext(muted: HostColor = "#808080") {
     disposed: V2SlotClaim[]
     layers: Array<() => V2KeymapLayer>
     theme: typeof theme
+    sessions: Map<string, SessionLink>
+    route: { readonly type: string; readonly sessionID?: string }
   } = {
     claims,
     appClaims,
     disposed,
     layers,
     theme,
+    sessions,
+    route: { type: "home" },
     client: fakeV2Client(),
+    data: { session: { get: (sessionID) => sessions.get(sessionID) } },
     keymap: { layer: (layer) => void layers.push(layer) },
     ui: {
       slot(claim) {
@@ -73,7 +82,7 @@ export function fakeTuiContext(muted: HostColor = "#808080") {
       },
       dialog: { show: () => undefined, set: () => undefined, clear: () => undefined, select: async () => undefined },
       toast: { show: () => undefined },
-      router: { current: () => ({ type: "home" }) },
+      router: { current: () => context.route },
     },
   }
   return context

@@ -9,7 +9,7 @@
 # when bunfig.toml says `coverage = false`, and `--config` is a global flag, so
 # it must come before `test`.
 [test]
-preload = ["@opentui/solid/preload"]
+preload = ["@opentui/solid/preload", "./tests/support/no-herdr.ts"]
 coverage = true
 coverageReporter = ["text"]
 coverageSkipTestFiles = true

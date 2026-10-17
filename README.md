@@ -29,6 +29,9 @@ The plugin:
 3. **`/transfer-session`** (palette "Transfer session") — moves a session to
    any folder: another project, a plain folder, or a folder that does not exist
    yet (it is created after a second Enter).
+4. **Herdr pane title** — when OpenCode runs in a [Herdr](https://herdr.dev)
+   pane, Herdr shows the open session's full title for that pane (as the agent
+   name in its sidebar and as the pane title) instead of "opencode".
 
 ```
 ┌ sidebar ─────────────────────────────┐
@@ -50,9 +53,9 @@ sessions (`session`, `message`, `part`) an OpenCode 2 store keeps beside its own
 ### OpenCode 2
 
 - `dist/v2/server.js` registers the `session-id` tool.
-- `dist/v2/tui.js` prepends the ID line to `sidebar.content` and registers
-  `/transfer-session` from an `app` slot (where `keymap.layer` runs in-tree).
-  Its cleanup removes both.
+- `dist/v2/tui.js` prepends the ID line to `sidebar.content`, registers
+  `/transfer-session` from an `app` slot (where `keymap.layer` runs in-tree),
+  and inside a Herdr pane keeps the pane titled. Its cleanup removes them all.
 
 The move goes through the host's `session.move` API — no database writes — so
 the host re-resolves the project and tells the agent about the new directory.
@@ -89,6 +92,26 @@ Magic Context follows the move on the session's next prompt (it links the
 session to the project of its new folder). Memories the session created stay
 with the old project, and old paths in its history are not rewritten: for a
 whole folder that moved, use the program's `relocate`.
+
+### Herdr pane title
+
+Inside a Herdr pane, Herdr hands OpenCode `HERDR_ENV=1`, `HERDR_SOCKET_PATH`
+and `HERDR_PANE_ID`; outside one, the plugin does nothing here. The TUI then
+tells Herdr, over Herdr's own API (`pane.report_metadata`), the title of the
+session it shows — for a sub-agent session, its parent's — as the pane's title
+and displayed agent name. Herdr keeps 80 characters; a longer title ends in `…`.
+
+- Opening another session, or a title change (OpenCode's automatic title, a
+  rename), reaches Herdr within about a quarter of a second. Quitting OpenCode gives
+  the pane Herdr's defaults back.
+- Only what Herdr *displays* changes: the pane's working/idle state,
+  notifications and session restore stay with Herdr's own OpenCode integration.
+  The title is shown only while OpenCode runs in the pane.
+- Herdr's agent *name* (`herdr agent rename`, used to address an agent in
+  commands) is not set: names are at most 32 lowercase characters and unique,
+  so titles would collide.
+- Herdr's sidebar shows the displayed agent name in its `agent` row (one of the
+  default rows; `[ui.sidebar.agents]` in `~/.config/herdr/config.toml`).
 
 ## What it can and cannot do
 
@@ -767,6 +790,8 @@ live tier needs `node` (for the pseudo-terminal).
 | `OPENCODE_SM_LIVE_REBUILD_SESSION` | live `context recomp` test | a session of this machine to rebuild with `/ctx-recomp` through the running OpenCode (spends historian tokens); skipped without it |
 | `OPENCODE_SM_LIVE_OTHER_PROFILE` | live `sync` and `context sync` tests | another profile's data home to sync into a copy of this machine's (default: `other-profile/` in the live fixtures folder, if there); skipped without either |
 | `OPENCODE_SM_LIVE_FIXTURES` | `fixtures:live`, the live tests | the live fixtures folder (`$XDG_CACHE_HOME/opencode-session-manager/live`, a folder a reboot keeps) |
+| `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID` | the TUI plugin | set by Herdr in its panes: the pane title is reported only when all three are (`HERDR_ENV=1`) |
+| `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID` | `tests/support/no-herdr.ts` | removed with the three above before any test, so tests never reach the user's Herdr |
 | `OPENCODE_TEST_HOME`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_SERVER_PASSWORD` | `tests/support/live/isolated-host.ts` | set for the isolated OpenCode the live tier starts: its home, no self-update, a fixed server password |
 
 ## License

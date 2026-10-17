@@ -30,6 +30,9 @@ file, component 9, live 37 (+1 opt-in rebuild that spends tokens).
   Context 0.49.2 (37 pass; skipped only the opt-in rebuild and the relocate test without its map, which
   passes with the four ITAM rules). The legacy `opencode-db-manager` repository was deleted from GitHub,
   its history kept in `~/Dev/repos/opencode/docs/archive/2026-10-14-22-42-opencode-db-manager.bundle`.
+- 2026-10-17: the Herdr pane title (`docs/plans/2026-10-17-01-30-herdr-pane-title.md`): inside a
+  Herdr pane the TUI reports the open session's root title as the pane's `title` and
+  `display_agent`; live-tested with the real TUI in a real, private Herdr server.
 
 ## Decisions (with their evidence)
 

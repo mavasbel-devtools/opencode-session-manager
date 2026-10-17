@@ -46,6 +46,7 @@ function makeContext(input: { route: { type: string; sessionID?: string }; selec
   const context: V2TuiContext = {
     theme: { text: { muted: "#808080" } },
     client: fakeV2Client(),
+    data: { session: { get: () => undefined } },
     keymap: { layer: (layer) => void layers.push(layer) },
     ui: {
       dialog: {
