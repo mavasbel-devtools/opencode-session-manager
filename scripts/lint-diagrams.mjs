@@ -61,8 +61,11 @@ const agents = readFileSync(join(ROOT, "AGENTS.md"), "utf8")
 const both = `${readme}\n${agents}`
 for (const script of scripts) if (!both.includes(`bun run ${script}`)) failures.push(`README.md/AGENTS.md: script '${script}' is never named as 'bun run ${script}'`)
 
+// Files git tracks and files not yet added (but not ignored): a new file is checked before its commit.
 const tracked = (folder) =>
-  spawnSync("git", ["ls-files", folder], { cwd: ROOT, encoding: "utf8" }).stdout.split("\n").filter((line) => line.length > 0)
+  spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", folder], { cwd: ROOT, encoding: "utf8" })
+    .stdout.split("\n")
+    .filter((line) => line.length > 0 && existsSync(join(ROOT, line)))
 const variables = new Set()
 for (const file of [...tracked("src"), ...tracked("tests"), ...tracked("scripts")]) {
   if (!/\.(tsx?|mjs|js)$/.test(file)) continue

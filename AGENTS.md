@@ -315,6 +315,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `MagicContextSync.ts` | sessions | sync requests and resolutions (`replace`, `skip`, `further`), sides, history relation (`relationOf`), harness labels, `failedChecks`, the sync report and its summary for a person |
 | `MagicContextRelease.ts` | sessions | the installed Magic Context release, an upgrade's outcome, the `context copy` report |
 | `PathMapping.ts` | sessions | path mapping (a Windows profile → a home, folder relocations), `GLOBAL_PROJECT`, the project OpenCode derives for a folder |
+| `NameRename.ts` | sessions | one folder renamed in place (`parent`, `from`, `to`) |
 | `Relocate.ts` | sessions | `relocate` input, moved and skipped sessions, text rewrite counts, checks, the report and `relocateLines` |
 | `SessionSync.ts` | sessions | session sync input, map rules, `--prefer`, the action per history relation (`actionFor`), the report |
 | `Verify.ts` | sessions | `verify`: finding kinds and their severity, a session's Magic Context vitals, the report and its text (`verifyLines`) |
@@ -359,7 +360,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `ProfileUnreadableError.ts`, `SyncVerificationError.ts`,
 `InvalidMapRuleError.ts`, `OpenCodeFormatMismatchError.ts`,
 `UnknownStoreSchemaError.ts`, `BusySessionsError.ts`, `ServerNotFoundError.ts`,
-`ServerRefusedError.ts`, `RelocateBusyError.ts`, `RelocateVerificationError.ts` (sessions);
+`ServerRefusedError.ts`, `RelocateBusyError.ts`, `RelocateVerificationError.ts`, `InvalidRenameRuleError.ts` (sessions);
 `MissingSessionIdError.ts`, `SessionNotFoundError.ts` (plugin).
 
 **`src/domain/tool`** — `SessionIdToolDefinition.ts`, the frozen tool surface.
@@ -450,6 +451,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `sqlite/BunSqliteAdapter.ts` | read-only reads, `VACUUM INTO`, fingerprints, checks |
 | `sqlite/BunRelocationStoreAdapter.ts` | moves session rows and rewrites text in a working copy of an OpenCode store (keeps project records and content-addressed blobs) |
 | `sqlite/BunMagicContextRelocationStoreAdapter.ts` | relinks sessions' Magic Context projects and rewrites text in a working copy (a memory's key follows its text) |
+| `sqlite/InstructionBlobs.ts` | rewrites OpenCode's instruction blobs under OpenCode's own address of their new value (`instructionHash`: sha256 of the canonical JSON) and repoints the instruction states in scope |
 | `sqlite/TextRelocation.ts` | rewrites, in place and by primary key, every text cell holding a hint (`rewriteTable`), and counts mentions (`countMentions`) |
 | `sqlite/BunSessionSyncStoreAdapter.ts` | reads OpenCode stores for a sync, writes session families into a working copy |
 | `sqlite/engine/Store.ts` | the store engine: opens a store (`openStore`, `withStore`), drizzle-orm over it, and the only SQL text in `src` |
