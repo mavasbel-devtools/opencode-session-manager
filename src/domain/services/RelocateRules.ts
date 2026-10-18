@@ -21,8 +21,8 @@ const WINDOWS = /^[A-Za-z]:[\\/]|\\/
  * folders, different, and neither inside the other; a folder below `home` is also matched as
  * `~/…` in text (the form shells and prompts write). Windows paths are `sync`'s business.
  */
-export function relocationsFromRules(rules: readonly MapRule[], home: string): Relocations {
-  if (rules.length === 0) throw new InvalidMapRuleError("(none)", "relocate needs at least one --map <from>=<to> or --rename <folder>=<name>")
+export function relocationsFromRules(rules: readonly MapRule[], home: string, relink = false): Relocations {
+  if (rules.length === 0 && !relink) throw new InvalidMapRuleError("(none)", "relocate needs at least one --map <from>=<to> or --rename <folder>=<name>")
   const folders: Relocation[] = []
   for (const rule of rules) {
     const label = `${rule.from}=${rule.to}`

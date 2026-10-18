@@ -205,7 +205,7 @@ opencode-session-manager fork --session <id> [--before <messageId>] [--server <u
 # Write (to copies, swapped in by renames): OpenCode must be closed
 opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... \
   (--session <id>... | --all) [--prefer further|keep|replace] [--diverged skip|fork] [--context all|sessions] [--strict] [--dry-run]
-opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name>)... (--session <id>... | --all) [--dry-run] [--json]
+opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name> | --relink)... (--session <id>... | --all) [--dry-run] [--json]
 opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) \
   [--prefer keep|further|replace | --replace] [--context all|sessions] [--strict] [--dry-run]
 opencode-session-manager rehearse [--db <path>] [--keep]
@@ -531,6 +531,25 @@ rewritten row still holds an old name as a whole name. A git repository without
 a remote keeps its OpenCode project id across a rename (it comes from
 `.git/opencode` or its first commit), so its sessions keep their project; the
 report's `to_project` shows what OpenCode derives.
+
+#### Sessions already moved: `--relink`
+
+```sh
+opencode-session-manager relocate --relink --map ~/old/course=~/repos/course --all --dry-run
+```
+
+A session moved by OpenCode itself (`/transfer-session`, `POST /api/session/:id/move`)
+gets its new folder and project in OpenCode, but Magic Context keeps it under its
+old project until its next prompt, and the old project's memories stay behind.
+`--relink` (alone or with `--map`/`--rename`) also takes every session already in
+an existing folder whose recorded Magic Context project is not that folder's: it
+is linked to its folder's project, and the old project is merged into it the way
+a move merges it (memories, notes, primers, dream runs). Its folder does not
+change; the rules still rewrite old folders in all text. Checked on a copy of a
+real profile after 144 course sessions were moved through OpenCode: 83 sessions
+relinked, projects `git:e4df…` (128 memories, 59 dream runs) and `git:5f40…`
+(2 memories) merged, 29k OpenCode and 800 Magic Context rows rewritten with nothing
+left over, a second run finds nothing to do, `verify` 0 errors.
 
 Checked on a copy of a real profile: 84 sessions in two moved course folders,
 31,710 OpenCode rows and 107 Magic Context rows rewritten with nothing left over;

@@ -244,6 +244,21 @@ describe("RelocateSessionsUseCase", () => {
     expect(setup().useCase.relocate(input({ dryRun: true })).renames).toEqual([])
   })
 
+  it("with --relink, also takes sessions already in their folder whose Magic Context project is another one, and merges that project", () => {
+    const sessions = [session("ses_a", "/new/rel"), session("ses_a1", "/new/rel/sub"), session("ses_d", "/new/rel"), session("ses_c", "/else")]
+    const { useCase, calls } = setup({ sessions })
+    const report = useCase.relocate(input({ dryRun: true, maps: [], relink: true }))
+    expect(report.rules).toEqual([])
+    expect(calls.moves).toEqual([{ id: "ses_a", directory: "/new/rel", projectId: "p_new", path: null }])
+    expect(report.sessions.map((moved) => [moved.id, moved.from_directory, moved.to_directory, moved.context_from_project, moved.context_to_project])).toEqual([
+      ["ses_a", "/new/rel", "/new/rel", "git:old", "git:new"],
+    ])
+    expect(calls.merges.map(({ options }) => options.projects.map((merge) => [merge.from, merge.to]))).toEqual([[["git:old", "git:new"]]])
+    // Without --relink, or without a Magic Context store, a session in its folder is not touched.
+    expect(setup({ sessions }).useCase.relocate(input({ dryRun: true })).sessions).toEqual([])
+    expect(setup({ sessions, context: false }).useCase.relocate(input({ dryRun: true, relink: true })).sessions).toEqual([])
+  })
+
   it("on a dry run takes no lock and swaps nothing; --session moves those families only, reading the readable copies", () => {
     const { useCase, vacuums, lock, calls, files } = setup()
     files.add("/snap/opencode.db")

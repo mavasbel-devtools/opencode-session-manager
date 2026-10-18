@@ -11,6 +11,8 @@ export interface RelocateInput {
   readonly renames: readonly MapRule[]
   /** Every session in a mapped folder, or these sessions (each with its sub-agent sessions). */
   readonly sessions: "all" | readonly string[]
+  /** Also relink sessions already in their folder whose Magic Context project is not that folder's. */
+  readonly relink?: boolean
   readonly dryRun: boolean
 }
 

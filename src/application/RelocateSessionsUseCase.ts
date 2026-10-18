@@ -77,7 +77,7 @@ export class RelocateSessionsUseCase implements RelocateSessionsPort {
   relocate(input: RelocateInput): RelocateReport {
     const { fileSystem } = this.deps
     const named = renamesFromRules(input.renames)
-    const relocations = relocationsFromRules([...input.maps, ...named.maps], this.deps.runtime.homeDirectory())
+    const relocations = relocationsFromRules([...input.maps, ...named.maps], this.deps.runtime.homeDirectory(), input.relink === true)
     const readOpencode = input.profile.readableOpencodeDb ?? input.profile.opencodeDb
     const readContext = input.profile.readableContextDb ?? input.profile.contextDb
     if (!fileSystem.exists(readOpencode)) throw new DatabaseNotFoundError(readOpencode)
@@ -206,7 +206,18 @@ export class RelocateSessionsUseCase implements RelocateSessionsPort {
       const parent = all.get(id)!.parentId
       return parent !== null && all.has(parent) ? rootOf(parent) : id
     }
-    const mapped = (session: StoredSession) => relocatedFolder(folders, session.directory)
+    const identities = new Map<string, string | null>()
+    const identityAt = (directory: string): string | null => {
+      if (!identities.has(directory)) identities.set(directory, fileSystem.exists(directory) ? contextIdentity.identityOf(directory) : null)
+      return identities.get(directory)!
+    }
+    const misLinked = (session: StoredSession): boolean => {
+      if (input.relink !== true || workContext === null) return false
+      const recorded = this.deps.context.recordedProject(workContext, session.id)
+      const current = identityAt(session.directory)
+      return recorded !== null && current !== null && recorded !== current
+    }
+    const mapped = (session: StoredSession) => relocatedFolder(folders, session.directory) ?? (misLinked(session) ? session.directory : null)
 
     const skipped: RelocateSkip[] = []
     let roots: string[]

@@ -169,6 +169,31 @@ describe("relocate (real stores and folders, the wired container)", () => {
     expect(readdirSync(at("data", "opencode")).filter((name) => name.startsWith("relocate-backup-"))).toEqual([`relocate-backup-${STAMP}`])
   })
 
+  it("--relink: sessions OpenCode already moved are linked to their folder's Magic Context project, and the old project is merged into it", async () => {
+    const { old, moved, root } = makeProfile()
+    const db = new Database(opencodeDb())
+    db.query("update session_v2 set directory = ? where id = 'ses_a'").run(moved)
+    db.query("update session_v2 set directory = ? where id = 'ses_a_child'").run(join(moved, "sub"))
+    db.close()
+
+    const run = await cli(["relocate", "--data", at("data"), "--relink", ...mapOf(old, moved), "--all", "--json"])
+    expect([run.code, run.json.failed]).toEqual([0, []])
+    expect(run.json.sessions.map((session: { id: string; from_directory: string; to_directory: string; context_from_project: string; context_to_project: string }) => [session.id, session.from_directory, session.to_directory, session.context_from_project, session.context_to_project])).toEqual([
+      ["ses_a", moved, moved, "git:old", `git:${root}`],
+      ["ses_a_child", join(moved, "sub"), join(moved, "sub"), "git:old", `git:${root}`],
+    ])
+    expect(run.json.projects_merged.map((merge: { from: string; to: string }) => [merge.from, merge.to])).toEqual([["git:old", `git:${root}`]])
+    expect(rowsOf(contextDb(), "select session_id, project_path from session_projects order by session_id")).toEqual([
+      { session_id: "ses_a", project_path: `git:${root}` },
+      { session_id: "ses_a_child", project_path: `git:${root}` },
+      { session_id: "ses_other", project_path: "dir:other" },
+    ])
+    expect(rowsOf(contextDb(), "select content from compartments order by session_id")).toEqual([{ content: `worked in ${moved}/src` }, { content: `compared with ${moved}` }])
+
+    const again = await cli(["relocate", "--data", at("data"), "--relink", "--all", "--json"])
+    expect([again.code, again.json.sessions, again.json.backup_dir]).toEqual([0, [], null])
+  })
+
   it("--rename: a folder renamed in place keeps its project, takes its sessions and records along, and its old name is replaced as a whole name", async () => {
     const { home, old } = makeProfile()
     const parent = join(home, "courses")
@@ -283,7 +308,7 @@ describe("relocate (real stores and folders, the wired container)", () => {
     const { old, moved } = makeProfile(`update session_meta set wrapup_in_progress_state = '{"expiresAt":9999999999999}' where session_id = 'ses_a'`)
     const before = [fileSha(opencodeDb()), fileSha(contextDb())]
     const usage = await cli(["relocate", "--all"])
-    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name>)... (--session <id>... | --all) [--dry-run] [--json]"])
+    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name> | --relink)... (--session <id>... | --all) [--dry-run] [--json]"])
     expect((await cli(["relocate", "--data", at("data"), "--map", "C:\\Users\\Me=/x", "--all"])).errors[0]).toContain("relocate moves POSIX folders")
     const busy = await cli(["relocate", "--data", at("data"), ...mapOf(old, moved), "--all"])
     expect(busy.errors[0]).toContain("Magic Context is working on ses_a")

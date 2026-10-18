@@ -52,16 +52,18 @@ function cli(failed: readonly string[] = []) {
 }
 
 describe("RelocateCliAdapter", () => {
-  it("takes --rename rules alone or with --map, and needs one of them", () => {
+  it("takes --rename rules or --relink alone or with --map, and needs one of them", () => {
     const { adapter, inputs, output } = cli()
     expect(adapter.run(["--rename", "/srv/2026-02-rel=rel", "--all"])).toBe(0)
     expect(adapter.run(["--map", "/old=/new", "--rename", "/srv/a=b", "--rename", "/srv/c=d", "--session", "ses_1"])).toBe(0)
-    expect(inputs.map((input) => [input.maps, input.renames])).toEqual([
-      [[], [{ from: "/srv/2026-02-rel", to: "rel" }]],
-      [[{ from: "/old", to: "/new" }], [{ from: "/srv/a", to: "b" }, { from: "/srv/c", to: "d" }]],
+    expect(adapter.run(["--relink", "--all"])).toBe(0)
+    expect(inputs.map((input) => [input.maps, input.renames, input.relink])).toEqual([
+      [[], [{ from: "/srv/2026-02-rel", to: "rel" }], false],
+      [[{ from: "/old", to: "/new" }], [{ from: "/srv/a", to: "b" }, { from: "/srv/c", to: "d" }], false],
+      [[], [], true],
     ])
     expect(adapter.run(["--all"])).toBe(2)
-    expect(output.lines.at(-1)).toContain("(--map <from>=<to> | --rename <folder>=<name>)...")
+    expect(output.lines.at(-1)).toContain("(--map <from>=<to> | --rename <folder>=<name> | --relink)...")
   })
 
   it("relocates every session in the mapped folders of the default profile, and prints a summary", () => {
@@ -73,6 +75,7 @@ describe("RelocateCliAdapter", () => {
         maps: [{ from: "/old", to: "/new" }],
         renames: [],
         sessions: "all",
+        relink: false,
         dryRun: true,
       },
     ])

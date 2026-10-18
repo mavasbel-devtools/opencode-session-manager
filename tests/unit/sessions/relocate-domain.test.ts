@@ -49,6 +49,7 @@ describe("relocate rules", () => {
       }
     }
     expect(() => relocationsFromRules([], "/home/me")).toThrow("relocate needs at least one --map <from>=<to>")
+    expect(relocationsFromRules([], "/home/me", true).folders).toEqual([])
     expect(refused("C:\\Users\\Me", "/home/me")).toBe("--map C:\\Users\\Me=/home/me: relocate moves POSIX folders; map Windows paths with sync")
     expect(refused("/a", "C:/b")).toContain("relocate moves POSIX folders")
     expect(refused("a", "/b")).toBe("--map a=/b: both folders must be absolute")
