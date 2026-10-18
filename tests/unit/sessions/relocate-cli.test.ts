@@ -20,6 +20,7 @@ function cli(failed: readonly string[] = []) {
           context_db: null,
           dry_run: input.dryRun,
           rules: input.maps,
+          renames: [],
           sessions: [],
           skipped: [],
           projects_created: [],
@@ -51,6 +52,18 @@ function cli(failed: readonly string[] = []) {
 }
 
 describe("RelocateCliAdapter", () => {
+  it("takes --rename rules alone or with --map, and needs one of them", () => {
+    const { adapter, inputs, output } = cli()
+    expect(adapter.run(["--rename", "/srv/2026-02-rel=rel", "--all"])).toBe(0)
+    expect(adapter.run(["--map", "/old=/new", "--rename", "/srv/a=b", "--rename", "/srv/c=d", "--session", "ses_1"])).toBe(0)
+    expect(inputs.map((input) => [input.maps, input.renames])).toEqual([
+      [[], [{ from: "/srv/2026-02-rel", to: "rel" }]],
+      [[{ from: "/old", to: "/new" }], [{ from: "/srv/a", to: "b" }, { from: "/srv/c", to: "d" }]],
+    ])
+    expect(adapter.run(["--all"])).toBe(2)
+    expect(output.lines.at(-1)).toContain("(--map <from>=<to> | --rename <folder>=<name>)...")
+  })
+
   it("relocates every session in the mapped folders of the default profile, and prints a summary", () => {
     const { adapter, output, inputs, events } = cli()
     expect(adapter.run(["--map", "/old=/new", "--all", "--dry-run"])).toBe(0)
@@ -58,6 +71,7 @@ describe("RelocateCliAdapter", () => {
       {
         profile: { opencodeDb: "/data/profile/opencode/opencode.db", contextDb: "/data/profile/cortexkit/magic-context/context.db", readableOpencodeDb: null, readableContextDb: null },
         maps: [{ from: "/old", to: "/new" }],
+        renames: [],
         sessions: "all",
         dryRun: true,
       },

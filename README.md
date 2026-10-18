@@ -205,7 +205,7 @@ opencode-session-manager fork --session <id> [--before <messageId>] [--server <u
 # Write (to copies, swapped in by renames): OpenCode must be closed
 opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... \
   (--session <id>... | --all) [--prefer further|keep|replace] [--diverged skip|fork] [--context all|sessions] [--strict] [--dry-run]
-opencode-session-manager relocate [--data <dataHome>] --map <from>=<to>... (--session <id>... | --all) [--dry-run] [--json]
+opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name>)... (--session <id>... | --all) [--dry-run] [--json]
 opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) \
   [--prefer keep|further|replace | --replace] [--context all|sessions] [--strict] [--dry-run]
 opencode-session-manager rehearse [--db <path>] [--keep]
@@ -374,7 +374,11 @@ that does not exist here, the deepest project of the target containing it, else
 the source's project, recreated with its name and settings.
 
 Both OpenCode stores must be at the same OpenCode migration (start the same
-OpenCode version on both once). It works on copies only: both stores of both
+OpenCode version on both once). Stores of OpenCode 2.0.24–2.0.26 (last migration
+`20260923013825_project_time_active` or `20261007190000_azure_cli_external_credential`)
+and 2.0.32 (`20261010180456_project_time_archived`, which adds
+`project.time_archived`) are known; the code reads only the columns a store has.
+It works on copies only: both stores of both
 sides are copied with `VACUUM INTO`, the target copies receive the sessions and
 are checked — integrity, foreign keys, every written session present with its
 folder and project and no Windows folder left, and the Magic Context checks —
@@ -500,6 +504,33 @@ opencode-session-manager relocate --map /home/me/Documents/old-course=/home/me/r
   the `rollback` command it prints. It takes both stores' locks and refuses while
   OpenCode holds a store or Magic Context works on a session it would move. A dry
   run changes nothing and reports failed checks (exit 1).
+
+#### Folders renamed in place: `--rename`
+
+```sh
+opencode-session-manager relocate --rename ~/repos/2026-02-course=course --all --dry-run
+```
+
+`--rename <folder>=<name>` (repeatable, combinable with `--map`) is for a folder
+renamed inside the same parent. It is a `--map` from the old folder to the new
+one — its sessions move, its absolute paths are rewritten — and in addition its
+old **name** is replaced wherever it stands as a whole name: relative paths
+(`2026-02-course/labs`), Windows paths at any JSON depth, ids and prose
+(`course (2026-02-course).`), after a percent-encoded character (`%3A%3A2026-02-course`),
+and in a path encoded with every non-alphanumeric as `-` under the folder's parent
+(Claude Code's `-home-me-repos-2026-02-course-worktrees-x`). A name only matches
+when no letter, digit or `-` precedes it and no letter, digit, `_` or `-` follows
+it (a `.` ends it: `2026-02-course.` and `sync.2026-02-course.p1` match), so
+`x2026-02-course`, `a-2026-02-course` and `2026-02-course_v2` are left alone, and
+names are tried longest first (`2026-02-course-backups` before `2026-02-course`).
+A renamed folder is the same project, so in a whole-profile run (`--all`) the
+names are also replaced in OpenCode's project records (`project.worktree`,
+`sandboxes`; `project_directory` and `worktree` rows take the new folder as their
+key, merged into an existing row for it). `text_ok` then also requires that no
+rewritten row still holds an old name as a whole name. A git repository without
+a remote keeps its OpenCode project id across a rename (it comes from
+`.git/opencode` or its first commit), so its sessions keep their project; the
+report's `to_project` shows what OpenCode derives.
 
 Checked on a copy of a real profile: 84 sessions in two moved course folders,
 31,710 OpenCode rows and 107 Magic Context rows rewritten with nothing left over;
@@ -744,7 +775,7 @@ The four tiers live under `tests/{unit,component,e2e,live}`:
   `Host`, and the CLI's container over real databases, including a same-behaviour comparison
   with the frozen original compactor (`tests/support/maintenance/fixtures/legacy/`),
   session and Magic Context syncs between real stores with OpenCode 2.0.24's
-  schema over real folders and git repositories, and the browser applying its queue
+  and 2.0.32's schemas over real folders and git repositories, and the browser applying its queue
   in OpenTUI's test renderer. Coverage-gated, per platform.
 - **live** — the real `opencode` executable, the built bundles, the installers,
   and the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`),
@@ -785,7 +816,8 @@ live tier needs `node` (for the pseudo-terminal).
 | `OPENCODE_V2_EXECUTABLE` | live tier | the OpenCode 2 executable (else `~/.opencode/bin/opencode`, `~/.local/bin/opencode.exe` on Windows, else `PATH`) |
 | `OPENCODE_BIN` | live `sync` test | the `opencode` that lists the synced copy (default `opencode` on `PATH`) |
 | `OPENCODE_SM_LIVE_OLD_CONTEXT` | live `context copy` test | an older `context.db` to upgrade with the installed Magic Context (default: `old-context/context.db` in the live fixtures folder, if there) |
-| `OPENCODE_SM_LIVE_RELOCATE_MAP` | live `relocate` test | the folder moves to check on a copy of this machine's profile, `<from>=<to>` separated by `;` (unset: the test is skipped) |
+| `OPENCODE_SM_LIVE_RELOCATE_MAP` | live `relocate` test | the folder moves to check on a copy of this machine's profile, `<from>=<to>` separated by `;` (unset, with no renames: the test is skipped) |
+| `OPENCODE_SM_LIVE_RELOCATE_RENAME` | live `relocate` test | the folders renamed in place to check with it, `<folder>=<name>` separated by `;` |
 | `OPENCODE_SM_LIVE_FORK_SESSION` | live `fork` test | the session forked in the sandbox (default: the smallest with 5–80 messages whose folder exists) |
 | `OPENCODE_SM_LIVE_REBUILD_SESSION` | live `context recomp` test | a session of this machine to rebuild with `/ctx-recomp` through the running OpenCode (spends historian tokens); skipped without it |
 | `OPENCODE_SM_LIVE_OTHER_PROFILE` | live `sync` and `context sync` tests | another profile's data home to sync into a copy of this machine's (default: `other-profile/` in the live fixtures folder, if there); skipped without either |

@@ -15,7 +15,7 @@ code is wrong until one of them is deliberately changed.
 | OpenCode 1 | not supported by the plugin (dropped 2026-10-14) | the program still reads and copies the OpenCode 1 sessions an OpenCode 2 store keeps |
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | build outputs | `dist/v2/{server,tui}.js` | the entrypoints the host loads |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `relocate [--data <dataHome>] --map <from>=<to>... (--session <id>... \| --all) [--dry-run] [--json]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `relocate [--data <dataHome>] (--map <from>=<to> \| --rename <folder>=<name>)... (--session <id>... \| --all) [--dry-run] [--json]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
@@ -132,7 +132,11 @@ The single source of the surface in `src` is `src/domain/tool/SessionIdToolDefin
     primary key, only where a rule's folder appears as a whole name (absolute,
     without its leading slash after `file:///`/`@fs/`, or `~/…`); a session row's
     folder is set only by the move. Project records and content-addressed blobs
-    are kept. Old Magic Context projects are merged, never deleted. Working copies
+    are kept — except that `--rename` (a folder renamed in place, so the same
+    project) replaces its old name, as a whole name, in the project records of a
+    whole-profile run, re-keying `project_directory`/`worktree` rows; the matcher
+    (`NameRewriter`) is tested against the shared case table
+    `tests/support/sessions/rename-cases.ts`. Old Magic Context projects are merged, never deleted. Working copies
     must pass every check (`text_ok`: no rewritten row still names an old folder)
     before both stores are swapped in together (`JointSwapService`).
 
@@ -217,7 +221,7 @@ text anywhere else. The engine owns what no query builder expresses: PRAGMAs,
 - **Schemas are generated, never hand-written**: `bun run schema -- fixture
   <store.db> <out.sql>` (`scripts/schema.ts`) dumps a real store's `CREATE` statements;
   `bun run schema -- generate <fixture.sql> <out.ts> <title>` writes the
-  Drizzle tables (`schema/opencode.ts` from `opencode-2.0.24.sql`,
+  Drizzle tables (`schema/opencode.ts` from `opencode-2.0.32.sql`,
   `schema/magic-context.ts` from `magic-context-95.sql`, in
   `tests/support/sessions/`). Every column keeps its store name; INTEGER
   columns are BigInt (`bigInteger`), untyped ones pass through (`value`).
@@ -333,6 +337,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 |---|---|---|
 | `PathRewriter.ts` | sessions | `TextRewriter`: rewrites Windows profile paths in text, through nested JSON escaping; counts what is left |
 | `WindowsMapping.ts` | sessions | the mapping a session's own folders imply (Windows profile → this home, plus a moved folder) |
+| `RenameRules.ts`, `NameRewriter.ts`, `CompositeTextRewriter.ts` | sessions | `relocate --rename <folder>=<name>` rules → renames and the folder moves they imply; whole-name replacement of the old names (paths, Windows paths, prose, `%XX`, dash-encoded paths); several rewriters as one |
 | `RelocateRules.ts` | sessions | `relocate --map` rules → folder moves, the text mapping (absolute, and `~/…` below the home) and the hints a rewrite searches for (`relocationsFromRules`, `relocatedFolder`) |
 | `MapRules.ts` | sessions | `--map` rules → a `PathMapping` (`parseMapRule`, `mappingFromRules`, `NO_WINDOWS_PROFILE`) |
 | `Versions.ts` | sessions | `compareVersions` (dotted numeric versions) |
@@ -448,7 +453,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `sqlite/TextRelocation.ts` | rewrites, in place and by primary key, every text cell holding a hint (`rewriteTable`), and counts mentions (`countMentions`) |
 | `sqlite/BunSessionSyncStoreAdapter.ts` | reads OpenCode stores for a sync, writes session families into a working copy |
 | `sqlite/engine/Store.ts` | the store engine: opens a store (`openStore`, `withStore`), drizzle-orm over it, and the only SQL text in `src` |
-| `sqlite/schema/opencode.ts`, `sqlite/schema/magic-context.ts` | generated Drizzle tables of OpenCode 2.0.24 and Magic Context format 95 (a superset of 94: the code reads only the tables and columns a store has, so 94 and 95 stores both work) |
+| `sqlite/schema/opencode.ts`, `sqlite/schema/magic-context.ts` | generated Drizzle tables of OpenCode 2.0.32 (2.0.24's plus `project.time_archived`; older stores lack the column and work) and Magic Context format 95 (a superset of 94: the code reads only the tables and columns a store has, so 94 and 95 stores both work) |
 | `sqlite/schema/value.ts` | the `bigInteger` and pass-through `value` column types the generated schemas use |
 | `sqlite/BunSessionStoreAdapter.ts` | reads `opencode.db` sessions and their message ids |
 | `sqlite/BunMagicContextStoreAdapter.ts` | reads a `context.db`'s counts and format |
@@ -563,7 +568,7 @@ in-process real-host tier and "live" is the real external process.
 | `maintenance/fixtures/legacy/` | the original compactor, kept verbatim for the parity test |
 | `sessions/stores.ts` | small `opencode.db` and `context.db` stores with given sessions and counts |
 | `sessions/sync-stores.ts` | Magic Context stores with the real schema of their format (`SCHEMA_95` from format 95 on, else `SCHEMA_94`), triggers included, and per-session state (`makeSyncContextStore`, `rowsOf`); `without` drops tables and the triggers that write into them |
-| `sessions/opencode-stores.ts`, `sessions/opencode-2.0.24.sql` | stores with OpenCode 2.0.24's real schema (every `CREATE`, read from a live store with `select sql from sqlite_master`; refresh it the same way when OpenCode changes its schema) and given projects and sessions, optionally with OpenCode 1 rows and every per-session table filled (`makeOpenCode2Store`) |
+| `sessions/opencode-stores.ts`, `sessions/opencode-2.0.24.sql`, `sessions/opencode-2.0.32.sql` | stores with OpenCode 2.0.24's (default) or 2.0.32's (`schema: "2.0.32"`, with its migrations) real schema (every `CREATE`, read from a live store with `select sql from sqlite_master`; refresh it the same way when OpenCode changes its schema) and given projects and sessions, optionally with OpenCode 1 rows and every per-session table filled (`makeOpenCode2Store`) |
 | `sessions/magic-context-94.sql` | every `CREATE` statement (tables, virtual tables, indexes, triggers) of a real Magic Context 0.45.0 store, written by `bun run schema -- fixture`; refresh it the same way when Magic Context changes format, then regenerate `schema/magic-context.ts` |
 | `sessions/magic-context-95.sql` | the same for a real Magic Context 0.47.0 store (format 95: format 94 plus `temporal_decisions` and `git_commit_fts_rowid_map`, and changed indexes); `schema/magic-context.ts` is generated from it |
 | `sessions/magic-context-package.ts` | a stand-in Magic Context package (declared seam) |

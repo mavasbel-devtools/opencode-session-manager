@@ -26,11 +26,26 @@ export interface TableRewrite {
   readonly declined: number
 }
 
+/** The hints a row must hold one of: a hint holding another is found by that other, and left out. */
+export function minimalHints(hints: readonly string[]): string[] {
+  const unique = [...new Set(hints)]
+  return unique.filter((hint) => !unique.some((other) => other !== hint && hint.includes(other)))
+}
+
+/**
+ * Conditions joined by `or` as a balanced tree: SQLite parses `a or b or c …` into a tree as deep as
+ * the conditions are many, and refuses one deeper than 1000 ("Expression tree is too large").
+ */
+export function anyOf(conditions: readonly SQL[]): SQL | undefined {
+  if (conditions.length <= 1) return conditions[0]
+  const half = Math.ceil(conditions.length / 2)
+  return or(anyOf(conditions.slice(0, half)), anyOf(conditions.slice(half)))
+}
+
 /** The condition "some text column holds some hint" over a table's columns that the store has. */
 function mentions(store: Store, table: SQLiteTable, columns: readonly string[], hints: readonly string[]): SQL | undefined {
   const selection = store.selection(table)
-  const conditions = columns.flatMap((name) => hints.map((hint) => like(selection[name] as SQLiteColumn, `%${hint}%`)))
-  return conditions.length === 0 ? undefined : or(...conditions)
+  return anyOf(columns.flatMap((name) => minimalHints(hints).map((hint) => like(selection[name] as SQLiteColumn, `%${hint}%`))))
 }
 
 /** A hint as a whole folder name: `…/relational-dbs` is not found in `…/relational-dbs-2025` (the rewriter's own boundary). */
@@ -38,8 +53,13 @@ function hintPatterns(hints: readonly string[]): RegExp[] {
   return hints.map((hint) => new RegExp(`${hint.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}(?![\\w-]|\\.[\\w-])`))
 }
 
-function holdsHint(row: Row, patterns: readonly RegExp[]): boolean {
-  return Object.values(row).some((cell) => typeof cell === "string" && patterns.some((pattern) => pattern.test(cell)))
+function holdsHint(row: Row, patterns: readonly RegExp[], names: TextRewrite["names"]): boolean {
+  return Object.values(row).some((cell) => typeof cell === "string" && (patterns.some((pattern) => pattern.test(cell)) || (names?.rewriter.residual(cell) ?? false)))
+}
+
+/** What a row holding text to rewrite contains: an old folder, or a renamed name. */
+function needlesOf(rewrite: TextRewrite): string[] {
+  return [...rewrite.hints, ...(rewrite.names?.needles ?? [])]
 }
 
 /**
@@ -51,7 +71,7 @@ export function rewriteTable(store: Store, orm: Orm, target: RewriteTable, rewri
   const name = getTableName(target.table)
   const key = store.primaryKey(name)
   const columns = Object.keys(store.selection(target.table)).filter((column) => !key.includes(column) && !target.keys.has(column))
-  const matching = mentions(store, target.table, columns, rewrite.hints)
+  const matching = mentions(store, target.table, columns, needlesOf(rewrite))
   if (key.length === 0 || matching === undefined) return { rows: 0, residual: 0, declined: 0 }
   const selection = store.selection(target.table)
   const keySelection = Object.fromEntries(key.map((column) => [column, selection[column]!]))
@@ -82,16 +102,16 @@ export function rewriteTable(store: Store, orm: Orm, target: RewriteTable, rewri
       }
       store.update(orm, target.table, rowKey, adjusted)
       rows++
-      if (holdsHint({ ...before, ...adjusted }, patterns)) residual++
-    } else if (holdsHint(after, patterns)) residual++
+      if (holdsHint({ ...before, ...adjusted }, patterns, rewrite.names)) residual++
+    } else if (holdsHint(after, patterns, rewrite.names)) residual++
   }
   return { rows, residual, declined }
 }
 
-/** How many rows of a table mention a hint in any column (for tables a rewrite keeps as they are). */
-export function countMentions(store: Store, orm: Orm, table: SQLiteTable, hints: readonly string[]): number {
+/** How many rows of a table mention an old folder or a renamed name in any column (for tables a rewrite keeps as they are). */
+export function countMentions(store: Store, orm: Orm, table: SQLiteTable, rewrite: TextRewrite): number {
   const columns = Object.keys(store.selection(table))
-  const matching = mentions(store, table, columns, hints)
+  const matching = mentions(store, table, columns, needlesOf(rewrite))
   if (matching === undefined) return 0
   const rows = orm.select({ rows: count() }).from(table).where(matching).all() as { rows: number }[]
   return Number(rows[0]?.rows ?? 0)

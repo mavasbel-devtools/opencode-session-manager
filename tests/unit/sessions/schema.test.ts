@@ -9,9 +9,9 @@ const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf
 
 const SCHEMAS = [
   {
-    fixture: "../../support/sessions/opencode-2.0.24.sql",
+    fixture: "../../support/sessions/opencode-2.0.32.sql",
     source: "../../../src/infrastructure/adapters/outbound/sqlite/schema/opencode.ts",
-    title: "tests/support/sessions/opencode-2.0.24.sql (OpenCode 2.0.24)",
+    title: "tests/support/sessions/opencode-2.0.32.sql (OpenCode 2.0.32)",
     tables: opencode.TABLES,
   },
   {

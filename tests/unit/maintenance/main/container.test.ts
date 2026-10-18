@@ -1,7 +1,7 @@
 import { test } from "bun:test"
 import assert from "node:assert/strict"
 import type { Fingerprint } from "@session-manager/domain/model/Database"
-import { buildContainer, rewriterFor } from "@session-manager/main/cli-container"
+import { buildContainer, combinedRewriter, nameRewriterFor, rewriterFor } from "@session-manager/main/cli-container"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
 import { FakeOutput } from "@test/support/maintenance/fakes/output"
 import { FakeProcessList } from "@test/support/maintenance/fakes/processes"
@@ -44,6 +44,13 @@ test("overrides replace adapters and drive a full preflight end to end", async (
   assert.equal(cli.run(["preflight", "--db", "C:/x/opencode.db"]), 0)
   assert.equal(output.lines[0], "database: C:/x/opencode.db")
   assert.match(output.lines[1] ?? "", /"opencode\.db": 14/)
+})
+
+test("nameRewriterFor and combinedRewriter build the renamed-name rewriter and its composition", () => {
+  const names = nameRewriterFor([{ parent: "/home/me/ITAM", from: "2026-02-rel", to: "rel" }])
+  assert.equal(names.rewrite("cd 2026-02-rel/x"), "cd rel/x")
+  const both = combinedRewriter([{ rewrite: (text) => text.replace("a", "b"), residual: () => false }, names])
+  assert.deepEqual([both.rewrite("a 2026-02-rel"), both.residual("2026-02-rel")], ["b rel", true])
 })
 
 test("rewriterFor builds the path rewriter for a migration's mapping", () => {

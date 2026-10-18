@@ -263,6 +263,27 @@ describe("sync (real stores, the wired container)", () => {
     expect(fileSha(opencodeOf("linux"))).toBe(before)
   })
 
+  it("syncs between two OpenCode 2.0.32 stores, carrying the project record with its time_archived, and refuses a 2.0.24 store against a 2.0.32 one", async () => {
+    const home = at("home")
+    mkdirSync(join(home, "a"), { recursive: true })
+    const make = (side: string, schema: "2.0.24" | "2.0.32", sessions: { id: string; directory: string; projectId?: string }[]) =>
+      makeOpenCode2Store(opencodeOf(side), { schema, projects: sessions.length === 0 ? [] : [{ id: "p_a", worktree: join(home, "a") }], sessions })
+    make("left", "2.0.32", [{ id: "ses_x", directory: join(home, "a"), projectId: "p_a" }])
+    const left = new Database(opencodeOf("left"))
+    left.exec("update project set time_archived = 7 where id = 'p_a'")
+    left.close()
+    make("right", "2.0.32", [])
+    const run = await cli(["sync", "--from", at("left"), "--to", at("right"), "--all"])
+    expect([run.errors, run.code]).toEqual([[], 0])
+    expect(query(opencodeOf("right"), "select id from session_v2")).toEqual([{ id: "ses_x" }])
+    // The session's project is the one this machine derives for the folder, made from the source's record.
+    expect(query(opencodeOf("right"), "select p.worktree, p.time_archived from session_v2 s join project p on p.id = s.project_id")).toEqual([{ worktree: join(home, "a"), time_archived: 7 }])
+    make("old", "2.0.24", [])
+    const mixed = await cli(["sync", "--from", at("old"), "--to", at("right"), "--all"])
+    expect(mixed.errors[0]).toContain("is at OpenCode migration 20260923013825_project_time_active")
+    expect(mixed.errors[0]).toContain("at 20261010180456_project_time_archived")
+  })
+
   it("refuses a held target, different OpenCode formats, rules it cannot apply and bad arguments", async () => {
     makeProfiles({ sourceMigrations: [...MIGRATIONS, "20261001000000_newer"] })
     const newer = await cli(["sync", "--from", at("win"), "--to", at("linux"), "--all"])

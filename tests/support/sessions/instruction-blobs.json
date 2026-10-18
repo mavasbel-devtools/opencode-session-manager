@@ -1,0 +1,13 @@
+{
+  "source": "instruction_blob rows OpenCode 2.0.26 wrote on this machine (2026-09/10): the hash is OpenCode's own address of the value",
+  "blobs": [
+    {
+      "hash": "8c3d1acb09527012fbc554119a9ab241f20bd1b582c6408edf4ebed258feb826",
+      "value": "\"Tue Sep 22 2026\""
+    },
+    {
+      "hash": "ebfb2cdb7f306bc024f59985a6d693126c41c28f4ddadb5905c67683b520c1f7",
+      "value": "[{\"server\":\"context7\",\"instructions\":\"Use this server to fetch current documentation whenever the user asks about a library, framework, SDK, API, CLI tool, or cloud service — even well-known ones like React, Next.js, Prisma, Express, Tailwind, Django, or Spring Boot. This includes API syntax, configuration, version migration, library-specific debugging, setup instructions, and CLI tool usage. Use even when you think you know the answer — your training data may not reflect recent changes. Prefer this over web search for library docs.\\n\\nDo not use for: refactoring, writing scripts from scratch, debugging business logic, code review, or general programming concepts.\"}]"
+    }
+  ]
+}

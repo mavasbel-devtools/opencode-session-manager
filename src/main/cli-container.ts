@@ -4,6 +4,8 @@ import { MagicContextSyncService } from "@session-manager/application/MagicConte
 import { SyncMagicContextUseCase } from "@session-manager/application/SyncMagicContextUseCase"
 import { SyncSessionsUseCase } from "@session-manager/application/SyncSessionsUseCase"
 import { JointSwapService } from "@session-manager/application/JointSwapService"
+import { NameRewriter } from "@session-manager/domain/services/NameRewriter"
+import type { NameRename } from "@session-manager/domain/model/NameRename"
 import { RelocateSessionsUseCase } from "@session-manager/application/RelocateSessionsUseCase"
 import { RelocateCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/RelocateCliAdapter"
 import { BunRelocationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunRelocationStoreAdapter"
@@ -71,6 +73,7 @@ import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePo
 import { FingerprintComparer } from "@session-manager/domain/services/FingerprintComparer"
 import { ParityPolicy } from "@session-manager/domain/services/ParityPolicy"
 import type { PathMapping } from "@session-manager/domain/model/PathMapping"
+import { CompositeTextRewriter } from "@session-manager/domain/services/CompositeTextRewriter"
 import { PathRewriter, type TextRewriter } from "@session-manager/domain/services/PathRewriter"
 import { RequiredSpacePolicy } from "@session-manager/domain/services/RequiredSpacePolicy"
 import { CliRouter } from "@session-manager/infrastructure/adapters/inbound/cli/CliRouter"
@@ -85,6 +88,16 @@ import { SystemClockAdapter } from "@session-manager/infrastructure/adapters/out
 import { platformAdapters } from "@session-manager/main/cli/platform"
 
 /** The rewriter for one sync's path mapping. */
+/** The rewriter of folder names renamed in place. */
+export function nameRewriterFor(renames: readonly NameRename[]): TextRewriter {
+  return new NameRewriter(renames)
+}
+
+/** Several rewriters applied in order, as one. */
+export function combinedRewriter(parts: readonly TextRewriter[]): TextRewriter {
+  return new CompositeTextRewriter(parts)
+}
+
 export function rewriterFor(mapping: PathMapping): TextRewriter {
   return new PathRewriter(mapping)
 }
@@ -260,6 +273,8 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     fileSystem,
     runtime,
     rewriterFor,
+    nameRewriterFor,
+    combinedRewriter,
   })
   const relocateCli = new RelocateCliAdapter({ relocate, profiles, output, runtime, environment })
 

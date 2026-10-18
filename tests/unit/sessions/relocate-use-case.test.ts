@@ -8,12 +8,14 @@ import { DatabaseNotFoundError } from "@session-manager/domain/errors/DatabaseNo
 import { RelocateBusyError } from "@session-manager/domain/errors/RelocateBusyError"
 import { RelocateVerificationError } from "@session-manager/domain/errors/RelocateVerificationError"
 import type { ProjectIdentity } from "@session-manager/domain/model/PathMapping"
-import type { ContextTextRewriteCounts, RelocateInput, TextRewriteCounts } from "@session-manager/domain/model/Relocate"
+import { relocateLines, type ContextTextRewriteCounts, type RelocateInput, type TextRewriteCounts } from "@session-manager/domain/model/Relocate"
 import type { StoredSession } from "@session-manager/domain/model/SessionCatalog"
 import type { ContextLink } from "@session-manager/domain/ports/outbound/MagicContextRelocationStorePort"
 import type { CopyOptions, StoreHealth } from "@session-manager/domain/ports/outbound/MagicContextSyncStorePort"
 import type { SessionMove, TextRewrite } from "@session-manager/domain/ports/outbound/RelocationStorePort"
 import type { ProjectPlan } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
+import { NameRewriter } from "@session-manager/domain/services/NameRewriter"
+import { CompositeTextRewriter } from "@session-manager/domain/services/CompositeTextRewriter"
 import { PathRewriter } from "@session-manager/domain/services/PathRewriter"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
 import { FakeHolders } from "@test/support/maintenance/fakes/holders"
@@ -167,6 +169,8 @@ function setup(world: World = {}) {
     fileSystem: files,
     runtime,
     rewriterFor: (mapping) => new PathRewriter(mapping),
+    nameRewriterFor: (renames) => new NameRewriter(renames),
+    combinedRewriter: (parts) => new CompositeTextRewriter(parts),
   })
   return { useCase, files, vacuums, lock, calls }
 }
@@ -174,6 +178,7 @@ function setup(world: World = {}) {
 const input = (extra: Partial<RelocateInput> = {}): RelocateInput => ({
   profile: { opencodeDb: OPENCODE, contextDb: CONTEXT, readableOpencodeDb: null, readableContextDb: null },
   maps: [{ from: "/old/rel", to: "/new/rel" }],
+  renames: [],
   sessions: "all",
   dryRun: false,
   ...extra,
@@ -220,6 +225,23 @@ describe("RelocateSessionsUseCase", () => {
     expect(lock.taken).toEqual([[OPENCODE, CONTEXT]])
     expect(lock.held.size).toBe(0)
     expect(files.has(WORK)).toBe(false)
+  })
+
+  it("with --rename, moves the renamed folder's sessions too and replaces its old name everywhere, also in project records", () => {
+    const { useCase, calls } = setup()
+    const report = useCase.relocate(input({ dryRun: true, renames: [{ from: "/srv/2026-02-rel", to: "rel" }] }))
+    expect(report.renames).toEqual([{ parent: "/srv", from: "2026-02-rel", to: "rel" }])
+    expect(report.rules).toEqual([
+      { from: "/old/rel", to: "/new/rel" },
+      { from: "/srv/2026-02-rel", to: "/srv/rel" },
+    ])
+    const rewrite = calls.rewrites[0]!.rewrite
+    expect([rewrite.hints, rewrite.names?.needles]).toEqual([["old/rel", "srv/2026-02-rel"], ["2026-02-rel"]])
+    expect(rewrite.rewriter.rewrite("/old/rel/a and 2026-02-rel/b")).toBe("/new/rel/a and rel/b")
+    expect(rewrite.names!.rewriter.rewrite("/old/rel/a and 2026-02-rel/b")).toBe("/old/rel/a and rel/b")
+    expect(relocateLines(report)).toContain("Renamed: 2026-02-rel → rel")
+    // Without --rename, nothing is a renamed name.
+    expect(setup().useCase.relocate(input({ dryRun: true })).renames).toEqual([])
   })
 
   it("on a dry run takes no lock and swaps nothing; --session moves those families only, reading the readable copies", () => {

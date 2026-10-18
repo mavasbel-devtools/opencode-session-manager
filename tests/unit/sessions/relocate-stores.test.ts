@@ -1,17 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { like } from "drizzle-orm"
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { Database } from "bun:sqlite"
 import { join } from "node:path"
 import { relocationsFromRules } from "@session-manager/domain/services/RelocateRules"
 import { PathRewriter } from "@session-manager/domain/services/PathRewriter"
+import { NameRewriter } from "@session-manager/domain/services/NameRewriter"
+import { CompositeTextRewriter } from "@session-manager/domain/services/CompositeTextRewriter"
 import type { TextRewrite } from "@session-manager/domain/ports/outbound/RelocationStorePort"
 import { BunMagicContextRelocationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextRelocationStoreAdapter"
 import { normalizedHash } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextSyncStoreAdapter"
+import { instructionHash } from "@session-manager/infrastructure/adapters/outbound/sqlite/InstructionBlobs"
 import { BunRelocationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunRelocationStoreAdapter"
 import { openStore, withStore } from "@session-manager/infrastructure/adapters/outbound/sqlite/engine/Store"
-import { countMentions, rewriteTable } from "@session-manager/infrastructure/adapters/outbound/sqlite/TextRelocation"
+import { anyOf, countMentions, minimalHints, rewriteTable } from "@session-manager/infrastructure/adapters/outbound/sqlite/TextRelocation"
 import { project, sessionMessage, todo } from "@session-manager/infrastructure/adapters/outbound/sqlite/schema/opencode"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
-import { makeOpenCode2Store } from "@test/support/sessions/opencode-stores"
+import { BLOB_HASH, makeOpenCode2Store } from "@test/support/sessions/opencode-stores"
 import { makeSyncContextStore, rowsOf } from "@test/support/sessions/sync-stores"
 
 let directory = ""
@@ -23,7 +28,7 @@ afterEach(() => {
 })
 
 const relocations = relocationsFromRules([{ from: "/old/rel", to: "/new/rel" }], "/home/me")
-const rewrite = (scope: TextRewrite["scope"] = "all"): TextRewrite => ({ rewriter: new PathRewriter(relocations.mapping), hints: relocations.hints, scope })
+const rewrite = (scope: TextRewrite["scope"] = "all"): TextRewrite => ({ rewriter: new PathRewriter(relocations.mapping), hints: relocations.hints, names: null, scope })
 const query = (file: string, sql: string) => {
   const db = new Database(file, { readonly: true })
   try {
@@ -83,13 +88,13 @@ describe("BunRelocationStoreAdapter", () => {
     ])
   })
 
-  it("rewrites every text naming an old folder, keeping keys, session folders, project records and blobs", () => {
+  it("rewrites every text naming an old folder, keeping keys, session folders and project records; blobs move to their new address", () => {
     const file = opencodeStore()
     const counts = new BunRelocationStoreAdapter().rewriteText(file, rewrite())
     expect(counts).toEqual({
-      rows: { event: 1, kv: 1, message: 1, part: 1, session_inbox: 1, session_message: 5, session_pending: 1, todo: 1 },
+      rows: { event: 1, instruction_blob: 1, kv: 1, message: 1, part: 1, session_inbox: 1, session_message: 5, session_pending: 1, todo: 1 },
       residual: { session_message: 1 },
-      kept: { instruction_blob: 1, project: 1 },
+      kept: { project: 1 },
     })
     expect(query(file, "select id, data from session_message where session_id = 'ses_other' order by seq")).toEqual([
       { id: "ses_other-m0", data: '{"text":"see /new/rel/notes.md"}' },
@@ -102,18 +107,53 @@ describe("BunRelocationStoreAdapter", () => {
       { id: "ses_child", directory: "/old/rel/sub" },
       { id: "ses_other", directory: "/elsewhere" },
     ])
-    expect(query(file, "select value from instruction_blob")).toEqual([{ value: JSON.stringify({ cwd: "/old/rel" }) }])
+    // The blob is stored under OpenCode's address of its new value, every state points at it, the old one is gone.
+    const moved = instructionHash({ cwd: "/new/rel" })
+    expect(query(file, "select hash, value from instruction_blob")).toEqual([{ hash: moved, value: JSON.stringify({ cwd: "/new/rel" }) }])
+    expect(new Set(query(file, "select initial_values || current_values as v from instruction_state").map((row) => (row as { v: string }).v))).toEqual(
+      new Set([JSON.stringify({ "core/environment": moved }) + JSON.stringify({ "core/environment": moved })]),
+    )
+  })
+
+  it("with renamed names, also rewrites the projects' records by the names alone, and counts what is left", () => {
+    const file = opencodeStore(`insert into project_directory (project_id, directory, type, time_created) values ('p_old', '/srv/2026-02-rel/x', 'worktree', 1), ('p_old', '/srv/rel/x', 'worktree', 2);
+      insert into worktree (project_id, directory, strategy, time_created) values ('p_old', '/srv/2026-02-rel', null, 1);
+      update session_message set data = '{"text":"2026-02-rel/notes and 2026-02-rel_v2"}' where id = 'ses_other-m1';
+      update project set worktree = '/srv/2026-02-rel', name = '/old/rel 2026-02-rel' where id = 'p_old'`)
+    const names = new NameRewriter([{ parent: "/srv", from: "2026-02-rel", to: "rel" }])
+    // The use case rewrites text with both rewriters, and project records with the names alone.
+    const both = new CompositeTextRewriter([new PathRewriter(relocations.mapping), names])
+    const counts = new BunRelocationStoreAdapter().rewriteText(file, { ...rewrite(), rewriter: both, names: { rewriter: names, needles: ["2026-02-rel"] } })
+    expect(counts.rows["project"]).toBe(1)
+    // The project still names the old folder /old/rel, which only a move (never a records rewrite) changes.
+    expect(counts.kept["project"]).toBe(1)
+    expect(counts.residual).toEqual({})
+    expect(query(file, "select worktree, name from project where id = 'p_old'")).toEqual([{ worktree: "/srv/rel", name: "/old/rel rel" }])
+    // A record for the renamed folder takes its new name; one the project already has for the new name wins.
+    expect(counts.rows["worktree"]).toBe(1)
+    expect(counts.rows["project_directory"]).toBe(1)
+    expect(query(file, "select directory, time_created from project_directory where project_id = 'p_old' order by directory")).toEqual([{ directory: "/srv/rel/x", time_created: 2 }])
+    expect(query(file, "select directory from worktree where project_id = 'p_old'")).toEqual([{ directory: "/srv/rel" }])
+    expect(query(file, "select data from session_message where id = 'ses_other-m1'")).toEqual([{ data: '{"text":"rel/notes and 2026-02-rel_v2"}' }])
   })
 
   it("in a session scope, rewrites only the rows keyed by those sessions", () => {
-    const file = opencodeStore()
+    // Another session points at the same instruction blob.
+    const file = opencodeStore(`insert into instruction_state values ('ses_other', 0, 1, '{"core/environment":"${BLOB_HASH}"}', '{"core/environment":"${BLOB_HASH}"}')`)
     const counts = new BunRelocationStoreAdapter().rewriteText(file, rewrite({ sessions: ["ses_a"] }))
     expect(counts).toEqual({
-      rows: { event: 1, kv: 1, message: 1, part: 1, session_inbox: 1, session_message: 2, session_pending: 1, todo: 1 },
+      rows: { event: 1, instruction_blob: 1, kv: 1, message: 1, part: 1, session_inbox: 1, session_message: 2, session_pending: 1, todo: 1 },
       residual: {},
       kept: {},
     })
     expect(query(file, "select data from session_message where id = 'ses_other-m0'")).toEqual([{ data: '{"text":"see /old/rel/notes.md"}' }])
+    // Only ses_a points at the new blob; the others still point at the old one, which stays.
+    const moved = instructionHash({ cwd: "/new/rel" })
+    expect(query(file, "select hash from instruction_blob order by hash")).toEqual([{ hash: BLOB_HASH }, { hash: moved }].sort((a, b) => (a.hash < b.hash ? -1 : 1)))
+    expect(query(file, "select session_id, current_values from instruction_state order by session_id")).toEqual([
+      { session_id: "ses_a", current_values: JSON.stringify({ "core/environment": moved }) },
+      { session_id: "ses_other", current_values: JSON.stringify({ "core/environment": BLOB_HASH }) },
+    ])
   })
 })
 
@@ -130,8 +170,8 @@ describe("TextRelocation and the store engine", () => {
       const everyColumn = new Set(store.columns("session_message"))
       expect(rewriteTable(store, store.orm, { table: sessionMessage, keys: everyColumn }, rewrite())).toEqual({ rows: 0, residual: 0, declined: 0 })
       expect(rewriteTable(store, store.orm, { table: sessionMessage, keys: new Set(), adjust: () => null }, rewrite())).toEqual({ rows: 0, residual: 1, declined: 5 })
-      expect(countMentions(store, store.orm, project, [])).toBe(0)
-      expect(countMentions(store, store.orm, project, relocations.hints)).toBe(1)
+      expect(countMentions(store, store.orm, project, { ...rewrite(), hints: [] })).toBe(0)
+      expect(countMentions(store, store.orm, project, rewrite())).toBe(1)
       expect(() => store.update(store.orm, project, {}, { name: "x" })).toThrow("project: an update needs a key")
       expect(store.update(store.orm, project, { id: "p_old" }, { name: "Renamed" })).toBe(1)
     })
@@ -206,5 +246,21 @@ describe("BunMagicContextRelocationStoreAdapter", () => {
       snapshots_cleared: 0,
     })
     expect(rowsOf(file, "select content from compartments order by session_id")).toEqual([{ content: "worked in /old/rel/src" }, { content: "compare with /new/rel" }])
+  })
+})
+
+describe("the conditions a text rewrite searches with", () => {
+  it("leaves out a hint another hint finds, and joins any number of conditions without too deep an expression", () => {
+    expect(minimalHints(["a/2026-02-x/b", "2026-02-x", "c", "c", "d/2026-02-y"])).toEqual(["2026-02-x", "c", "d/2026-02-y"])
+    expect(anyOf([])).toBeUndefined()
+    const file = join(directory, "deep.db")
+    const db = new Database(file)
+    db.exec("create table t (id integer primary key, a text); insert into t values (1, 'needle')")
+    db.close()
+    withStore(file, "read", (store) => {
+      const table = sqliteTable("t", { id: integer("id"), a: text("a") })
+      const conditions = Array.from({ length: 3000 }, (_, index) => like(table.a, `%n${index}%`))
+      expect(store.orm.select({ id: table.id }).from(table).where(anyOf([...conditions, like(table.a, "%needle%")])).all() as unknown[]).toEqual([{ id: 1n }])
+    })
   })
 })

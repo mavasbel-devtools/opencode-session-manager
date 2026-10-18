@@ -10,7 +10,7 @@ import { parseOptions } from "@session-manager/infrastructure/adapters/inbound/c
 import type { CliEnvironment } from "@session-manager/infrastructure/adapters/inbound/cli/CompactCliAdapter"
 
 export const RELOCATE_USAGE =
-  "usage: opencode-session-manager relocate [--data <dataHome>] --map <from>=<to>... (--session <id>... | --all) [--dry-run] [--json]"
+  "usage: opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name>)... (--session <id>... | --all) [--dry-run] [--json]"
 
 export interface RelocateCliOptions {
   readonly relocate: RelocateSessionsPort
@@ -24,7 +24,8 @@ export interface RelocateCliOptions {
  * `relocate`: moves the sessions of one profile (`--data`, default `$XDG_DATA_HOME` or
  * `~/.local/share`) whose folders moved, by `--map <from>=<to>` rules between absolute POSIX
  * folders — the sessions with their sub-agent sessions, every text naming an old folder, and their
- * Magic Context state. `--all` moves every session in a mapped folder and rewrites the whole
+ * Magic Context state — and by `--rename <folder>=<name>` rules for folders renamed in place, whose
+ * old name is also replaced wherever it stands as a whole name (relative paths, ids, prose). `--all` moves every session in a mapped folder and rewrites the whole
  * profile's text; `--session` moves those sessions and rewrites only their rows. Prints a summary
  * (`--json`: the report).
  */
@@ -33,10 +34,11 @@ export class RelocateCliAdapter {
 
   run(argv: readonly string[]): number {
     const { output, runtime, environment, profiles } = this.options
-    const values = parseOptions(argv, ["--data", "--map", "--session"], ["--all", "--dry-run", "--json"])
+    const values = parseOptions(argv, ["--data", "--map", "--rename", "--session"], ["--all", "--dry-run", "--json"])
     const ids = values?.many.get("--session") ?? []
     const maps = values?.many.get("--map") ?? []
-    if (values === null || maps.length === 0 || (ids.length === 0) === !values.flags.has("--all")) {
+    const renames = values?.many.get("--rename") ?? []
+    if (values === null || maps.length + renames.length === 0 || (ids.length === 0) === !values.flags.has("--all")) {
       output.line(RELOCATE_USAGE)
       return 2
     }
@@ -46,6 +48,7 @@ export class RelocateCliAdapter {
       const report = this.options.relocate.relocate({
         profile: syncSideOf(opened),
         maps: rules,
+        renames: renames.map(parseMapRule),
         sessions: values.flags.has("--all") ? "all" : ids,
         dryRun: values.flags.has("--dry-run"),
       })

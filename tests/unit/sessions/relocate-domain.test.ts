@@ -67,6 +67,7 @@ describe("relocate text and errors", () => {
     context_db: "/d/cortexkit/magic-context/context.db",
     dry_run: false,
     rules: [{ from: "/a", to: "/b" }],
+    renames: [],
     sessions: [
       { id: "s1", root: "s1", title: "t", from_directory: "/a", to_directory: "/b", from_project: "p1", to_project: "p2", context_from_project: null, context_to_project: null },
       { id: "s2", root: "s1", title: null, from_directory: "/a", to_directory: "/b", from_project: "p1", to_project: "p2", context_from_project: null, context_to_project: null },

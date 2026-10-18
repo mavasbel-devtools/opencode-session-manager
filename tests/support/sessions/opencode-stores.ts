@@ -6,6 +6,9 @@ import { runScript } from "@test/support/sessions/sql-script"
 /** OpenCode 2.0.24's store schema, every table and index as OpenCode creates them. */
 export const SCHEMA_2_0_24 = readFileSync(new URL("./opencode-2.0.24.sql", import.meta.url), "utf8")
 export const MIGRATIONS = ["20260910120000_clear_v1_session_permission", "20260923013825_project_time_active"] as const
+/** OpenCode 2.0.32's store schema (2.0.24's plus `project.time_archived`), and the migrations that end in it. */
+export const SCHEMA_2_0_32 = readFileSync(new URL("./opencode-2.0.32.sql", import.meta.url), "utf8")
+export const MIGRATIONS_2_0_32 = [...MIGRATIONS, "20261007190000_azure_cli_external_credential", "20261010180456_project_time_archived"] as const
 
 /** A content-addressed instruction blob every session with instruction state names. */
 export const BLOB_HASH = "a".repeat(64)
@@ -37,18 +40,20 @@ export interface OpenCodeStoreSpec {
   readonly projects?: readonly ProjectSpec[]
   readonly sessions?: readonly StoreSessionSpec[]
   readonly migrations?: readonly string[]
+  /** The OpenCode version whose schema the store has (default 2.0.24). */
+  readonly schema?: "2.0.24" | "2.0.32"
   /** SQL run last. */
   readonly extraSql?: string
 }
 
-/** A store with OpenCode 2.0.24's real schema and the given projects and sessions. */
+/** A store with OpenCode 2.0.24's (or 2.0.32's) real schema and the given projects and sessions. */
 export function makeOpenCode2Store(file: string, spec: OpenCodeStoreSpec): void {
   mkdirSync(dirname(file), { recursive: true })
   const db = new Database(file)
   try {
-    db.exec(SCHEMA_2_0_24)
+    db.exec(spec.schema === "2.0.32" ? SCHEMA_2_0_32 : SCHEMA_2_0_24)
     db.transaction(() => {
-      for (const id of spec.migrations ?? MIGRATIONS) db.query("insert into migration values (?, 1)").run(id)
+      for (const id of spec.migrations ?? (spec.schema === "2.0.32" ? MIGRATIONS_2_0_32 : MIGRATIONS)) db.query("insert into migration values (?, 1)").run(id)
       db.query("insert into project (id, worktree, time_created, time_updated, sandboxes) values ('global', '/', 1, 1, '[]')").run()
       for (const project of spec.projects ?? [])
         db.query("insert into project (id, worktree, vcs, name, time_created, time_updated, sandboxes) values (?, ?, 'git', ?, 2, 2, '[]')").run(

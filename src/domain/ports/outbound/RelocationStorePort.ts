@@ -14,17 +14,30 @@ export interface SessionMove {
 /** Which rows a text rewrite touches: every row of the store, or only rows keyed by these sessions. */
 export type TextScope = "all" | { readonly sessions: readonly string[] }
 
-/** What a text rewrite needs: the rewriter, and what text still holding an old folder contains. */
+/** Renamed folders' names: what replaces them, and the names themselves (what text naming one contains). */
+export interface NameRewrite {
+  readonly rewriter: TextRewriter
+  readonly needles: readonly string[]
+}
+
+/**
+ * What a text rewrite needs: the rewriter, what text still holding an old folder contains, and the
+ * renamed names (null: no folder was renamed). With names, the project records of a store-wide
+ * rewrite are rewritten too, by the names alone: a renamed folder is still the same project.
+ */
 export interface TextRewrite {
   readonly rewriter: TextRewriter
   readonly hints: readonly string[]
+  readonly names: NameRewrite | null
   readonly scope: TextScope
 }
 
 /**
  * Outbound port: moving sessions inside one OpenCode store (a working copy, never a live store).
  * Project records (`project`, `project_directory`, `worktree`) describe the old projects and are
- * kept; content-addressed blobs (`instruction_blob`, keyed by the hash of their text) are kept.
+ * kept, except that a store-wide rewrite with renamed names rewrites those names in them.
+ * Content-addressed instruction blobs (`instruction_blob`, keyed by the hash of their value) are
+ * rewritten under the address of their new value, and the instruction states in scope repointed.
  */
 export interface RelocationStorePort {
   /** Sets each session row's folder, project and `path` (both OpenCode generations), adding the projects it lacks; returns the rows written. */

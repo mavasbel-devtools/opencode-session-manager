@@ -1,11 +1,11 @@
-import { and, eq, getTableColumns, getTableName, inArray, ne } from "drizzle-orm"
+import { and, eq, getTableColumns, getTableName, inArray, like, ne } from "drizzle-orm"
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { ContextTextRewriteCounts } from "@session-manager/domain/model/Relocate"
 import type { ContextLink, MagicContextRelocationStorePort } from "@session-manager/domain/ports/outbound/MagicContextRelocationStorePort"
 import type { TextRewrite } from "@session-manager/domain/ports/outbound/RelocationStorePort"
 import { KEYS, normalizedHash } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextSyncStoreAdapter"
 import { type Orm, type Row, type Store, withStore } from "@session-manager/infrastructure/adapters/outbound/sqlite/engine/Store"
-import { rewriteTable, type RewriteTable } from "@session-manager/infrastructure/adapters/outbound/sqlite/TextRelocation"
+import { anyOf, minimalHints, rewriteTable, type RewriteTable } from "@session-manager/infrastructure/adapters/outbound/sqlite/TextRelocation"
 import { memories, schemaMigrations, schemaMigrationsMeta, sessionMeta, sessionProjects, TABLES } from "@session-manager/infrastructure/adapters/outbound/sqlite/schema/magic-context"
 
 /** The cached prompt snapshots of a session (Magic Context rebuilds them), cleared rather than rewritten. */
@@ -78,9 +78,27 @@ export class BunMagicContextRelocationStoreAdapter implements MagicContextReloca
           if (result.residual > 0) residual[name] = result.residual
           conflicts += result.declined
         }
+        cleared += this.clearSnapshots(store, orm, rewrite, ids)
         return { rows, residual, kept: {}, memory_conflicts: conflicts, snapshots_cleared: cleared }
       }),
     )
+  }
+
+  /**
+   * Cached prompt snapshots stored as bytes (which no text rewrite reads) that name an old folder or
+   * a renamed name: cleared, Magic Context rebuilds them. Returns the cells cleared.
+   */
+  private clearSnapshots(store: Store, orm: Orm, rewrite: TextRewrite, ids: readonly string[] | null): number {
+    const needles = minimalHints([...rewrite.hints, ...(rewrite.names?.needles ?? [])])
+    if (!store.has(sessionMeta, ["session_id"]) || needles.length === 0) return 0
+    let cleared = 0
+    for (const column of SNAPSHOTS.filter((name) => store.columns(getTableName(sessionMeta)).includes(name))) {
+      const cell = sessionMeta[column]
+      const naming = anyOf(needles.map((needle) => like(cell, `%${needle}%`)))
+      const scope = ids === null ? naming : and(naming, inArray(sessionMeta.session_id, [...ids]))
+      cleared += Number((orm.update(sessionMeta).set({ [column]: null }).where(scope).run() as unknown as { changes: number | bigint }).changes)
+    }
+    return cleared
   }
 
   /** A memory's new text with its new key, or null when another memory of its project already has that key. */

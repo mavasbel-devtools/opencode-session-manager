@@ -22,7 +22,7 @@ const WINDOWS = /^[A-Za-z]:[\\/]|\\/
  * `~/…` in text (the form shells and prompts write). Windows paths are `sync`'s business.
  */
 export function relocationsFromRules(rules: readonly MapRule[], home: string): Relocations {
-  if (rules.length === 0) throw new InvalidMapRuleError("(none)", "relocate needs at least one --map <from>=<to>")
+  if (rules.length === 0) throw new InvalidMapRuleError("(none)", "relocate needs at least one --map <from>=<to> or --rename <folder>=<name>")
   const folders: Relocation[] = []
   for (const rule of rules) {
     const label = `${rule.from}=${rule.to}`

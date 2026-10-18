@@ -21,8 +21,11 @@ import type { SessionStorePort } from "@session-manager/domain/ports/outbound/Se
 import type { ProjectPlan, SessionSyncStorePort } from "@session-manager/domain/ports/outbound/SessionSyncStorePort"
 import type { SqlitePort } from "@session-manager/domain/ports/outbound/SqlitePort"
 import type { TextRewriter } from "@session-manager/domain/services/PathRewriter"
+import type { NameRename } from "@session-manager/domain/model/NameRename"
 import type { PathMapping } from "@session-manager/domain/model/PathMapping"
+import type { NameRewrite } from "@session-manager/domain/ports/outbound/RelocationStorePort"
 import { relocatedFolder, relocationsFromRules } from "@session-manager/domain/services/RelocateRules"
+import { renamesFromRules } from "@session-manager/domain/services/RenameRules"
 import { isWithin, sessionSubpath } from "@session-manager/domain/services/PosixPaths"
 
 export interface RelocateSessionsDependencies {
@@ -40,6 +43,10 @@ export interface RelocateSessionsDependencies {
   readonly fileSystem: MaintenanceFileSystemPort
   readonly runtime: RuntimePort
   readonly rewriterFor: (mapping: PathMapping) => TextRewriter
+  /** Replaces renamed folders' names as whole names. */
+  readonly nameRewriterFor: (renames: readonly NameRename[]) => TextRewriter
+  /** Several rewriters applied in order, as one. */
+  readonly combinedRewriter: (parts: readonly TextRewriter[]) => TextRewriter
 }
 
 /** What one relocation does, decided on the working copies before anything is written. */
@@ -54,8 +61,8 @@ interface Plan {
 
 /**
  * Moves sessions to the folders their files now live in, inside one profile: each session in a
- * mapped folder (with its sub-agent sessions) gets its new folder and the project OpenCode derives
- * there; every text cell naming an old folder is rewritten; in Magic Context, each session is linked
+ * mapped or renamed folder (with its sub-agent sessions) gets its new folder and the project OpenCode derives
+ * there; every text cell naming an old folder (or a renamed folder's old name) is rewritten; in Magic Context, each session is linked
  * to the project Magic Context derives for its new folder, the old project's memories, notes and
  * primers are merged into the new one, and text is rewritten the same way.
  *
@@ -69,12 +76,13 @@ export class RelocateSessionsUseCase implements RelocateSessionsPort {
 
   relocate(input: RelocateInput): RelocateReport {
     const { fileSystem } = this.deps
-    const relocations = relocationsFromRules(input.maps, this.deps.runtime.homeDirectory())
+    const named = renamesFromRules(input.renames)
+    const relocations = relocationsFromRules([...input.maps, ...named.maps], this.deps.runtime.homeDirectory())
     const readOpencode = input.profile.readableOpencodeDb ?? input.profile.opencodeDb
     const readContext = input.profile.readableContextDb ?? input.profile.contextDb
     if (!fileSystem.exists(readOpencode)) throw new DatabaseNotFoundError(readOpencode)
     const withContext = fileSystem.exists(readContext)
-    const run = (cleared: readonly StaleLock[]) => this.run(input, relocations, readOpencode, withContext ? readContext : null, cleared)
+    const run = (cleared: readonly StaleLock[]) => this.run(input, relocations, named.renames, readOpencode, withContext ? readContext : null, cleared)
     if (input.dryRun) return run([])
     this.deps.guard.assertNotHeld(input.profile.opencodeDb)
     if (withContext) this.deps.guard.assertNotHeld(input.profile.contextDb)
@@ -84,6 +92,7 @@ export class RelocateSessionsUseCase implements RelocateSessionsPort {
   private run(
     input: RelocateInput,
     relocations: ReturnType<typeof relocationsFromRules>,
+    renames: readonly NameRename[],
     readOpencode: string,
     readContext: string | null,
     cleared: readonly StaleLock[],
@@ -100,14 +109,17 @@ export class RelocateSessionsUseCase implements RelocateSessionsPort {
         sqlite.vacuumInto(readContext!, contextFiles.work)
       }
 
-      const plan = this.plan(input, relocations.folders, workOpencode, contextFiles?.work ?? null, relocations.mapping)
+      const names: NameRewrite | null = renames.length === 0 ? null : { rewriter: this.deps.nameRewriterFor(renames), needles: renames.map((rename) => rename.from) }
+      const rewriter = names === null ? this.deps.rewriterFor(relocations.mapping) : this.deps.combinedRewriter([this.deps.rewriterFor(relocations.mapping), names.rewriter])
+      const plan = this.plan(input, relocations.folders, workOpencode, contextFiles?.work ?? null, rewriter)
       const now = runtime.now()
       const busy = contextFiles === null ? [] : plan.moved.map((session) => session.id).filter((id) => this.deps.context.busy(readContext!, id, now))
       if (busy.length > 0) throw new RelocateBusyError(busy)
 
       const rewrite: TextRewrite = {
-        rewriter: this.deps.rewriterFor(relocations.mapping),
+        rewriter,
         hints: relocations.hints,
+        names,
         scope: input.sessions === "all" ? "all" : { sessions: [...new Set(plan.moved.map((session) => session.id))] },
       }
       const moved = this.deps.relocation.moveSessions(workOpencode, plan.moves, plan.projects, now)
@@ -165,6 +177,7 @@ export class RelocateSessionsUseCase implements RelocateSessionsPort {
         context_db: contextFiles === null ? null : input.profile.contextDb,
         dry_run: input.dryRun,
         rules: relocations.folders,
+        renames,
         sessions: plan.moved,
         skipped: plan.skipped,
         projects_created: plan.projects.map((project) => project.id),
@@ -182,7 +195,7 @@ export class RelocateSessionsUseCase implements RelocateSessionsPort {
     }
   }
 
-  private plan(input: RelocateInput, folders: Parameters<typeof relocatedFolder>[0], workOpencode: string, workContext: string | null, mapping: PathMapping): Plan {
+  private plan(input: RelocateInput, folders: Parameters<typeof relocatedFolder>[0], workOpencode: string, workContext: string | null, rewriter: TextRewriter): Plan {
     const { fileSystem, identity, contextIdentity } = this.deps
     const all = new Map<string, StoredSession>()
     for (const session of this.deps.sessions.sessions(workOpencode)) if (session.generation === "v2" || !all.has(session.id)) all.set(session.id, session)
@@ -215,7 +228,6 @@ export class RelocateSessionsUseCase implements RelocateSessionsPort {
     const projects = new Map<string, ProjectPlan>()
     const links: ContextLink[] = []
     const merges = new Map<string, ProjectMerge>()
-    const rewriter = this.deps.rewriterFor(mapping)
     for (const root of roots) {
       const family = familyOf(root).filter((id) => mapped(all.get(id)!) !== null)
       const missing = family.find((id) => {

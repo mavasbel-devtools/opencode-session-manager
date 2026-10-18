@@ -1,11 +1,14 @@
 import type { ProjectMergeResult, SyncSide } from "@session-manager/domain/model/MagicContextSync"
 import type { StaleLock } from "@session-manager/domain/model/StoreLock"
 import type { MapRule } from "@session-manager/domain/model/SessionSync"
+import type { NameRename } from "@session-manager/domain/model/NameRename"
 
 /** `relocate`: sessions moved to the folders their files now live in, inside one profile. */
 export interface RelocateInput {
   readonly profile: SyncSide
   readonly maps: readonly MapRule[]
+  /** `--rename <folder>=<name>` rules: `from` the folder's old absolute path, `to` its new name. */
+  readonly renames: readonly MapRule[]
   /** Every session in a mapped folder, or these sessions (each with its sub-agent sessions). */
   readonly sessions: "all" | readonly string[]
   readonly dryRun: boolean
@@ -67,7 +70,10 @@ export interface RelocateReport {
   readonly opencode_db: string
   readonly context_db: string | null
   readonly dry_run: boolean
+  /** The folder moves, renamed folders included. */
   readonly rules: readonly MapRule[]
+  /** The renamed folders, whose old names were replaced as whole names. */
+  readonly renames: readonly NameRename[]
   readonly sessions: readonly RelocatedSession[]
   readonly skipped: readonly RelocateSkip[]
   /** OpenCode projects the moved sessions now belong to that the store did not have yet. */
@@ -95,6 +101,7 @@ export function relocateLines(report: RelocateReport): string[] {
     `${report.dry_run ? "Dry run" : "Relocated"}: ${report.sessions.length} sessions (${roots} root sessions with their sub-agent sessions) → ${report.opencode_db}`,
     `Text: ${total(report.text.rows)} OpenCode rows rewritten${report.context_text === null ? "" : `, ${total(report.context_text.rows)} Magic Context rows`}`,
   ]
+  if (report.renames.length > 0) lines.push(`Renamed: ${report.renames.map((rename) => `${rename.from} → ${rename.to}`).join(", ")}`)
   if (report.projects_merged.length > 0)
     lines.push(`Magic Context projects merged: ${report.projects_merged.map((merge) => `${merge.from} → ${merge.to} (${merge.memories_copied} memories)`).join(", ")}`)
   if (report.skipped.length > 0) lines.push(`Skipped: ${report.skipped.map((skip) => `${skip.id} (${skip.reason})`).join(", ")}`)

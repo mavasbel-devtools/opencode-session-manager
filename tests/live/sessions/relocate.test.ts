@@ -11,13 +11,19 @@ import { type SandboxServer, serveSandbox } from "@test/support/live/sandbox-ope
 /**
  * `relocate` on a copy of this machine's profile, in a sandbox (the live stores are only read):
  * OPENCODE_SM_LIVE_RELOCATE_MAP names the folder moves (`<from>=<to>`, separated by `;`), as the
- * user would pass them. The dry run and the run must pass every check; afterwards `verify` must
+ * user would pass them, and OPENCODE_SM_LIVE_RELOCATE_RENAME the folders renamed in place
+ * (`<folder>=<name>`, separated by `;`): then no stored text may still name an old name as a whole
+ * name, and the second run must find nothing left to do. The dry run and the run must pass every check; afterwards `verify` must
  * find no project mismatch for a moved session, a sandboxed real OpenCode 2 must list every moved
  * session under its new folder and none under the old one, and `rollback` must restore both
- * stores byte for byte. Without the variable there is nothing to relocate, and the test is skipped.
+ * stores byte for byte. Without either variable there is nothing to relocate, and the test is skipped.
  */
 const dataHome = process.env["XDG_DATA_HOME"] || join(process.env["HOME"] ?? homedir(), ".local", "share")
 const rules = (process.env["OPENCODE_SM_LIVE_RELOCATE_MAP"] ?? "")
+  .split(";")
+  .map((rule) => rule.trim())
+  .filter((rule) => rule.length > 0)
+const renames = (process.env["OPENCODE_SM_LIVE_RELOCATE_RENAME"] ?? "")
   .split(";")
   .map((rule) => rule.trim())
   .filter((rule) => rule.length > 0)
@@ -45,7 +51,7 @@ function copy(from: string, to: string) {
   }
 }
 
-describe.skipIf(rules.length === 0 || !existsSync(join(dataHome, "opencode", "opencode.db")))("relocate on a copy of this machine's profile, checked by the real OpenCode 2", () => {
+describe.skipIf(rules.length + renames.length === 0 || !existsSync(join(dataHome, "opencode", "opencode.db")))("relocate on a copy of this machine's profile, checked by the real OpenCode 2", () => {
   beforeAll(() => {
     sandbox = mkdtempSync(join(tmpdir(), "oc-sm-live-relocate-"))
     copy(join(dataHome, "opencode", "opencode.db"), opencodeDb())
@@ -60,7 +66,7 @@ describe.skipIf(rules.length === 0 || !existsSync(join(dataHome, "opencode", "op
   it(
     "moves the sessions, OpenCode lists them in their new folders, and rollback restores both stores",
     async () => {
-      const maps = rules.flatMap((rule) => ["--map", rule])
+      const maps = [...rules.flatMap((rule) => ["--map", rule]), ...renames.flatMap((rule) => ["--rename", rule])]
       const before = [sha(opencodeDb()), ...(existsSync(contextDb()) ? [sha(contextDb())] : [])]
       const dry = run("relocate", "--data", data(), ...maps, "--all", "--dry-run", "--json")
       expect([dry.code, dry.err]).toEqual([0, ""])
@@ -73,6 +79,12 @@ describe.skipIf(rules.length === 0 || !existsSync(join(dataHome, "opencode", "op
       const report = JSON.parse(done.out) as { sessions: { id: string; from_directory: string; to_directory: string }[]; backup_dir: string; failed: string[] }
       expect(report.failed).toEqual([])
       expect(report.sessions.map((session) => session.id)).toEqual(rehearsed.sessions.map((session) => session.id))
+
+      // Every renamed name is gone as a whole name, and nothing is left to do.
+      const report2 = report as unknown as { text: { residual: Record<string, number> }; context_text: { residual: Record<string, number> } | null }
+      expect([report2.text.residual, report2.context_text?.residual ?? {}]).toEqual([{}, {}])
+      const again = run("relocate", "--data", data(), ...maps, "--all", "--json")
+      expect([again.code, (JSON.parse(again.out) as { sessions: unknown[]; backup_dir: string | null }).backup_dir]).toEqual([0, null])
 
       const verified = run("verify", "--data", data(), "--json")
       const findings = (JSON.parse(verified.out) as { findings: { kind: string; session_id: string | null }[] }).findings

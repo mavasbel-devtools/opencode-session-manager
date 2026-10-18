@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
@@ -168,6 +169,68 @@ describe("relocate (real stores and folders, the wired container)", () => {
     expect(readdirSync(at("data", "opencode")).filter((name) => name.startsWith("relocate-backup-"))).toEqual([`relocate-backup-${STAMP}`])
   })
 
+  it("--rename: a folder renamed in place keeps its project, takes its sessions and records along, and its old name is replaced as a whole name", async () => {
+    const { home, old } = makeProfile()
+    const parent = join(home, "courses")
+    const renamed = join(parent, "rel")
+    const before = join(parent, "2026-02-rel")
+    const dashed = `${parent.replace(/[^A-Za-z0-9]/g, "-")}-2026-02-rel-worktrees-x`
+    // The repository (no remote) is already renamed on disk; OpenCode knows it by the id stored in it, which a rename keeps.
+    makeRepository(renamed, { commit: true })
+    mkdirSync(join(renamed, "sub"), { recursive: true })
+    writeFileSync(join(renamed, ".git", "opencode"), "p_rel\n")
+    const db = new Database(opencodeDb())
+    db.exec(`insert into project (id, worktree, name, sandboxes, time_created, time_updated) values ('p_rel', '${before}', 'Rel', '["${before}/worktrees/x"]', 1, 1)`)
+    db.exec(`insert into project_directory (project_id, directory, type, time_created) values ('p_rel', '${before}', 'worktree', 1)`)
+    db.exec(`insert into worktree (project_id, directory, strategy, time_created) values ('p_rel', '${before}/worktrees/x', 'git', 1)`)
+    db.exec(`update session_v2 set directory = '${before}/sub', project_id = 'p_rel' where id = 'ses_other'`)
+    // An instruction value with its keys out of order: its new address is OpenCode's, of the sorted JSON.
+    db.query("insert into instruction_blob values ('h_rel', ?)").run(JSON.stringify([{ cwd: `${before}/sub`, a: 1 }]))
+    db.query("insert or replace into instruction_state values ('ses_other', 0, 1, ?, ?)").run('{"core/environment":"h_rel"}', '{"core/environment":"h_rel"}')
+    db.query("update session_message set data = ? where id = 'ses_other-m1'").run(JSON.stringify({ text: `cd 2026-02-rel/sub; course (2026-02-rel). See ~/.claude/projects/${dashed} and 2026-02-rel_v2, sync.2026-02-rel.p1` }))
+    db.close()
+    const context = new Database(contextDb())
+    context.query("update compartments set content = ? where session_id = 'ses_other'").run("the 2026-02-rel kernel")
+    context.close()
+    const stores = [fileSha(opencodeDb()), fileSha(contextDb())]
+
+    // A rehearsal in text, with a second rename of a folder no session is in; then a rule that cannot be one.
+    const dry = await cli(["relocate", "--data", at("data"), ...mapOf(old, renamed), "--rename", `${before}=rel`, "--rename", `${parent}/2026-02-xy=xy`, "--all", "--dry-run"])
+    expect([dry.code, dry.errors]).toEqual([0, []])
+    expect(dry.text.split("\n")).toContain("Renamed: 2026-02-rel → rel, 2026-02-xy → xy")
+    const bad = await cli(["relocate", "--data", at("data"), "--rename", `${before}=a/b`, "--all"])
+    expect([bad.code, bad.errors]).toEqual([1, [`ERROR: --rename ${before}=a/b: the new name can only hold letters, digits, ., _ and -, and cannot start with .`]])
+    expect([fileSha(opencodeDb()), fileSha(contextDb())]).toEqual(stores)
+
+    const run = await cli(["relocate", "--data", at("data"), ...mapOf(old, renamed), "--rename", `${before}=rel`, "--all", "--json"])
+    expect(run.errors).toEqual([])
+    expect([run.code, run.json.failed, run.json.text.residual, run.json.context_text.residual]).toEqual([0, [], {}, {}])
+    expect(run.json.renames).toEqual([{ parent, from: "2026-02-rel", to: "rel" }])
+    expect(run.json.sessions.map((session: { id: string; to_directory: string; to_project: string }) => [session.id, session.to_directory, session.to_project])).toEqual([
+      ["ses_a", renamed, "p_rel"],
+      ["ses_a_child", join(renamed, "sub"), "p_rel"],
+      ["ses_other", join(renamed, "sub"), "p_rel"],
+    ])
+    expect(run.json.projects_created).toEqual([])
+    const address = createHash("sha256").update(`[{"a":1,"cwd":"${renamed}/sub"}]`).digest("hex")
+    expect(query(opencodeDb(), "select hash, value from instruction_blob where value like '%cwd%sub%'")).toEqual([{ hash: address, value: JSON.stringify([{ cwd: `${renamed}/sub`, a: 1 }]) }])
+    expect(query(opencodeDb(), "select current_values from instruction_state where session_id = 'ses_other'")).toEqual([{ current_values: `{"core/environment":"${address}"}` }])
+    expect(query(opencodeDb(), "select worktree, sandboxes from project where id = 'p_rel'")).toEqual([{ worktree: renamed, sandboxes: `["${renamed}/worktrees/x"]` }])
+    expect(query(opencodeDb(), "select directory from project_directory where project_id = 'p_rel'")).toEqual([{ directory: renamed }])
+    expect(query(opencodeDb(), "select directory from worktree where project_id = 'p_rel'")).toEqual([{ directory: `${renamed}/worktrees/x` }])
+    expect(JSON.parse(String((query(opencodeDb(), "select data from session_message where id = 'ses_other-m1'")[0] as { data: string }).data))).toEqual({
+      text: `cd rel/sub; course (rel). See ~/.claude/projects/${dashed.replace("-2026-02-rel-", "-rel-")} and 2026-02-rel_v2, sync.rel.p1`,
+    })
+    expect(rowsOf(contextDb(), "select content from compartments where session_id = 'ses_other'")).toEqual([{ content: "the rel kernel" }])
+    expect(query(opencodeDb(), "pragma foreign_key_check")).toEqual([])
+
+    // Again: nothing is left to move, rename or rewrite.
+    const again = await cli(["relocate", "--data", at("data"), ...mapOf(old, renamed), "--rename", `${before}=rel`, "--all", "--json"])
+    expect([again.code, again.json.sessions, again.json.backup_dir]).toEqual([0, [], null])
+    expect((await cli(["rollback", run.json.backup_dir, "--db", opencodeDb(), "--db", contextDb()])).code).toBe(0)
+    expect([fileSha(opencodeDb()), fileSha(contextDb())]).toEqual(stores)
+  })
+
   it("moves named sessions only, rewriting only their rows", async () => {
     const { old, moved } = makeProfile()
     const run = await cli(["relocate", "--data", at("data"), ...mapOf(old, moved), "--session", "ses_a_child", "--session", "ses_other", "--json"])
@@ -202,13 +265,15 @@ describe("relocate (real stores and folders, the wired container)", () => {
     // The folder glued to a word: no rule rewrites inside a name, so it would stay.
     const db = new Database(opencodeDb())
     db.query("update session_message set data = ? where id = 'ses_other-m1'").run(`{"text":"a${old.slice(1)}"}`)
+    // An instruction blob that is no JSON once rewritten (OpenCode would never read it back).
+    db.query("insert into instruction_blob values ('h_bad', ?)").run(`"${old}`)
     db.close()
     const context = new Database(contextDb())
     context.query("update compartments set content = ? where session_id = 'ses_other'").run(`a${old.slice(1)}`)
     context.close()
     const before = [fileSha(opencodeDb()), fileSha(contextDb())]
     const dry = await cli(["relocate", "--data", at("data"), ...mapOf(old, moved), "--all", "--dry-run", "--json"])
-    expect([dry.code, dry.json.failed, dry.json.text.residual, dry.json.context_text.residual]).toEqual([1, ["text_ok", "context text_ok"], { session_message: 1 }, { compartments: 1 }])
+    expect([dry.code, dry.json.failed, dry.json.text.residual, dry.json.context_text.residual]).toEqual([1, ["text_ok", "context text_ok"], { instruction_blob: 1, session_message: 1 }, { compartments: 1 }])
     const run = await cli(["relocate", "--data", at("data"), ...mapOf(old, moved), "--all"])
     expect([run.code, run.errors]).toEqual([1, ["ERROR: the relocated copies failed text_ok, context text_ok; the profile's stores were left untouched"]])
     expect([fileSha(opencodeDb()), fileSha(contextDb())]).toEqual(before)
@@ -218,7 +283,7 @@ describe("relocate (real stores and folders, the wired container)", () => {
     const { old, moved } = makeProfile(`update session_meta set wrapup_in_progress_state = '{"expiresAt":9999999999999}' where session_id = 'ses_a'`)
     const before = [fileSha(opencodeDb()), fileSha(contextDb())]
     const usage = await cli(["relocate", "--all"])
-    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager relocate [--data <dataHome>] --map <from>=<to>... (--session <id>... | --all) [--dry-run] [--json]"])
+    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name>)... (--session <id>... | --all) [--dry-run] [--json]"])
     expect((await cli(["relocate", "--data", at("data"), "--map", "C:\\Users\\Me=/x", "--all"])).errors[0]).toContain("relocate moves POSIX folders")
     const busy = await cli(["relocate", "--data", at("data"), ...mapOf(old, moved), "--all"])
     expect(busy.errors[0]).toContain("Magic Context is working on ses_a")
