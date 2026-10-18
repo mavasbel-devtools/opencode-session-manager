@@ -8,7 +8,9 @@
 // What is proven: Herdr recognises OpenCode in the pane, and the pane's title
 // and displayed agent name become the open session's title as OpenCode stores
 // it; a rename reaches the pane; quitting the TUI gives the pane back Herdr's
-// defaults. Skipped when no `herdr` executable is installed.
+// defaults. OPENCODE_SM_LIVE_HERDR_BIN names the `herdr` executable to test (a
+// newer release before installing it), else the one on PATH; skipped when there
+// is none.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"
 import { mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -16,7 +18,7 @@ import path from "node:path"
 import { MODEL, startIsolatedHost, type IsolatedHost } from "@test/support/live/isolated-host"
 import { removeTemporary, requireOpenCode, run } from "@test/support/live/process"
 
-const executable = Bun.which("herdr")
+const executable = process.env["OPENCODE_SM_LIVE_HERDR_BIN"] || Bun.which("herdr")
 const SESSION = `osm-live-${process.pid}`
 
 let host: IsolatedHost | undefined

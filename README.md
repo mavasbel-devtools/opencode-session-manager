@@ -824,6 +824,7 @@ live tier needs `node` (for the pseudo-terminal).
 | `OPENCODE_SM_LIVE_FIXTURES` | `fixtures:live`, the live tests | the live fixtures folder (`$XDG_CACHE_HOME/opencode-session-manager/live`, a folder a reboot keeps) |
 | `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID` | the TUI plugin | set by Herdr in its panes: the pane title is reported only when all three are (`HERDR_ENV=1`) |
 | `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID` | `tests/support/no-herdr.ts` | removed with the three above before any test, so tests never reach the user's Herdr |
+| `OPENCODE_SM_LIVE_HERDR_BIN` | live Herdr pane-title test | the `herdr` executable to run it with (e.g. a newer release before installing it); unset: `herdr` on PATH |
 | `OPENCODE_TEST_HOME`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_SERVER_PASSWORD` | `tests/support/live/isolated-host.ts` | set for the isolated OpenCode the live tier starts: its home, no self-update, a fixed server password |
 
 ## License
