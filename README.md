@@ -26,10 +26,15 @@ The plugin:
 1. **Session ID in the sidebar** — the active session's ID is the first row of
    the session sidebar, directly under the title, in the theme's muted colour.
 2. **The `session-id` tool** — returns the running session's ID to the agent.
-3. **`/transfer-session`** (palette "Transfer session") — moves a session to
-   any folder: another project, a plain folder, or a folder that does not exist
-   yet (it is created after a second Enter).
-4. **Herdr pane title** — when OpenCode runs in a [Herdr](https://herdr.dev)
+3. **`/transfer-session`** (palette "Transfer session") — first repairs the
+     selected session if its recorded folder is gone and it has one explicitly
+     mapped replacement, then moves it to any folder: another project, a plain
+     folder, or a folder that does not exist yet (it is created after a second
+     Enter).
+4. **`/repair-sessions`** (palette "Repair session locations") — on startup,
+   and on demand, repairs only sessions whose recorded folder is gone and whose
+   explicitly mapped replacement exists. It uses OpenCode's own session-move API.
+5. **Herdr pane title** — when OpenCode runs in a [Herdr](https://herdr.dev)
    pane, Herdr shows the open session's full title for that pane (as the agent
    name in its sidebar and as the pane title) instead of "opencode".
 
@@ -54,7 +59,7 @@ sessions (`session`, `message`, `part`) an OpenCode 2 store keeps beside its own
 
 - `dist/v2/server.js` registers the `session-id` tool.
 - `dist/v2/tui.js` prepends the ID line to `sidebar.content`, registers
-  `/transfer-session` from an `app` slot (where `keymap.layer` runs in-tree),
+  `/transfer-session` and `/repair-sessions` from an `app` slot (where `keymap.layer` runs in-tree),
   and inside a Herdr pane keeps the pane titled. Its cleanup removes them all.
 
 The move goes through the host's `session.move` API — no database writes — so
@@ -63,6 +68,31 @@ Over the built-in `/cd` and `/worktrees`, the plugin adds a folder browser over
 every project root, worktree and session folder across projects, moving a
 session other than the open one, and creating a destination that does not exist
 yet.
+
+#### Safe location repair
+
+Location repair is deliberately narrower than transfer: it never creates a
+folder, guesses from a transient server failure, or moves a session whose
+recorded folder still exists. Configure every approved relocation explicitly in
+`$XDG_CONFIG_HOME/opencode/session-manager.jsonc` (normally
+`~/.config/opencode/session-manager.jsonc`):
+
+```jsonc
+{
+  "location_repair": {
+    "maps": [
+      { "from": "/home/me/Dev/repos/old-workspace", "to": "/home/me/Dev/repos/new-workspace" }
+    ]
+  }
+}
+```
+
+Mappings apply recursively, so a proven workspace relocation also repairs its
+sessions in nested folders and worktrees. If the original directory exists, a
+mapping is absent, or the mapped target is missing, that session is skipped.
+HTTP 5xx responses, plugin activation delays, disconnects, and timeouts are not
+location evidence and cause no move. Use the offline `relocate` command when a
+whole profile's database and Magic Context text also need rewriting.
 
 The folder browser is a path box over a list:
 

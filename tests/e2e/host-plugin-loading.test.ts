@@ -107,8 +107,8 @@ describe("real 2.0.14 host loading the TUI plugin", () => {
     const [muted, setMuted] = createSignal<HostColor>(RGBA.fromHex(MUTED))
     const host = recordingTuiContext(muted)
     const cleanup = mod.default.setup(host.context)
-    // Two claims: the session ID line and the transfer command's app slot.
-    expect(host.claims).toHaveLength(2)
+    // Three claims: the session ID line plus transfer and repair command app slots.
+    expect(host.claims).toHaveLength(3)
 
     // The host's own resolver decides where each claim goes.
     const resolved = resolveSlots({
@@ -135,8 +135,8 @@ describe("real 2.0.14 host loading the TUI plugin", () => {
       degraded: 0,
       otherPaths: ["sidebar.content", "app"],
     })
-    // The transfer command's claim lands in the host's `app` slot, where its keymap layer runs in-tree.
-    expect(resolved.slotted.get("app")!.append.map((claim) => claim.key)).toEqual(["slot#1"])
+    // Transfer and repair command claims land in the host's `app` slot, where keymap layers run in-tree.
+    expect(resolved.slotted.get("app")!.append.map((claim) => claim.key)).toEqual(["slot#1", "slot#2"])
     // `sidebar.content` is inside the sidebar, so the line scrolls with its content.
     expect(contains("sidebar", "sidebar.content")).toBe(true)
 
@@ -162,7 +162,7 @@ describe("real 2.0.14 host loading the TUI plugin", () => {
 
     render.renderer.destroy()
     cleanup()
-    expect(host.disposals()).toBe(2)
+    expect(host.disposals()).toBe(3)
   }, 60_000)
 })
 

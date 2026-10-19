@@ -45,8 +45,8 @@ describe("the sidebar line, end to end inside the process", () => {
     expect(hex(span.fg)).toBe("#808080")
 
     dispose()
-    // One disposer removes both claims: the sidebar line and the transfer command's app slot.
-    expect(context.disposed).toHaveLength(2)
+    // One disposer removes all claims: sidebar, transfer command, and repair command.
+    expect(context.disposed).toHaveLength(3)
   }, 30_000)
 
   it("repaints in place when the session changes and when the theme changes", async () => {

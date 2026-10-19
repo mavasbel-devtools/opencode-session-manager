@@ -44,11 +44,12 @@ describe("built v2 artifacts", () => {
       claims: [
         ["prepend", "render"],
         ["append", "render"],
+        ["append", "render"],
       ],
       prepend: "sidebar.content",
       line: ID,
       fg: "#808080",
-      disposed: 2,
+      disposed: 3,
     })
   }, 60_000)
 })

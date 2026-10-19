@@ -7,6 +7,11 @@ import type { SessionHostPort } from "@session-manager/domain/ports/outbound/Ses
 
 export class FakeFileSystemAdapter implements FileSystemPort {
   public ensured: string[] = []
+  public directories = new Set<string>()
+
+  isDirectory(directory: string): boolean {
+    return this.directories.has(directory)
+  }
 
   ensureDirectory(directory: string): void {
     this.ensured.push(directory)

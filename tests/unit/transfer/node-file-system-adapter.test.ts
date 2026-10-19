@@ -24,6 +24,17 @@ describe("NodeFileSystemAdapter", () => {
     }
   })
 
+  it("recognizes directories and refuses files and missing paths", () => {
+    const root = tmp("scanner-directory-")
+    const file = path.join(root, "file")
+    fs.writeFileSync(file, "not a folder")
+    try {
+      expect([scanner.isDirectory(root), scanner.isDirectory(file), scanner.isDirectory(path.join(root, "missing"))]).toEqual([true, false, false])
+    } finally {
+      removeTemporarySync(root)
+    }
+  })
+
   it("canonical resolves an existing directory to its on-disk casing", () => {
     const root = tmp("scanner-canon-")
     try {

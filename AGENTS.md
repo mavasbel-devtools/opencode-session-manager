@@ -318,6 +318,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `NameRename.ts` | sessions | one folder renamed in place (`parent`, `from`, `to`) |
 | `Relocate.ts` | sessions | `relocate` input, moved and skipped sessions, text rewrite counts, checks, the report and `relocateLines` |
 | `SessionSync.ts` | sessions | session sync input, map rules, `--prefer`, the action per history relation (`actionFor`), the report |
+| `LocationRepair.ts` | plugin | explicit online repair plans, skips, and reports |
 | `Verify.ts` | sessions | `verify`: finding kinds and their severity, a session's Magic Context vitals, the report and its text (`verifyLines`) |
 | `Build.ts` | maintenance | the six checks of a compacted copy |
 | `Database.ts` | maintenance | page statistics, schema, header and per-table fingerprints of a database |
@@ -370,7 +371,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `OpenProfilePort.ts`, `CatalogProfilePort.ts`, `CopyMagicContextPort.ts`,
 `SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
 `MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`
-(sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`,
+(sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`, `RepairSessionLocationsPort.ts`,
 `MoveSessionPort.ts`, `BuildDirectoryOptionsPort.ts`, `BrowseFoldersPort.ts`,
 `ReportPaneTitlePort.ts` (plugin).
 
@@ -382,7 +383,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextSyncStorePort.ts`, `SessionSyncStorePort.ts`, `MagicContextReleasePort.ts`,
 `MagicContextIdentityPort.ts`, `MagicContextConfigPort.ts`, `PublishedVersionPort.ts`, `OpencodeServerPort.ts`,
 `MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts`, `RelocationStorePort.ts`,
-`MagicContextRelocationStorePort.ts` (sessions); `SessionHostPort.ts`, `FileSystemPort.ts`,
+`MagicContextRelocationStorePort.ts` (sessions); `SessionHostPort.ts`, `FileSystemPort.ts`, `LocationRepairMappingsPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`, `DirectoryListingPort.ts`,
 `SidebarViewPort.ts`, `PaneMetadataPort.ts` (plugin).
 
@@ -415,6 +416,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `ResolveSessionIdToolUseCase.ts` | plugin | the `session-id` tool |
 | `RenderSidebarEntryUseCase.ts` | plugin | the sidebar line |
 | `MoveSessionUseCase.ts` | plugin | the transfer through the host |
+| `RepairSessionLocationsUseCase.ts` | plugin | moves only a session whose recorded directory is absent and whose explicit mapped target exists; can inspect every session or an explicitly selected one before transfer |
 | `BuildDirectoryOptionsUseCase.ts` | plugin | the known folders the transfer offers: once each, existing only, no filesystem root, in display order |
 | `BrowseFoldersUseCase.ts` | plugin | the folder browser's steps (type, ↑/↓, →, ←, Enter) over the listing port |
 | `ReportPaneTitleUseCase.ts` | plugin | the Herdr pane title: one report at a time, only changes, a refused one sent again, `refresh` to resend, `release` on exit |
@@ -441,6 +443,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `server/SessionIdToolV2Adapter.ts` | registers the `session-id` tool (v2) |
 | `tui/SessionIdSidebarSlotV2Adapter.ts` | the sidebar slot (v2) |
 | `tui/SessionTransferV2TuiAdapter.ts` | `/transfer-session` |
+| `tui/SessionLocationRepairV2TuiAdapter.ts` | mapping-only `/repair-sessions` |
 | `tui/FolderBrowserDialogV2Adapter.tsx` | the v2 folder browser dialog: path box, rows, keys (modal keymap layer) |
 | `tui/HerdrPaneTitleV2Adapter.ts` | reads the open session and its root's title from the TUI's synced data four times a second and reports it; resends every ten seconds; releases on cleanup |
 
@@ -475,6 +478,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `fs/NodeMaintenanceFileSystemAdapter.ts` | the program's file operations |
 | `fs/FsStoreLockAdapter.ts` | `<store>.session-manager.lock` files: exclusive create, stale-owner check (`kill(pid, 0)`), release only by the owner |
 | `fs/NodeFileSystemAdapter.ts` | the plugin's file operations |
+| `fs/NodeLocationRepairMappingsAdapter.ts` | reads explicit JSONC live-repair mappings |
 | `fs/NodeDirectoryListingAdapter.ts` | the folder browser's reads: is a folder, folders inside one |
 | `fs/JsonReportAdapter.ts` | JSON evidence files |
 | `system/ConsoleOutputAdapter.ts` | the program's stdout |

@@ -3,6 +3,9 @@ import {
   SessionTransferV2TuiAdapter,
   type V2TransferServices,
 } from "@session-manager/infrastructure/adapters/inbound/tui/SessionTransferV2TuiAdapter"
+import { SessionLocationRepairV2TuiAdapter } from "@session-manager/infrastructure/adapters/inbound/tui/SessionLocationRepairV2TuiAdapter"
+import type { LocationRepairReport } from "@session-manager/domain/model/LocationRepair"
+import type { RepairSessionLocationsPort } from "@session-manager/domain/ports/inbound/RepairSessionLocationsPort"
 import type { V2KeymapLayer, V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
 import { fakeV2Client } from "@test/support/fakes/hosts"
 import { MoveSessionUseCase } from "@session-manager/application/MoveSessionUseCase"
@@ -15,7 +18,7 @@ import {
   FakeSessionHostAdapter,
 } from "@test/support/fakes/transfer-ports"
 
-function makeServices(folders: Array<string | undefined> = []) {
+function makeServices(folders: Array<string | undefined> = [], repairSession: RepairSessionLocationsPort = { execute: async () => ({ rules: [], repaired: [], skipped: [] }) }) {
   const host = new FakeSessionHostAdapter()
   const fs = new FakeFileSystemAdapter()
   const listing = new FakeDirectoryListingAdapter()
@@ -24,6 +27,7 @@ function makeServices(folders: Array<string | undefined> = []) {
     host,
     home: new FakeHomeDirectoryAdapter(),
     moveSession: new MoveSessionUseCase(host, fs),
+    repairSession,
     buildDirectoryOptions: new BuildDirectoryOptionsUseCase(host, fs, listing),
     folders: {
       pick: async (_context, request) => {
@@ -77,6 +81,18 @@ function seedSession(host: FakeSessionHostAdapter, id: string, directory: string
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20))
 
+class FakeRepairPort implements RepairSessionLocationsPort {
+  public reports: LocationRepairReport[] = []
+  public failure: unknown
+  public calls = 0
+
+  async execute(): Promise<LocationRepairReport> {
+    this.calls++
+    if (this.failure !== undefined) throw this.failure
+    return this.reports.shift() ?? { rules: [], repaired: [], skipped: [] }
+  }
+}
+
 describe("SessionTransferV2TuiAdapter", () => {
   it("registers /transfer-session (no alias, no description) from an app slot render (in-tree keymap layer)", async () => {
     const { host, services, picks } = makeServices()
@@ -119,6 +135,42 @@ describe("SessionTransferV2TuiAdapter", () => {
     expect(fs.ensured).toEqual(["/repo-b"])
     expect(host.moves).toEqual([{ sessionId: "ses_abc", directory: "/repo-b" }])
     expect(ctx.toasts).toEqual([{ variant: "success", title: "Session transferred", message: "Moved to /repo-b", duration: 4000 }])
+  })
+
+  it("repairs only the selected stale session before offering its intentional destination", async () => {
+    const repair = new FakeRepairPort()
+    repair.reports.push({ rules: [{ from: "/old", to: "/new" }], repaired: [{ session_id: "ses_abc", from_directory: "/old/project", to_directory: "/new/project" }], skipped: [] })
+    const { host, services } = makeServices(["/chosen"], repair)
+    const ctx = makeContext({ route: { type: "session", sessionID: "ses_abc" } })
+
+    await new SessionTransferV2TuiAdapter(services).open(ctx.context)
+
+    expect([repair.calls, host.moves, ctx.toasts]).toEqual([
+      1,
+      [{ sessionId: "ses_abc", directory: "/chosen" }],
+      [
+        { variant: "info", title: "Transfer session", message: "Repaired stale location to /new/project.", duration: 4000 },
+        { variant: "success", title: "Session transferred", message: "Moved to /chosen", duration: 4000 },
+      ],
+    ])
+  })
+
+  it("continues with an intentional transfer when selected-session repair is unavailable", async () => {
+    const repair = new FakeRepairPort()
+    repair.failure = "mapping configuration unavailable"
+    const { host, services } = makeServices(["/chosen"], repair)
+    const ctx = makeContext({ route: { type: "session", sessionID: "ses_abc" } })
+
+    await new SessionTransferV2TuiAdapter(services).open(ctx.context)
+
+    expect([repair.calls, host.moves, ctx.toasts]).toEqual([
+      1,
+      [{ sessionId: "ses_abc", directory: "/chosen" }],
+      [
+        { variant: "warning", title: "Transfer session", message: "Location repair skipped: mapping configuration unavailable", duration: 5000 },
+        { variant: "success", title: "Session transferred", message: "Moved to /chosen", duration: 4000 },
+      ],
+    ])
   })
 
   it("asks for a session first when no session is open, showing folders under the home as ~", async () => {
@@ -186,5 +238,45 @@ describe("SessionTransferV2TuiAdapter", () => {
     await new SessionTransferV2TuiAdapter(services).open(ctx.context)
 
     expect(ctx.toasts).toEqual([{ variant: "error", title: "Transfer session", message: "host offline" }])
+  })
+})
+
+describe("SessionLocationRepairV2TuiAdapter", () => {
+  it("runs one quiet startup repair and exposes /repair-sessions from an app slot", async () => {
+    const repair = new FakeRepairPort()
+    const ctx = makeContext({ route: { type: "home" } })
+    const unregister = new SessionLocationRepairV2TuiAdapter(repair).register(ctx.context)
+
+    await tick()
+    expect([repair.calls, ctx.toasts, ctx.slots[0]!.append]).toEqual([1, [], "app"])
+    expect(ctx.slots[0]!.render()).toBeNull()
+    const command = ctx.layers[0]!().commands[0]!
+    expect(command).toEqual({ id: "session.repair-locations", title: "Repair session locations", group: "Session", palette: true, slash: { name: "repair-sessions" }, run: expect.any(Function) })
+    command.run()
+    await tick()
+    expect(ctx.toasts).toEqual([{ variant: "info", title: "Repair session locations", message: "No location-repair mappings are configured.", duration: 5000 }])
+    unregister()
+    expect(ctx.unregistered()).toBe(1)
+  })
+
+  it("reports repairs, mapped no-ops, and an explicit command failure", async () => {
+    const repair = new FakeRepairPort()
+    repair.reports.push(
+      { rules: [{ from: "/old", to: "/new" }], repaired: [{ session_id: "ses_a", from_directory: "/old/a", to_directory: "/new/a" }], skipped: [] },
+      { rules: [{ from: "/old", to: "/new" }], repaired: [], skipped: [] },
+    )
+    const ctx = makeContext({ route: { type: "home" } })
+    new SessionLocationRepairV2TuiAdapter(repair).register(ctx.context)
+    await tick()
+    expect(ctx.toasts).toEqual([{ variant: "success", title: "Repair session locations", message: "Repaired 1 session location.", duration: 5000 }])
+    ctx.slots[0]!.render()
+    const command = ctx.layers[0]!().commands[0]!
+    command.run()
+    await tick()
+    expect(ctx.toasts[1]).toEqual({ variant: "info", title: "Repair session locations", message: "No stale mapped session locations needed repair.", duration: 5000 })
+    repair.failure = "server unavailable"
+    command.run()
+    await tick()
+    expect(ctx.toasts[2]).toEqual({ variant: "error", title: "Repair session locations", message: "server unavailable" })
   })
 })

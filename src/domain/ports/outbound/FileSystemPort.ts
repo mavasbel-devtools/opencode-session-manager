@@ -1,5 +1,7 @@
 /** Outbound port: the filesystem operations the transfer needs. */
 export interface FileSystemPort {
+  /** True only when the exact path currently exists as a directory. */
+  isDirectory(directory: string): boolean
   /** Create the directory (and parents) when missing. */
   ensureDirectory(directory: string): void
   /** Resolve to the exact on-disk casing when the directory exists. */

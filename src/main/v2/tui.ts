@@ -22,7 +22,7 @@ export function setupWith(
   platform: string,
 ): () => void {
   const container = createTuiContainer(context.client, environment, platform)
-  const disposers = [container.sidebar.register(context), container.transfer.register(context)]
+  const disposers = [container.sidebar.register(context), container.transfer.register(context), container.repair.register(context)]
   if (container.paneTitle) disposers.push(container.paneTitle.register(context))
   return () => {
     for (const dispose of disposers) dispose()

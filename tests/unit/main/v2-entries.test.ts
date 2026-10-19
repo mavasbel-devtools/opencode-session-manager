@@ -24,13 +24,13 @@ describe("v2 entry modules", () => {
     expect(context.added.map((tool) => tool.name)).toEqual(["session-id"])
   })
 
-  it("registers the sidebar line and the transfer command from the TUI entry, and one disposer removes both", () => {
+  it("registers the sidebar line, transfer command, and location repair command from the TUI entry", () => {
     const context = fakeTuiContext()
     const cleanup = tuiSetup(context)
     expect(context.claims.map((claim) => claim.prepend)).toEqual(["sidebar.content"])
-    expect(context.appClaims.map((claim) => claim.append)).toEqual(["app"])
+    expect(context.appClaims.map((claim) => claim.append)).toEqual(["app", "app"])
     cleanup()
-    expect(context.disposed).toHaveLength(2)
+    expect(context.disposed).toHaveLength(3)
   })
 
   it("adds the pane title only inside Herdr, and the one disposer gives the pane back its defaults", async () => {
@@ -41,7 +41,7 @@ describe("v2 entry modules", () => {
       const cleanup = tuiSetupWith(context, environment, "linux")
       while (herdr.requests.length === 0) await Bun.sleep(10)
       cleanup()
-      expect(context.disposed).toHaveLength(2)
+      expect(context.disposed).toHaveLength(3)
       expect(herdr.requests.map((request) => request.params["clear_title"])).toEqual([true])
     } finally {
       await herdr.stop()
@@ -52,6 +52,6 @@ describe("v2 entry modules", () => {
     expect(process.env["HERDR_ENV"]).toBeUndefined()
     const context = fakeTuiContext()
     tuiSetup(context)()
-    expect(context.disposed).toHaveLength(2)
+    expect(context.disposed).toHaveLength(3)
   })
 })

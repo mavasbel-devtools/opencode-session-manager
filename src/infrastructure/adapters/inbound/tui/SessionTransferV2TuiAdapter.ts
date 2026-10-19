@@ -1,6 +1,7 @@
 import { abbreviateHome } from "@session-manager/domain/model/Paths"
 import type { BuildDirectoryOptionsPort } from "@session-manager/domain/ports/inbound/BuildDirectoryOptionsPort"
 import type { MoveSessionPort } from "@session-manager/domain/ports/inbound/MoveSessionPort"
+import type { RepairSessionLocationsPort } from "@session-manager/domain/ports/inbound/RepairSessionLocationsPort"
 import type { HomeDirectoryPort } from "@session-manager/domain/ports/outbound/HomeDirectoryPort"
 import type { SessionHostPort } from "@session-manager/domain/ports/outbound/SessionHostPort"
 import { APP_SLOT, type V2KeymapLayer, type V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
@@ -18,6 +19,7 @@ export interface V2TransferServices {
   readonly host: SessionHostPort
   readonly home: HomeDirectoryPort
   readonly moveSession: MoveSessionPort
+  readonly repairSession: RepairSessionLocationsPort
   readonly buildDirectoryOptions: BuildDirectoryOptionsPort
   readonly folders: V2FolderPicker
 }
@@ -34,7 +36,9 @@ function errorMessage(error: unknown): string {
  * worktree and session folder across projects, with typed paths completed
  * from disk (→ into a folder, ← up), moving a session other than the open
  * one, and creating a destination folder that does not exist yet (after a
- * second Enter).
+ * second Enter). Before showing destinations it gives only the selected session
+ * one proof-based, explicit-mapping repair attempt; that never affects other
+ * sessions and a repair failure cannot block an intentional transfer.
  */
 export class SessionTransferV2TuiAdapter {
   constructor(private readonly services: V2TransferServices) {}
@@ -76,9 +80,22 @@ export class SessionTransferV2TuiAdapter {
       const sessionId = route.type === "session" ? route.sessionID : undefined
       const target = sessionId ?? (await this.pickSession(context))
       if (target === undefined) return
+      await this.repairSelected(context, target)
       await this.pickDirectory(context, target)
     } catch (error) {
       context.ui.toast.show({ variant: "error", title: TITLE, message: errorMessage(error) })
+    }
+  }
+
+  /** A repair failure must never prevent the user's explicit transfer. */
+  private async repairSelected(context: V2TuiContext, sessionId: string): Promise<void> {
+    try {
+      const report = await this.services.repairSession.execute([sessionId])
+      const repair = report.repaired[0]
+      if (repair !== undefined)
+        context.ui.toast.show({ variant: "info", title: TITLE, message: `Repaired stale location to ${repair.to_directory}.`, duration: 4000 })
+    } catch (error) {
+      context.ui.toast.show({ variant: "warning", title: TITLE, message: `Location repair skipped: ${errorMessage(error)}`, duration: 5000 })
     }
   }
 

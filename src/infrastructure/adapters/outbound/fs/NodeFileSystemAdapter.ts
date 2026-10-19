@@ -7,6 +7,14 @@ import type { FileSystemPort } from "@session-manager/domain/ports/outbound/File
 export class NodeFileSystemAdapter implements FileSystemPort {
   constructor() {}
 
+  isDirectory(directory: string): boolean {
+    try {
+      return fs.statSync(directory).isDirectory()
+    } catch {
+      return false
+    }
+  }
+
   ensureDirectory(directory: string): void {
     fs.mkdirSync(directory, { recursive: true })
   }
