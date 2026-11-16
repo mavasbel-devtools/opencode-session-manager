@@ -19,8 +19,54 @@ import os from "node:os"
 import path from "node:path"
 import { MODEL, startIsolatedHost, type IsolatedHost } from "@test/support/live/isolated-host"
 import { removeTemporary, requireOpenCode, run } from "@test/support/live/process"
+import { requires } from "@test/support/platform"
 
-const executable = process.env["OPENCODE_SM_LIVE_HERDR_BIN"] || Bun.which("herdr")
+const executable: string | undefined = process.env["OPENCODE_SM_LIVE_HERDR_BIN"] ?? Bun.which("herdr") ?? undefined
+
+/**
+ * Whether this machine can actually serve Herdr: a server is started in a throwaway home and its
+ * status is read back. The exit code alone is not enough (`herdr status server` exits 0 with
+ * `status: not running`, as on macOS when the socket path outgrows `sun_path`).
+ */
+async function herdrServes(executable: string): Promise<boolean> {
+  const home = await mkdtemp(path.join(os.tmpdir(), "osm-herdr-probe-"))
+  const session = `osm-probe-${process.pid}`
+  const environment = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string" && !entry[0].startsWith("HERDR_")),
+    ),
+    XDG_CONFIG_HOME: home,
+  }
+  try {
+    await writeFile(path.join(home, "config.toml"), "")
+    const server = Bun.spawn([executable, "--session", session, "server"], {
+      env: environment,
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+    })
+    try {
+      const deadline = Date.now() + 10_000
+      for (;;) {
+        const status = await run([executable, "--session", session, "status", "server"], { env: environment, timeoutMs: 10_000 })
+        if (/^\s*status:\s*running\s*$/m.test(status.stdout)) return true
+        if (Date.now() > deadline) return false
+        await Bun.sleep(200)
+      }
+    } finally {
+      await run([executable, "session", "stop", session], { env: environment, timeoutMs: 30_000 })
+      server.kill()
+      await server.exited
+    }
+  } catch {
+    return false
+  } finally {
+    await removeTemporary(home)
+  }
+}
+
+const RUNNABLE_HERDR = "a Herdr server this machine can run"
+const herdrReady = executable !== undefined && (await herdrServes(executable))
 const SESSION = `osm-live-${process.pid}`
 
 let host: IsolatedHost | undefined
@@ -80,7 +126,7 @@ async function startTuiInNewPane(sessionID: string, scriptName: string, label: s
   return paneID
 }
 
-describe.skipIf(!executable)("real TUI in a real Herdr pane", () => {
+describe.skipIf(requires(herdrReady, RUNNABLE_HERDR))("real TUI in a real Herdr pane", () => {
   beforeAll(async () => {
     host = await startIsolatedHost("opencode-session-manager-herdr-")
     // Unix socket paths are limited to ~108 bytes, so Herdr's folder stays short.
@@ -107,7 +153,7 @@ describe.skipIf(!executable)("real TUI in a real Herdr pane", () => {
     await removeTemporary(herdrHome)
   }, 60_000)
 
-  it("shows the session's agent and its root's title, follows an agent change and a rename, and hands the pane back on exit [UC-1][UC-3][UC-4][UC-8]", async () => {
+  it(`shows the session's agent and its root's title, follows an agent change and a rename, and hands the pane back on exit (requires ${RUNNABLE_HERDR}) [UC-1][UC-3][UC-4][UC-8]`, async () => {
     const turn = await host!.opencode(["run", "--agent", "build", "--model", `mock/${MODEL}`, "Say hello."])
     expect(turn.exitCode).toBe(0)
     const sessionID = (await host!.sessions())[0]!.id
@@ -148,7 +194,7 @@ describe.skipIf(!executable)("real TUI in a real Herdr pane", () => {
     console.log(`herdr-evidence ${JSON.stringify({ sessionID, A0, titled, followed, changed, released })}`)
   }, 300_000)
 
-  it("shows a session that has no agent yet by its title alone [UC-5]", async () => {
+  it(`shows a session that has no agent yet by its title alone (requires ${RUNNABLE_HERDR}) [UC-5]`, async () => {
     const created = await host!.opencode([
       "api",
       "session.create",

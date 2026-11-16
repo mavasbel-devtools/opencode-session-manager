@@ -1,4 +1,5 @@
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
+import { currentPlatform } from "@test/support/platform"
 
 /** Deterministic runtime: the clock advances one tick per read, and every name is pinned. */
 export class FakeRuntime implements RuntimePort {
@@ -8,7 +9,8 @@ export class FakeRuntime implements RuntimePort {
   public temporary = "C:/fake/tmp"
   public home = "C:/fake/home"
 
-  public platformName = "linux"
+  /** The machine the test runs on: the e2e tier drives the real container of this platform. */
+  public platformName: string = currentPlatform()
 
   pid(): number {
     return this.processId

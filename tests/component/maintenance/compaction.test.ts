@@ -15,6 +15,7 @@ import { platformAdapters } from "@session-manager/main/cli/platform"
 import { fileSha, makeDatabase } from "@test/support/maintenance/database"
 import { FakeRuntime } from "@test/support/maintenance/fakes/runtime"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { currentPlatform } from "@test/support/platform"
 
 const NO_IMAGE = "no-such-image-opencode-db-compact.exe"
 
@@ -59,7 +60,7 @@ test("component: preflight and the guard work against a real database", async ()
     makeDatabase(dbPath)
     const fileSystem = new NodeMaintenanceFileSystemAdapter()
     const sqlite = new BunSqliteAdapter()
-    const { processes, holders } = await platformAdapters(process.platform, fileSystem, process.pid)
+    const { processes, holders } = await platformAdapters(currentPlatform(), fileSystem, process.pid)
 
     const report = new PreflightUseCase(sqlite, fileSystem, processes, new DatabaseSizesService(fileSystem)).execute({
       dbPath,

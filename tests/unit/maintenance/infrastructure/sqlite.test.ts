@@ -1,6 +1,6 @@
 import { test } from "bun:test"
 import assert from "node:assert/strict"
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Database } from "bun:sqlite"
@@ -64,6 +64,51 @@ test("integrity reports ok with no foreign-key violations", () => {
     const file = join(directory, "opencode.db")
     makeDatabase(file)
     assert.deepEqual(adapter.integrity(file), { integrity_ok: true, integrity: ["ok"], foreign_key_violations: 0 })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("integrity passes for a WAL database without its sidecar files", () => {
+  const directory = mkdtempSync(join(tmpdir(), "oc-compact-sqlite-"))
+  try {
+    const file = join(directory, "opencode.db")
+    makeDatabase(file)
+    rmSync(`${file}-wal`, { force: true })
+    rmSync(`${file}-shm`, { force: true })
+    const before = fileSha(file)
+    assert.deepEqual(adapter.integrity(file), { integrity_ok: true, integrity: ["ok"], foreign_key_violations: 0 })
+    assert.equal(fileSha(file), before, "the check does not write the store")
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("integrity passes where SQLite cannot open read-only, through a private copy", () => {
+  const directory = mkdtempSync(join(tmpdir(), "oc-compact-sqlite-"))
+  try {
+    const file = join(directory, "opencode.db")
+    makeDatabase(file)
+    rmSync(`${file}-wal`, { force: true })
+    rmSync(`${file}-shm`, { force: true })
+    chmodSync(directory, 0o555)
+    try {
+      assert.deepEqual(adapter.integrity(file), { integrity_ok: true, integrity: ["ok"], foreign_key_violations: 0 })
+      assert.deepEqual(readdirSync(directory), ["opencode.db"], "the check leaves the store's folder untouched")
+    } finally {
+      chmodSync(directory, 0o755)
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("integrity reports a file that is not a database instead of passing it", () => {
+  const directory = mkdtempSync(join(tmpdir(), "oc-compact-sqlite-"))
+  try {
+    const file = join(directory, "opencode.db")
+    writeFileSync(file, "not a database")
+    assert.throws(() => adapter.integrity(file), /file is not a database/)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

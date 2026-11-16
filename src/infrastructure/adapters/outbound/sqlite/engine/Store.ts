@@ -1,3 +1,6 @@
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Database } from "bun:sqlite"
 import { and, eq, getTableColumns, getTableName, sql } from "drizzle-orm"
 import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite"
@@ -40,6 +43,18 @@ const PRAGMAS = ["page_size", "page_count", "freelist_count", "auto_vacuum", "us
 
 function quoted(name: string): string {
   return `"${name.replaceAll('"', '""')}"`
+}
+
+/**
+ * Whether the failure is the read-only connection unable to serve the check: SQLite refusing
+ * to open the database file (`SQLITE_CANTOPEN`, e.g. a WAL database without its `-wal` file
+ * where the runtime cannot use a heap-memory WAL index), or refusing the shared-memory write
+ * the check needs (the `SQLITE_READONLY` family — `SQLITE_READONLY_DIRECTORY` where the runtime
+ * gets that far). Bun reports the extended name, so every variant of both families counts.
+ */
+function isReadonlyFailure(error: unknown): boolean {
+  const code = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : ""
+  return code.startsWith("SQLITE_CANTOPEN") || code.startsWith("SQLITE_READONLY")
 }
 
 /**
@@ -100,6 +115,7 @@ export interface Store {
 class SqliteStore implements Store {
   readonly orm: Orm
   readonly path: string
+  private readonly mode: "read" | "write"
   private readonly db: Database
   private tableNames: ReadonlySet<string> | null = null
   private readonly columnNames = new Map<string, readonly string[]>()
@@ -107,6 +123,7 @@ class SqliteStore implements Store {
 
   constructor(path: string, mode: "read" | "write") {
     this.path = path
+    this.mode = mode
     this.db = new Database(path, mode === "read" ? { readonly: true, safeIntegers: true } : { readwrite: true, safeIntegers: true })
     this.db.prepare = ((text: string) => this.db.query(text)) as Database["prepare"]
     this.orm = drizzle({ client: this.db })
@@ -235,12 +252,46 @@ class SqliteStore implements Store {
 
   /** `pragma integrity_check`: `["ok"]` when the store is sound. */
   integrity(): readonly string[] {
-    return (this.db.query("pragma integrity_check").all() as { integrity_check: string }[]).map((row) => row.integrity_check)
+    return this.check((db) => (db.query("pragma integrity_check").all() as { integrity_check: string }[]).map((row) => row.integrity_check))
   }
 
   /** How many rows `pragma foreign_key_check` reports. */
   foreignKeyViolations(): number {
-    return this.db.query("pragma foreign_key_check").all().length
+    return this.check((db) => db.query("pragma foreign_key_check").all().length)
+  }
+
+  /**
+   * Runs a read-only check, retrying on a private copy when the read-only connection cannot
+   * serve it: a WAL database without its `-wal` file fails read-only where the runtime cannot
+   * use a heap-memory WAL index (darwin reports `SQLITE_CANTOPEN`, Linux `SQLITE_READONLY` when
+   * the check then needs the shared-memory file), while a read-write connection to a copy in a
+   * temporary folder always works. The copy holds exactly what the file holds (no `-wal` means
+   * nothing is uncheckpointed), so the check is unchanged.
+   */
+  private check<T>(work: (db: Database) => T): T {
+    try {
+      return work(this.db)
+    } catch (error) {
+      if (this.mode !== "read" || !isReadonlyFailure(error)) throw error
+      return this.checkCopy(work)
+    }
+  }
+
+  /** Runs the check against a read-write copy in a temporary folder, leaving the store untouched. */
+  private checkCopy<T>(work: (db: Database) => T): T {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-session-manager-integrity-"))
+    try {
+      const copy = join(directory, "store.db")
+      copyFileSync(this.path, copy)
+      const db = new Database(copy, { readwrite: true, safeIntegers: true })
+      try {
+        return work(db)
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   }
 
   pragmas(): PragmaNumbers {

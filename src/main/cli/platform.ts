@@ -22,6 +22,7 @@ export type PlatformFactory = (fileSystem: MaintenanceFileSystemPort, pid: numbe
 const LOADERS: Readonly<Record<string, () => Promise<PlatformFactory>>> = {
   linux: async () => (await import("@session-manager/main/linux-container")).linuxAdapters,
   win32: async () => (await import("@session-manager/main/win32-container")).win32Adapters,
+  darwin: async () => (await import("@session-manager/main/darwin-container")).darwinAdapters,
 }
 
 export const SUPPORTED_PLATFORMS: readonly string[] = Object.keys(LOADERS)

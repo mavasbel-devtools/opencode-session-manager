@@ -18,7 +18,7 @@ export function sourceFiles(dir: string = SRC): string[] {
 export const relative = (file: string) => path.relative(SRC, file).replaceAll(path.sep, "/")
 
 /** Operating systems with their own adapters and wiring (see AGENTS.md, platform law). */
-export const PLATFORMS: readonly string[] = ["linux", "win32"]
+export const PLATFORMS: readonly string[] = ["linux", "win32", "darwin"]
 
 /** The operating system a src file (relative to src/) belongs to: its adapters folder or its container. */
 export function platformOf(rel: string): string | undefined {

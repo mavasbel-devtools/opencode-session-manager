@@ -1,7 +1,8 @@
-import { rmSync } from "node:fs"
+import { realpathSync, rmSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { currentPlatform } from "@test/support/platform"
 
 export const root = path.resolve(import.meta.dir, "../../..")
 
@@ -18,7 +19,7 @@ export function requireBun() {
  */
 export function requireOpenCode() {
   const installed =
-    process.platform === "win32"
+    currentPlatform() === "win32"
       ? path.join(os.homedir(), ".local", "bin", "opencode.exe")
       : path.join(os.homedir(), ".opencode", "bin", "opencode")
   const executable =
@@ -53,7 +54,12 @@ export async function run(command: string[], options: { cwd?: string; env?: Reco
 function guardTemporary(target: string): string {
   const resolved = path.resolve(target)
   const temporary = path.resolve(os.tmpdir())
-  if (resolved === temporary || !resolved.toLowerCase().startsWith(`${temporary.toLowerCase()}${path.sep}`)) {
+  // The tests resolve their workspaces before comparing them with resolved code output (`/var`
+  // vs `/private/var` on macOS), so both forms of the temporary folder guard the delete.
+  const inside = [temporary, path.resolve(realpathSync(os.tmpdir()))].some(
+    (root) => resolved !== root && resolved.toLowerCase().startsWith(`${root.toLowerCase()}${path.sep}`),
+  )
+  if (!inside) {
     throw new Error(`refusing to delete ${resolved}: only paths inside ${temporary} may be removed by tests`)
   }
   if (resolved.split(path.sep).length < temporary.split(path.sep).length + 1) {

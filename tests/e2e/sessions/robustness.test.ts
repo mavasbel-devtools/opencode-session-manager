@@ -9,6 +9,7 @@ import { captureConsole, captureConsoleError } from "@test/support/maintenance/c
 import { fileSha } from "@test/support/maintenance/database"
 import { query, sha1 } from "@test/support/maintenance/repositories"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { currentPlatform } from "@test/support/platform"
 import { makeOpenCode2Store } from "@test/support/sessions/opencode-stores"
 import { makeSyncContextStore, rowsOf } from "@test/support/sessions/sync-stores"
 
@@ -32,7 +33,7 @@ function runtime(): RuntimePort {
   mkdirSync(at("tmp"), { recursive: true })
   stamp += 1
   const mine = `2026-10-11-00-00-${String(stamp).padStart(2, "0")}`
-  return { pid: () => process.pid, platform: () => process.platform, now: () => Date.now(), stamp: () => mine, temporaryDirectory: () => at("tmp"), homeDirectory: () => at("home") }
+  return { pid: () => process.pid, platform: () => currentPlatform(), now: () => Date.now(), stamp: () => mine, temporaryDirectory: () => at("tmp"), homeDirectory: () => at("home") }
 }
 
 async function cli(argv: string[]) {

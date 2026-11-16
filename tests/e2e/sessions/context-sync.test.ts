@@ -9,6 +9,7 @@ import { CONTEXT_USAGE } from "@session-manager/infrastructure/adapters/inbound/
 import { fileSha } from "@test/support/maintenance/database"
 import { captureConsole, captureConsoleError } from "@test/support/maintenance/console"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { currentPlatform } from "@test/support/platform"
 import { makeMagicContextPackage } from "@test/support/sessions/magic-context-package"
 import { makeOpenCodeStore } from "@test/support/sessions/stores"
 import { makeSyncContextStore, rowsOf, type StateSpec } from "@test/support/sessions/sync-stores"
@@ -33,7 +34,7 @@ function runtime(): RuntimePort {
   mkdirSync(at("tmp"), { recursive: true })
   return {
     pid: () => process.pid,
-    platform: () => process.platform,
+    platform: () => currentPlatform(),
     now: () => Date.now(),
     stamp: () => STAMP,
     temporaryDirectory: () => at("tmp"),

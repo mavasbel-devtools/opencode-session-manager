@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { defaultDataHome, profileAt } from "@session-manager/domain/model/Profile"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { currentPlatform } from "@test/support/platform"
 import { liveOtherProfile } from "@test/support/live/fixtures"
 
 /**
@@ -16,7 +17,7 @@ import { liveOtherProfile } from "@test/support/live/fixtures"
  */
 const project = fileURLToPath(new URL("../../..", import.meta.url))
 const driver = join(project, "tests", "support", "live", "drive-browser.mjs")
-const compiled = join(project, "dist", "cli", process.platform === "win32" ? "opencode-session-manager.exe" : "opencode-session-manager")
+const compiled = join(project, "dist", "cli", currentPlatform() === "win32" ? "opencode-session-manager.exe" : "opencode-session-manager")
 const live = profileAt("live", defaultDataHome({ XDG_DATA_HOME: process.env["XDG_DATA_HOME"] }, process.env["HOME"] ?? homedir()))
 const node = Bun.which("node")
 const other = liveOtherProfile

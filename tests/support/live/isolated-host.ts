@@ -4,6 +4,7 @@
 // auto-discovery with no `plugins` config entry), and a local OpenAI-compatible
 // mock provider (never a paid endpoint). `stop()` kills only the PID this
 // harness spawned.
+import { realpathSync } from "node:fs"
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -70,7 +71,7 @@ export async function startIsolatedHost(prefix: string): Promise<IsolatedHost> {
   const build = await run([requireBun(), "scripts/build.mjs"])
   if (build.exitCode !== 0) throw new Error(`build failed: ${build.stdout}${build.stderr}`)
 
-  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), prefix))
+  const temporaryRoot = await mkdtemp(path.join(realpathSync(os.tmpdir()), prefix))
   const configHome = path.join(temporaryRoot, "config")
   await mkdir(path.join(configHome, "opencode"), { recursive: true })
   // The installer's default target: <XDG_CONFIG_HOME>/opencode/plugins/session-manager/.

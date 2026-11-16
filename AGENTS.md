@@ -16,7 +16,7 @@ code is wrong until one of them is deliberately changed.
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | build outputs | `dist/v2/{server,tui}.js` | the entrypoints the host loads |
 | CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `relocate [--data <dataHome>] (--map <from>=<to> \| --rename <folder>=<name> \| --relink \| --configured)... (--session <id>... \| --all) [--repair-worktrees] [--dry-run] [--json]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
-| CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
+| CLI platforms | Linux, Windows and macOS (`linux`, `win32`, `darwin`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
 
@@ -189,8 +189,8 @@ aborts a write or moves a summary's anchor.
 
 `src/main/server-container.ts` (v2 server), `src/main/tui-container.ts` (v2 TUI)
 and `src/main/cli-container.ts` (the CLI),
-plus the CLI's per-platform halves `src/main/linux-container.ts` and
-`src/main/win32-container.ts`. Measured: a shared root made the server
+plus the CLI's per-platform halves `src/main/darwin-container.ts`,
+`src/main/linux-container.ts` and `src/main/win32-container.ts`. Measured: a shared root made the server
 entry import the TUI view adapter, and `Bun.build` of the server entry then
 failed on OpenTUI's native packages. `imports.test.ts` walks the server entry's
 import graph and fails if a `.tsx` file or `tui-container.ts` appears in it.
@@ -203,9 +203,10 @@ Code for one operating system lives only in
 demand (`await import`), so one platform never loads another's code. Linux:
 `ProcProcessListAdapter` (`/proc/<pid>/comm`) and `ProcFdHoldersAdapter`
 (`/proc/<pid>/fd`). Windows: `TasklistAdapter` and `RenameProbeHoldersAdapter`.
-Both take their system root or executable as a constructor argument, so the unit
-tier runs every platform's adapters on any machine. Enforced by
-`tests/unit/maintenance/architecture.test.ts`.
+macOS: `PsProcessListAdapter` (`ps -axo pid=,comm=`, matched on the basename) and
+`LsofHoldersAdapter` (`lsof -F pc`). All take their system root or executable as a
+constructor argument, so the unit tier runs every platform's adapters on any
+machine. Enforced by `tests/unit/maintenance/architecture.test.ts`.
 
 ### Storage: drizzle-orm through one engine, no SQL text elsewhere
 
@@ -479,6 +480,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `project/GitWorktreeAdapter.ts` | reads the `.git` entries Git keeps for its work trees and runs Git itself for the repair and the resolve check |
 | `platform/linux/ProcProcessListAdapter.ts`, `platform/linux/ProcFdHoldersAdapter.ts`, `platform/linux/ProcFs.ts` | Linux: running processes and file holders from `/proc` |
 | `platform/win32/TasklistAdapter.ts`, `platform/win32/RenameProbeHoldersAdapter.ts` | Windows: `tasklist` and the rename probe |
+| `platform/darwin/PsProcessListAdapter.ts`, `platform/darwin/LsofHoldersAdapter.ts` | macOS: running processes from `ps` and file holders from `lsof` |
 | `fs/NodeMaintenanceFileSystemAdapter.ts` | the program's file operations |
 | `fs/FsStoreLockAdapter.ts` | `<store>.session-manager.lock` files: exclusive create, stale-owner check (`kill(pid, 0)`), release only by the owner |
 | `fs/NodeFileSystemAdapter.ts` | the plugin's file operations |
@@ -497,7 +499,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 
 **`src/main`** — composition roots and entries: `server-container.ts`,
 `tui-container.ts`, `cli-container.ts`,
-`linux-container.ts`, `win32-container.ts`, `plugin-id.ts` (plugin ids);
+`darwin-container.ts`, `linux-container.ts`, `win32-container.ts`, `plugin-id.ts` (plugin ids);
 `v2/server.ts`, `v2/tui.ts`; `cli/cli.ts` (the
 program's entry), `cli/platform.ts` (loads one platform's container).
 
@@ -551,10 +553,21 @@ program's entry), `cli/platform.ts` (loads one platform's container).
 | unit | one class at a time with stand-ins; the architecture, SOLID, platform, host-fixture and coverage-completeness gates | **measured, 100%** |
 | component | the wired plugin painted by the real OpenTUI renderer; the wired Herdr pane presentation against a fake Herdr socket; tool parity; real SQLite compacting real databases | not gated |
 | e2e | `src` driven end to end in-process: the v2 entries through the real 2.0.14 `Host.resolve`/`Host.load` and slot resolver (the Herdr pane title over a Unix socket); the CLI container over real databases (OpenCode 2.0.24's schema), Magic Context stores, folders and git repositories, legacy parity, and the browser applying its queue in OpenTUI's test renderer | **measured, 100%, per platform** |
-| live | the real `opencode` executable, the built bundles, the installers, the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`); the real TUI in a pane of a real, private Herdr server (pane title; skipped without `herdr`); the CLI on a snapshot of the real `opencode.db`; the compiled browser in a pseudo-terminal; the installed Magic Context upgrading and opening real store copies; a real `sync` and `context sync` into a copy of this machine's profile, listed afterwards by a sandboxed OpenCode (when `OPENCODE_SM_LIVE_OTHER_PROFILE` is set). Variables: README, *Environment variables* | not measurable |
+| live | the real `opencode` executable, the built bundles, the installers, the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`); the real TUI in a pane of a real, private Herdr server (pane title; skipped without a runnable `herdr` server); the CLI on a snapshot of the real `opencode.db`; the compiled browser in a pseudo-terminal; the installed Magic Context upgrading and opening real store copies; a real `sync` and `context sync` into a copy of this machine's profile, listed afterwards by a sandboxed OpenCode (when `OPENCODE_SM_LIVE_OTHER_PROFILE` is set). Variables: README, *Environment variables* | not measurable |
 
 Coverage tools only see code executed in the test process, so "e2e" is the
 in-process real-host tier and "live" is the real external process.
+
+OS-specific tests live beside the code they cover: tests of a
+`src/infrastructure/adapters/outbound/platform/<platform>/` adapter live in
+`tests/unit/platform/<platform>/`, mirroring `src`. `tests/support/platform.ts`
+is the only test file allowed to read `process.platform`: `onlyOn(platform)`
+skips a test everywhere but that platform, `requires(present, reason)` skips a
+test whose external precondition is missing (both print the reason in the test
+name), and `currentPlatform()` is how common code reads the platform it adapts
+to or fakes. Rule I12 (`tests/unit/architecture/imports.test.ts`) enforces it.
+A test that compares a `tmpdir()`-built path with a path the code resolved builds
+it from `realpathSync(tmpdir())` (`/var` vs `/private/var` on macOS).
 
 ### Test support (`tests/support`)
 
@@ -562,6 +575,7 @@ in-process real-host tier and "live" is the real external process.
 |---|---|
 | `source-files.ts` | every `src` file, for the architecture and completeness gates |
 | `no-herdr.ts` | preloaded by every test run: removes `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, so a test run inside a Herdr pane never reports to the user's Herdr |
+| `platform.ts` | the only test file that reads `process.platform`: `onlyOn`, `requires`, `currentPlatform` (D29, rule I12) |
 | `fakes/herdr-socket.ts` | a stand-in for Herdr's API socket that records requests and answers `ok`, `error`, `garbage`, `split`, `silent` or `close` |
 | `fakes/hosts.ts`, `fakes/transfer-ports.ts` | stand-ins for the OpenCode hosts and the transfer ports (`FakeDirectoryListingAdapter`: folders in memory) |
 | `fakes/dialog-host.tsx` | the host's dialog stack and keymap as a plugin dialog sees them: paints with OpenTUI's test renderer, runs the command a modal layer binds to a key, types, clicks, Esc |

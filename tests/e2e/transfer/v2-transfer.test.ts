@@ -15,6 +15,7 @@ import os from "node:os"
 import path from "node:path"
 import { Host } from "@opencode/plugin/host"
 import type { V2Client, V2Project, V2Session } from "@session-manager/infrastructure/host/V2Client"
+import { rowText } from "@session-manager/infrastructure/adapters/inbound/tui/FolderBrowserDialogV2Adapter"
 import type { V2SlotClaim, V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
 import { dialogHost } from "@test/support/fakes/dialog-host"
 import { removeTemporary } from "@test/support/live/process"
@@ -142,8 +143,13 @@ describe("v2 /transfer-session, loaded by the real 2.0.14 Host", () => {
       },
     })
     expect(shown.lists).toEqual([{ limit: 200, order: "desc" }])
-    const rows = shown.frames[0]!.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("› ") || line.startsWith("~/") || line.startsWith(root))
-    expect(rows).toEqual([`› ~/work/target`, root, path.join(root, "sandbox")])
+    // The dialog fits each row into 82 columns (its 88-column width inside the 100-column fake
+    // renderer): a temporary folder longer than that keeps its start and end around `…`.
+    const dialogWidth = 82
+    const row = (label: string, directory: string, active: boolean) =>
+      rowText({ kind: "folder", label, directory }, active, dialogWidth).trim()
+    const rows = shown.frames[0]!.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("› ") || line.startsWith("~") || line.startsWith("/"))
+    expect(rows).toEqual([row("~/work/target", target, true), row(root, root, false), row(path.join(root, "sandbox"), path.join(root, "sandbox"), false)])
     expect(shown.moves).toEqual([{ sessionID: "ses_open", directory: root }])
     expect(toasts).toEqual([{ variant: "success", title: "Session transferred", message: `Moved to ${root}`, duration: 4000 }])
   })

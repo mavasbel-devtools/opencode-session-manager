@@ -8,6 +8,7 @@ import { showBrowser } from "@session-manager/infrastructure/adapters/inbound/ma
 import { buildContainer } from "@session-manager/main/cli-container"
 import { captureConsole } from "@test/support/maintenance/console"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { currentPlatform } from "@test/support/platform"
 import { waitForText } from "@test/support/sessions/frames"
 import { makeOpenCodeStore } from "@test/support/sessions/stores"
 import { makeSyncContextStore, rowsOf } from "@test/support/sessions/sync-stores"
@@ -33,7 +34,7 @@ function runtime(): RuntimePort {
   mkdirSync(at("tmp"), { recursive: true })
   return {
     pid: () => process.pid,
-    platform: () => process.platform,
+    platform: () => currentPlatform(),
     now: () => Date.now(),
     stamp: () => "2026-10-12-12-00-00",
     temporaryDirectory: () => at("tmp"),

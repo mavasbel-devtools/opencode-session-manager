@@ -20,6 +20,11 @@ test("buildContainer wires the real adapters when nothing is overridden", async 
   assert.equal((await buildContainer({}, {})).run(["--bogus"]), 2)
 })
 
+test("buildContainer runs offline without asking npm for Magic Context", async () => {
+  const cli = await buildContainer({ OPENCODE_SESSION_MANAGER_OFFLINE: "1" })
+  assert.equal(typeof cli.run, "function")
+})
+
 test("--help and --version are wired to the help adapter", async () => {
   const output = new FakeOutput()
   const cli = await buildContainer({}, { output })

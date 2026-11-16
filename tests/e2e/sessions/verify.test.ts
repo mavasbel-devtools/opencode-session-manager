@@ -9,6 +9,7 @@ import { captureConsole, captureConsoleError } from "@test/support/maintenance/c
 import { fileSha } from "@test/support/maintenance/database"
 import { makeRepository, sha1 } from "@test/support/maintenance/repositories"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { currentPlatform } from "@test/support/platform"
 import { makeOpenCode2Store } from "@test/support/sessions/opencode-stores"
 import { makeSyncContextStore } from "@test/support/sessions/sync-stores"
 
@@ -27,7 +28,7 @@ const contextOf = () => at("data", "cortexkit", "magic-context", "context.db")
 
 function runtime(): RuntimePort {
   mkdirSync(at("tmp"), { recursive: true })
-  return { pid: () => process.pid, platform: () => process.platform, now: () => NOW, stamp: () => "s", temporaryDirectory: () => at("tmp"), homeDirectory: () => at("home") }
+  return { pid: () => process.pid, platform: () => currentPlatform(), now: () => NOW, stamp: () => "s", temporaryDirectory: () => at("tmp"), homeDirectory: () => at("home") }
 }
 
 async function cli(argv: string[]) {

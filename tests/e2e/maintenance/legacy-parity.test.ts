@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { fileSha, makeDatabase } from "@test/support/maintenance/database"
+import { onlyOn } from "@test/support/platform"
 import { legacyEnvironment } from "@test/support/maintenance/platform"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 
@@ -101,7 +102,7 @@ test("parity: rehearse prints exactly the same check lines", () => {
   assert.equal(checkLines(legacyRun.stdout).length, 6)
 })
 
-test("parity: run produces the same evidence, and rollback restores the original bytes", () => {
+test.skipIf(onlyOn("linux"))("parity: run produces the same evidence, and rollback restores the original bytes (linux only: the frozen legacy oracle opens the swapped database read-only, which cannot serve the WAL-without-sidecars shape on darwin; the modern run path on darwin is covered by cli.test.ts)", () => {
   const legacyWorld = workspace("legacy")
   const modernWorld = workspace("modern")
   const legacyOriginal = fileSha(legacyWorld.dbPath)

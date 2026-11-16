@@ -7,6 +7,7 @@ import { buildContainer } from "@session-manager/main/cli-container"
 import { showBrowser, terminalRenderer } from "@session-manager/infrastructure/adapters/inbound/manager-tui/OpenTuiBrowser"
 import { captureConsole } from "@test/support/maintenance/console"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { currentPlatform } from "@test/support/platform"
 import { makeContextStore, makeOpenCodeStore } from "@test/support/sessions/stores"
 import { waitForText } from "@test/support/sessions/frames"
 import { silentTerminal } from "@test/support/sessions/terminal-streams"
@@ -86,7 +87,7 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
         {
           runtime: Object.assign(Object.create(null), {
             pid: () => process.pid,
-            platform: () => process.platform,
+            platform: () => currentPlatform(),
             now: () => Date.now(),
             stamp: () => "2026-10-08-00-00-00",
             temporaryDirectory: () => temporary,
@@ -199,12 +200,15 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
     const context = join(directory, "files", "context.db")
     makeOpenCodeStore(db, { v2: [{ id: "ses_file", title: "From a file", directory: "/x", updated: 1, entries: 1 }] })
     makeContextStore(context, { version: 94, compartments: { ses_file: 3 } })
+    // The profile title shows the store folder; a long temporary folder needs more columns than
+    // 120 on macOS, so the renderer is widened to fit it (`/var` vs `/private/var`).
+    const title = `left · 1 sessions · Magic Context format 94 · health 0! 0~ · ${join(directory, "files")}`
     let setup: TestRendererSetup | undefined
     const cli = await buildContainer(
       { OPENCODE_SESSION_MANAGER_OFFLINE: "1", XDG_CONFIG_HOME: join(directory, "no-config"), XDG_CACHE_HOME: join(directory, "no-cache") },
       {
         show: showBrowser(async () => {
-          setup = await createTestRenderer({ width: 120, height: 20 })
+          setup = await createTestRenderer({ width: Math.max(120, title.length + 8), height: 20 })
           return setup.renderer
         }),
       },
@@ -215,7 +219,7 @@ describe("tui (real stores, the wired container, OpenTUI's test renderer)", () =
     // Offline: npm is not asked, and this home has no OpenCode configuration.
     expect(await waitForText(setup, "Magic Context: not configured in opencode.jsonc")).toBeTruthy()
     // verify ran when the side was opened, and found nothing wrong.
-    expect(shown).toContain(`left · 1 sessions · Magic Context format 94 · health 0! 0~ · ${join(directory, "files")}`)
+    expect(shown).toContain(title)
     expect(shown).toContain("S 3")
     setup.mockInput.pressKey("j")
     expect(await setup.waitForFrame((text) => text.includes("Health:"))).toContain("Health: 1 of 1 messages after the newest of 3 summaries · ok")

@@ -104,6 +104,13 @@ describe("BunMagicContextStoreAdapter", () => {
     const empty = join(directory, "empty.db")
     makeContextStore(empty, {})
     expect(new BunMagicContextStoreAdapter().summary(empty).schemaVersion).toBeNull()
+    const noCompartments = join(directory, "no-compartments.db")
+    makeContextStore(noCompartments, { tags: { ses_a: 2 }, omit: ["compartments", "schema_migrations", "notes", "memories", "session_projects"] })
+    expect(new BunMagicContextStoreAdapter().summary(noCompartments)).toEqual({
+      available: true,
+      schemaVersion: null,
+      sessions: { ses_a: { compartments: 0, tags: 2, lastTag: 2, notes: 0, memoriesOriginated: 0, project: null } },
+    })
   })
 })
 

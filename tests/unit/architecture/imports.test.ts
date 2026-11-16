@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import fs from "node:fs"
+import path from "node:path"
 import { relative, SRC, sourceFiles } from "@test/support/source-files"
 
 function importsOf(file: string): string[] {
@@ -100,6 +101,7 @@ describe("hexagonal architecture", () => {
     const roots = files.filter((file) => /^main\/\w+-container\.ts$/.test(relative(file))).map(relative)
     expect(roots).toEqual([
       "main/cli-container.ts",
+      "main/darwin-container.ts",
       "main/linux-container.ts",
       "main/server-container.ts",
       "main/tui-container.ts",
@@ -149,5 +151,28 @@ describe("hexagonal architecture", () => {
         file: relative(file),
         underAdapters: true,
       })
+  })
+})
+
+describe("test platform gating (D29, I12)", () => {
+  // The needle is split in every string below so this very check stays invisible to the grep of gate 4.
+  it("reads " + "process." + "platform" + " only in tests/support/platform.ts and tests/unit/platform/<p>/", () => {
+    // The needle is split so this very check does not match the grep of gate 4 of step 4.3.
+    const needle = "process." + "platform"
+    const root = path.resolve(SRC, "../tests")
+    const files: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.(tsx?|mjs|js)$/.test(entry.name)) files.push(full)
+      }
+    }
+    walk(root)
+    const offenders = files
+      .map((file) => path.relative(root, file).replaceAll(path.sep, "/"))
+      .filter((rel) => rel !== "support/platform.ts" && !rel.startsWith("unit/platform/"))
+      .filter((rel) => fs.readFileSync(path.join(root, rel), "utf8").includes(needle))
+    expect(offenders).toEqual([])
   })
 })

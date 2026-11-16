@@ -1,6 +1,6 @@
 # The e2e coverage gate on linux (`bun run coverage:e2e`, through scripts/coverage.mjs).
-# Same as bunfig.coverage.toml, except that the win32 adapters and container are left to the
-# win32 e2e run: they only work on win32 (AGENTS.md, platform law).
+# Same as bunfig.coverage.toml, except that the win32 and darwin adapters and containers are left
+# to their own e2e runs: they only work on their own platform (AGENTS.md, platform law).
 # Separate from bunfig.toml because the per-file 100 % gate applies to the tier
 # being measured: each measured tier must reach it on its own, and a plain
 # `bun test tests/component` must not be gated on coverage at all.
@@ -13,5 +13,5 @@ preload = ["@opentui/solid/preload", "./tests/support/no-herdr.ts"]
 coverage = true
 coverageReporter = ["text"]
 coverageSkipTestFiles = true
-coveragePathIgnorePatterns = ["tests/**", "dist/**", "build/**", "scripts/**", "**/*.test.ts", "**/*.test.tsx", "src/infrastructure/adapters/outbound/platform/win32/**", "src/main/win32-container.ts"]
+coveragePathIgnorePatterns = ["tests/**", "dist/**", "build/**", "scripts/**", "**/*.test.ts", "**/*.test.tsx", "src/infrastructure/adapters/outbound/platform/win32/**", "src/main/win32-container.ts", "src/infrastructure/adapters/outbound/platform/darwin/**", "src/main/darwin-container.ts"]
 coverageThreshold = { lines = 1.0, functions = 1.0 }

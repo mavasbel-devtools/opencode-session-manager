@@ -720,8 +720,8 @@ flowchart LR
 ```
 
 The CLI has its own composition root, `src/main/cli-container.ts`, plus one
-per operating system (`src/main/linux-container.ts`, `src/main/win32-container.ts`),
-loaded on demand by `src/main/cli/platform.ts`. `CliRouter` sends each command
+per operating system (`src/main/darwin-container.ts`, `src/main/linux-container.ts`,
+`src/main/win32-container.ts`), loaded on demand by `src/main/cli/platform.ts`. `CliRouter` sends each command
 family to its inbound adapter. Database maintenance:
 
 ```mermaid

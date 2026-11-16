@@ -10,6 +10,7 @@ import { captureConsole, captureConsoleError } from "@test/support/maintenance/c
 import { fileSha } from "@test/support/maintenance/database"
 import { makeRepository, query, sha1 } from "@test/support/maintenance/repositories"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
+import { currentPlatform } from "@test/support/platform"
 import { makeOpenCode2Store } from "@test/support/sessions/opencode-stores"
 import { makeSyncContextStore, rowsOf } from "@test/support/sessions/sync-stores"
 import { normalizedHash } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextSyncStoreAdapter"
@@ -32,7 +33,7 @@ function runtime(): RuntimePort {
   mkdirSync(at("tmp"), { recursive: true })
   return {
     pid: () => process.pid,
-    platform: () => process.platform,
+    platform: () => currentPlatform(),
     now: () => Date.now(),
     stamp: () => STAMP,
     temporaryDirectory: () => at("tmp"),

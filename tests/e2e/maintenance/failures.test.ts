@@ -182,8 +182,8 @@ test("rollback restores the original even when no database is currently in place
 
 test("the composition root refuses an operating system it has no adapters for", async () => {
   const runtime = new FakeRuntime()
-  runtime.platformName = "darwin"
-  await assert.rejects(buildContainer(environment(), { runtime }), /^UnsupportedPlatformError: unsupported platform: darwin \(supported: linux, win32\)$/)
+  runtime.platformName = "freebsd"
+  await assert.rejects(buildContainer(environment(), { runtime }), /^UnsupportedPlatformError: unsupported platform: freebsd \(supported: linux, win32, darwin\)$/)
 })
 
 test("the composition root wires every supported operating system", async () => {

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { Database } from "bun:sqlite"
 import { join } from "node:path"
 import { ForkSessionUseCase } from "@session-manager/application/ForkSessionUseCase"
 import { ServerNotFoundError } from "@session-manager/domain/errors/ServerNotFoundError"
@@ -268,6 +269,16 @@ describe("BunSessionSyncStoreAdapter.forkSessions", () => {
     expect(() => store.forkSessions(target, target, [plan({ forkId: "ses_x", parentId: "ses_none" })])).toThrow("fork parent session not found: ses_none")
     expect(() => store.forkSessions(target, target, [plan({ forkId: "ses_x", boundaryMessageId: "m9" })])).toThrow("fork boundary message not found: m9")
     expect(query(target, "select count(*) as n from session_v2 where id = 'ses_x'")).toEqual([{ n: 0 }])
+  })
+
+  it("forks into a store without the instruction tables", () => {
+    const bare = join(directory, "bare.db")
+    makeOpenCode2Store(bare, { sessions: [{ id: "ses_a", directory: "/w", entries: ["m0", "m1"] }] })
+    const db = new Database(bare)
+    db.exec("drop table instruction_state; drop table instruction_entry; drop table instruction_blob")
+    db.close()
+    expect(store.forkSessions(bare, bare, [plan({ rewriter: null })])[0]).toMatchObject({ inherited_messages: 2, appended_messages: 0 })
+    expect(query(bare, "select count(*) as n from session_message where session_id = 'ses_fork'")).toEqual([{ n: 2 }])
   })
 
   it("keeps a parent's null title, and forks a parent with no settled message through the boundary", () => {

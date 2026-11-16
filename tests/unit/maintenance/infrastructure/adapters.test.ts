@@ -7,6 +7,7 @@ import { ConsoleOutputAdapter } from "@session-manager/infrastructure/adapters/o
 import { JsonReportAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/JsonReportAdapter"
 import { NodeMaintenanceFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeMaintenanceFileSystemAdapter"
 import { SystemClockAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemClockAdapter"
+import { currentPlatform } from "@test/support/platform"
 
 function temporaryDirectory(): string {
   return mkdtempSync(join(tmpdir(), "oc-compact-unit-"))
@@ -75,7 +76,7 @@ test("ConsoleOutputAdapter writes one line per call to stdout", () => {
 test("SystemClockAdapter exposes the ambient runtime", () => {
   const runtime = new SystemClockAdapter()
   assert.equal(runtime.pid(), process.pid)
-  assert.equal(runtime.platform(), process.platform)
+  assert.equal(runtime.platform(), currentPlatform())
   assert.ok(runtime.now() >= 0)
   assert.equal(runtime.temporaryDirectory(), tmpdir())
   const saved = { HOME: process.env["HOME"], USERPROFILE: process.env["USERPROFILE"] }

@@ -1,12 +1,18 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { delimiter, join } from "node:path"
+import { basename, delimiter, join } from "node:path"
+import { currentPlatform } from "@test/support/platform"
 
 /** What the tests need to know about the machine they run on. */
-export const onWindows = process.platform === "win32"
+export const onWindows = currentPlatform() === "win32"
 
-/** The process name this test process is listed under: `node.exe` by `tasklist`, `/proc/self/comm` on Linux. */
+/**
+ * The process name this test process is listed under: `node.exe` by `tasklist`, `/proc/self/comm`
+ * on Linux, the running binary's own name elsewhere (macOS has no `/proc`).
+ */
 export function ownImage(): string {
-  return onWindows ? "node.exe" : readFileSync("/proc/self/comm", "utf8").trim()
+  if (onWindows) return "node.exe"
+  if (currentPlatform() === "linux") return readFileSync("/proc/self/comm", "utf8").trim()
+  return basename(process.execPath)
 }
 
 /**
