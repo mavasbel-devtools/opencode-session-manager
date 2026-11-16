@@ -35,8 +35,9 @@ The plugin:
    and on demand, repairs only sessions whose recorded folder is gone and whose
    explicitly mapped replacement exists. It uses OpenCode's own session-move API.
 5. **Herdr pane title** — when OpenCode runs in a [Herdr](https://herdr.dev)
-   pane, Herdr shows the open session's full title for that pane (as the agent
-   name in its sidebar and as the pane title) instead of "opencode".
+   pane, Herdr shows the open session's agent (for example `plan`) as the agent
+   name in its sidebar, and the session's full title as the pane title, instead
+   of "opencode".
 
 ```
 ┌ sidebar ─────────────────────────────┐
@@ -60,7 +61,7 @@ sessions (`session`, `message`, `part`) an OpenCode 2 store keeps beside its own
 - `dist/v2/server.js` registers the `session-id` tool.
 - `dist/v2/tui.js` prepends the ID line to `sidebar.content`, registers
   `/transfer-session` and `/repair-sessions` from an `app` slot (where `keymap.layer` runs in-tree),
-  and inside a Herdr pane keeps the pane titled. Its cleanup removes them all.
+  and inside a Herdr pane keeps the pane showing the session's agent and title. Its cleanup removes them all.
 
 The move goes through the host's `session.move` API — no database writes — so
 the host re-resolves the project and tells the agent about the new directory.
@@ -127,21 +128,42 @@ whole folder that moved, use the program's `relocate`.
 
 Inside a Herdr pane, Herdr hands OpenCode `HERDR_ENV=1`, `HERDR_SOCKET_PATH`
 and `HERDR_PANE_ID`; outside one, the plugin does nothing here. The TUI then
-tells Herdr, over Herdr's own API (`pane.report_metadata`), the title of the
-session it shows — for a sub-agent session, its parent's — as the pane's title
-and displayed agent name. Herdr keeps 80 characters; a longer title ends in `…`.
+tells Herdr, over Herdr's own API (`pane.report_metadata`), two values for
+the session it shows:
 
-- Opening another session, or a title change (OpenCode's automatic title, a
-  rename), reaches Herdr within about a quarter of a second. Quitting OpenCode gives
-  the pane Herdr's defaults back.
+- the displayed agent name (`display_agent`): the agent of that session, for
+example `plan` or `build`; a sub-agent session shows its own agent, for
+example `explore`;
+- the pane's title (`title`): the title of the session — for a sub-agent
+session, the title of the session it belongs to.
+
+Herdr keeps 80 characters; a longer value ends in `…`.
+
+- The agent is the one OpenCode records on the session when a prompt is
+sent. Picking another agent with Tab shows after the next prompt: OpenCode
+does not tell plugins which agent the prompt has selected. Until a session
+has run a prompt, only its title is sent, and Herdr shows `opencode`.
+- Opening another session, a title change (OpenCode's automatic title, a
+rename) or a prompt with another agent reaches Herdr within about a quarter
+of a second. Quitting OpenCode gives the pane Herdr's defaults back.
 - Only what Herdr *displays* changes: the pane's working/idle state,
-  notifications and session restore stay with Herdr's own OpenCode integration.
-  The title is shown only while OpenCode runs in the pane.
+notifications and session restore stay with Herdr's own OpenCode integration.
+The values are shown only while OpenCode runs in the pane.
 - Herdr's agent *name* (`herdr agent rename`, used to address an agent in
-  commands) is not set: names are at most 32 lowercase characters and unique,
-  so titles would collide.
-- Herdr's sidebar shows the displayed agent name in its `agent` row (one of the
-  default rows; `[ui.sidebar.agents]` in `~/.config/herdr/config.toml`).
+commands) is not set: names are at most 32 lowercase characters and unique.
+- Herdr's default sidebar shows the agent row only (`agent`). To see the
+title next to it, give OpenCode panes their own rows in
+`~/.config/herdr/config.toml` — the `pane` token is the pane's title — then
+run `herdr server reload-config`:
+
+```toml
+[ui.sidebar.agents.rows_by_agent]
+opencode = [["state_icon", "machine", "workspace", "tab"], ["agent", "pane"]]
+```
+
+The second row then reads, for example, `plan · Update magic-context`.
+- Another plugin that sets `display_agent` for OpenCode panes (for example
+`herdr-opencode-bridge`) competes with this one for the same field.
 
 ## What it can and cannot do
 

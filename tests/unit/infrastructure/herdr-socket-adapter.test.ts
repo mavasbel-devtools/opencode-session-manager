@@ -22,8 +22,8 @@ const adapter = (socketPath: string, timeout = 2000) =>
   new HerdrSocketPaneMetadataAdapter({ socketPath, paneID: "w1:p7" }, "linux", timeout)
 
 describe("HerdrSocketPaneMetadataAdapter", () => {
-  it("shows a title as the pane's title and agent name, for OpenCode only, under its own source", async () => {
-    expect(await adapter(herdr!.socketPath).show("Lean Formalization")).toBe(true)
+  it("[UC-1] shows the agent as the pane's agent name and the root title as its title, for OpenCode only, under its own source", async () => {
+    expect(await adapter(herdr!.socketPath).show({ agent: "plan", title: "Lean Formalization" })).toBe(true)
     expect(herdr!.requests).toHaveLength(1)
     const request = herdr!.requests[0]!
     expect(request.method).toBe("pane.report_metadata")
@@ -34,12 +34,30 @@ describe("HerdrSocketPaneMetadataAdapter", () => {
       agent: "opencode",
       seq: request.params["seq"],
       title: "Lean Formalization",
-      display_agent: "Lean Formalization",
+      display_agent: "plan",
     })
+    expect(typeof request.params["seq"]).toBe("number")
+    expect(Object.keys(request.params).filter((key) => key.startsWith("clear_"))).toEqual([])
     expect(PANE_TITLE_AGENT).toBe("opencode")
   })
 
-  it("clears both values, handing them back to Herdr's defaults", async () => {
+  it("[UC-5] leaves out an agent that is not known, so Herdr shows its own name", async () => {
+    expect(await adapter(herdr!.socketPath).show({ agent: undefined, title: "Lean Formalization" })).toBe(true)
+    expect(herdr!.requests).toHaveLength(1)
+    const params = herdr!.requests[0]!.params
+    expect(params["title"]).toBe("Lean Formalization")
+    expect("display_agent" in params).toBe(false)
+  })
+
+  it("leaves out a title that is not known", async () => {
+    expect(await adapter(herdr!.socketPath).show({ agent: "plan", title: undefined })).toBe(true)
+    expect(herdr!.requests).toHaveLength(1)
+    const params = herdr!.requests[0]!.params
+    expect(params["display_agent"]).toBe("plan")
+    expect("title" in params).toBe(false)
+  })
+
+  it("[UC-8] clears both values, handing them back to Herdr's defaults", async () => {
     expect(await adapter(herdr!.socketPath).clear()).toBe(true)
     const { seq, ...params } = herdr!.requests[0]!.params
     expect(params).toEqual({
@@ -54,9 +72,9 @@ describe("HerdrSocketPaneMetadataAdapter", () => {
 
   it("numbers its reports upward, so Herdr never applies an older one after a newer one", async () => {
     const pane = adapter(herdr!.socketPath)
-    await pane.show("A")
+    await pane.show({ agent: "plan", title: "A" })
     await pane.clear()
-    await pane.show("B")
+    await pane.show({ agent: "plan", title: "B" })
     const numbers = herdr!.requests.map((request) => request.params["seq"] as number)
     expect(numbers[1]! - numbers[0]!).toBe(1)
     expect(numbers[2]! - numbers[1]!).toBe(1)
@@ -65,24 +83,24 @@ describe("HerdrSocketPaneMetadataAdapter", () => {
 
   it("reads an answer that arrives in pieces", async () => {
     herdr!.answer = "split"
-    expect(await adapter(herdr!.socketPath).show("A")).toBe(true)
+    expect(await adapter(herdr!.socketPath).show({ agent: "plan", title: "A" })).toBe(true)
   })
 
-  it("answers false when Herdr refuses, answers garbage, hangs up or stays silent", async () => {
+  it("[UC-7N] answers false when Herdr refuses, answers garbage, hangs up or stays silent", async () => {
     const answers: boolean[] = []
     for (const answer of ["error", "garbage", "close"] as const) {
       herdr!.answer = answer
-      answers.push(await adapter(herdr!.socketPath).show("A"))
+      answers.push(await adapter(herdr!.socketPath).show({ agent: "plan", title: "A" }))
     }
     herdr!.answer = "silent"
     const started = Date.now()
-    answers.push(await adapter(herdr!.socketPath, 150).show("A"))
+    answers.push(await adapter(herdr!.socketPath, 150).show({ agent: "plan", title: "A" }))
     expect(Date.now() - started).toBeGreaterThanOrEqual(140)
     expect(answers).toEqual([false, false, false, false])
   })
 
-  it("answers false when no Herdr listens", async () => {
-    expect(await adapter(path.join(path.dirname(herdr!.socketPath), "none.sock")).show("A")).toBe(false)
+  it("[UC-7N] answers false when no Herdr listens", async () => {
+    expect(await adapter(path.join(path.dirname(herdr!.socketPath), "none.sock")).show({ agent: "plan", title: "A" })).toBe(false)
   })
 
   it("talks to a Unix socket, and on Windows to the named pipe Herdr names by the socket path", () => {

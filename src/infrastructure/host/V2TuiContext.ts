@@ -76,7 +76,7 @@ export interface V2ThemeTokens {
 export interface V2TuiContext {
   readonly theme: V2ThemeTokens
   readonly client: V2Client
-  /** The TUI's synced copy of the server's sessions (`Data.session.get`: `SessionInfo`, or `undefined` while not loaded). */
+  /** The TUI's synced copy of the server's sessions (`Data.session.get`: `SessionInfo` — `title`, `parentID`, `agent` — or `undefined` while not loaded). */
   readonly data: {
     readonly session: {
       get(sessionID: string): SessionLink | undefined

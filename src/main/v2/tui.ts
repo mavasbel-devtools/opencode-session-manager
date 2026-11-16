@@ -4,8 +4,9 @@
  * subpath `tui` in the same plugin directory as the server entry.
  *
  * Registers the session ID line at the top of the sidebar and the
- * `/transfer-session` command, and inside a Herdr pane keeps the pane titled
- * with the open session's title; the returned cleanup removes them all.
+ * `/transfer-session` command, and inside a Herdr pane keeps the pane showing
+ * the open session's agent and its root's title; the returned cleanup removes
+ * them all.
  */
 import type { V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
 import { createTuiContainer } from "@session-manager/main/tui-container"

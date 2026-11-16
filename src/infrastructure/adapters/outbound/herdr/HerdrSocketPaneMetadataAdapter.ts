@@ -1,5 +1,6 @@
 import net from "node:net"
 import type { HerdrPane } from "@session-manager/domain/model/HerdrPane"
+import type { PanePresentation } from "@session-manager/domain/model/PaneTitle"
 import type { PaneMetadataPort } from "@session-manager/domain/ports/outbound/PaneMetadataPort"
 
 /** Who reports: Herdr keeps display values per source, so ours never replace another reporter's. */
@@ -29,8 +30,15 @@ export class HerdrSocketPaneMetadataAdapter implements PaneMetadataPort {
     private readonly timeoutMilliseconds: number,
   ) {}
 
-  show(title: string): Promise<boolean> {
-    return this.send({ title, display_agent: title })
+  /**
+   * Herdr replaces a source's whole record with each report, so both values go
+   * in every report and a value left out is cleared to Herdr's default.
+   */
+  show(presentation: PanePresentation): Promise<boolean> {
+    const values: Record<string, unknown> = {}
+    if (presentation.title !== undefined) values["title"] = presentation.title
+    if (presentation.agent !== undefined) values["display_agent"] = presentation.agent
+    return this.send(values)
   }
 
   clear(): Promise<boolean> {

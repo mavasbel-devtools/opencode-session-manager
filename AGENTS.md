@@ -330,7 +330,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `Session.ts` | plugin | session summaries, projects, transfer and move results, picker options |
 | `SessionId.ts` | plugin | the session-id guard and sidebar text |
 | `SidebarEntry.ts` | plugin | one sidebar line |
-| `PaneTitle.ts` | plugin | the Herdr pane title: `paneTitle` (whitespace, 80 characters with `…`), `rootSession` (the top of a sub-agent chain) |
+| `PaneTitle.ts` | plugin | the Herdr pane presentation: `paneTitle` (whitespace, 80 characters with `…`), `rootSession` (the top of a sub-agent chain), `SessionLink.agent`, `PanePresentation`, `panePresentation` (both values cleaned; nothing left → `undefined`), `samePresentation` |
 | `HerdrPane.ts` | plugin | the Herdr pane a process runs in, from `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID` |
 
 **`src/domain/services`** — pure rules.
@@ -419,7 +419,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `RepairSessionLocationsUseCase.ts` | plugin | moves only a session whose recorded directory is absent and whose explicit mapped target exists; can inspect every session or an explicitly selected one before transfer |
 | `BuildDirectoryOptionsUseCase.ts` | plugin | the known folders the transfer offers: once each, existing only, no filesystem root, in display order |
 | `BrowseFoldersUseCase.ts` | plugin | the folder browser's steps (type, ↑/↓, →, ←, Enter) over the listing port |
-| `ReportPaneTitleUseCase.ts` | plugin | the Herdr pane title: one report at a time, only changes, a refused one sent again, `refresh` to resend, `release` on exit |
+| `ReportPaneTitleUseCase.ts` | plugin | the Herdr pane presentation (agent and root title): one report at a time, only a change of either value, a refused one sent again, `refresh` to resend, `release` on exit |
 
 **`src/infrastructure/adapters/inbound`**
 
@@ -445,7 +445,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `tui/SessionTransferV2TuiAdapter.ts` | `/transfer-session` |
 | `tui/SessionLocationRepairV2TuiAdapter.ts` | mapping-only `/repair-sessions` |
 | `tui/FolderBrowserDialogV2Adapter.tsx` | the v2 folder browser dialog: path box, rows, keys (modal keymap layer) |
-| `tui/HerdrPaneTitleV2Adapter.ts` | reads the open session and its root's title from the TUI's synced data four times a second and reports it; resends every ten seconds; releases on cleanup |
+| `tui/HerdrPaneTitleV2Adapter.ts` | reads the open session's agent and its root's title from the TUI's synced data four times a second and reports them; resends every ten seconds; releases on cleanup |
 
 **`src/infrastructure/adapters/outbound`**
 
@@ -486,7 +486,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `system/SystemHomeDirectoryAdapter.ts` | the home folder, read per call |
 | `opencode2/OpenCode2HostAdapter.ts` | the OpenCode 2 host API |
 | `tui/HostThemePaletteV2Adapter.ts`, `tui/OpenTuiSidebarViewAdapter.tsx` | theme colours and the sidebar line view |
-| `herdr/HerdrSocketPaneMetadataAdapter.ts` | Herdr's API socket (a named pipe on Windows): `pane.report_metadata` with `title` and `display_agent` under the source `opencode-session-manager:title`, guarded by `agent: opencode`, numbered with `seq`; answers `false` (never throws) when Herdr refuses, garbles, hangs up, is silent for a second or is gone |
+| `herdr/HerdrSocketPaneMetadataAdapter.ts` | Herdr's API socket (a named pipe on Windows): `pane.report_metadata` with `title` (root title) and `display_agent` (the open session's agent), each left out when not known, under the source `opencode-session-manager:title`, guarded by `agent: opencode`, numbered with `seq`; answers `false` (never throws) when Herdr refuses, garbles, hangs up, is silent for a second or is gone |
 
 **`src/infrastructure/host`** — the v2 host API typed structurally:
 `V2ServerContext.ts`, `V2TuiContext.ts`, `V2Client.ts`.
@@ -521,9 +521,12 @@ program's entry), `cli/platform.ts` (loads one platform's container).
   the real 2.0.26 TUI (`tests/live/tui-transfer.test.ts`).
 - **Herdr pane title.** Inside a Herdr pane (`HERDR_ENV=1` with `HERDR_SOCKET_PATH`
   and `HERDR_PANE_ID`, which Herdr gives every process it starts in a pane) the
-  TUI reports the open session's title — the root of its sub-agent chain, the
-  session Herdr's own OpenCode integration reports for the pane — as the pane's
-  `title` and `display_agent` (`pane.report_metadata`, display only: state,
+  TUI reports the open session's agent (`data.session.get(id).agent`, which
+  OpenCode records when a prompt is sent; the prompt's Tab selection is not
+  visible to plugins) as `display_agent`, and the title of the root of its
+  sub-agent chain — the session Herdr's own OpenCode integration reports for
+  the pane — as `title`; a value not known is left out, because a report
+  replaces the source's whole record (`pane.report_metadata`, display only: state,
   waits and notifications stay with Herdr's integration). The values carry the
   guard `agent: opencode`: measured on Herdr 0.9.3, a report arriving before
   Herdr recognises OpenCode in the pane is accepted but dropped, so the title is
@@ -531,8 +534,8 @@ program's entry), `cli/platform.ts` (loads one platform's container).
   The route and titles are read on a timer, as Herdr's integration reads the
   route: there is no host event that arrives after the synced data changed.
   Herdr's agent *name* (`agent rename`) is not set: names are
-  `[a-z][a-z0-9_-]{0,31}`, so titles would collide. Verified with the real TUI in a
-  real Herdr (`tests/live/tui-herdr.test.ts`).
+  `[a-z][a-z0-9_-]{0,31}`, so titles would collide. Verified with the real TUI (OpenCode 2.3.0) in a
+  real Herdr 0.9.5 (`tests/live/tui-herdr.test.ts`).
 - `plugin.list` does not wait for activation; `integration.list` does, so tests
   call it first. The CLI `session list` can answer `[]` for a just-created
   session; tests use `api session.list`.
@@ -542,7 +545,7 @@ program's entry), `cli/platform.ts` (loads one platform's container).
 | Tier | What runs | Coverage |
 |---|---|---|
 | unit | one class at a time with stand-ins; the architecture, SOLID, platform, host-fixture and coverage-completeness gates | **measured, 100%** |
-| component | the wired plugin painted by the real OpenTUI renderer; tool parity; real SQLite compacting real databases | not gated |
+| component | the wired plugin painted by the real OpenTUI renderer; the wired Herdr pane presentation against a fake Herdr socket; tool parity; real SQLite compacting real databases | not gated |
 | e2e | `src` driven end to end in-process: the v2 entries through the real 2.0.14 `Host.resolve`/`Host.load` and slot resolver (the Herdr pane title over a Unix socket); the CLI container over real databases (OpenCode 2.0.24's schema), Magic Context stores, folders and git repositories, legacy parity, and the browser applying its queue in OpenTUI's test renderer | **measured, 100%, per platform** |
 | live | the real `opencode` executable, the built bundles, the installers, the real TUI in a pseudo-terminal (sidebar line and `/transfer-session`); the real TUI in a pane of a real, private Herdr server (pane title; skipped without `herdr`); the CLI on a snapshot of the real `opencode.db`; the compiled browser in a pseudo-terminal; the installed Magic Context upgrading and opening real store copies; a real `sync` and `context sync` into a copy of this machine's profile, listed afterwards by a sandboxed OpenCode (when `OPENCODE_SM_LIVE_OTHER_PROFILE` is set). Variables: README, *Environment variables* | not measurable |
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { herdrPane } from "@session-manager/domain/model/HerdrPane"
-import { PANE_TITLE_LIMIT, paneTitle, rootSession, type SessionLink } from "@session-manager/domain/model/PaneTitle"
+import { PANE_TITLE_LIMIT, panePresentation, paneTitle, rootSession, samePresentation, type SessionLink } from "@session-manager/domain/model/PaneTitle"
 
 describe("paneTitle", () => {
   it("keeps a title that fits, as written", () => {
@@ -59,6 +59,50 @@ describe("rootSession", () => {
 
   it("is unknown for a chain that loops", () => {
     expect(rootSession("ses_a", lookup)).toBeUndefined()
+  })
+})
+
+describe("panePresentation", () => {
+  it("[UC-1] keeps an agent and a title, each as Herdr will show it", () => {
+    expect(panePresentation({ agent: " plan ", title: "  Lean   Formalization " })).toEqual({
+      agent: "plan",
+      title: "Lean Formalization",
+    })
+  })
+
+  it("[UC-5] keeps a title without an agent", () => {
+    expect(panePresentation({ agent: undefined, title: "Lean Formalization" })).toEqual({
+      agent: undefined,
+      title: "Lean Formalization",
+    })
+  })
+
+  it("[UC-4N] keeps the agent when the title is only whitespace or control characters", () => {
+    expect(panePresentation({ agent: "plan", title: " \u0007\t " })).toEqual({ agent: "plan", title: undefined })
+  })
+
+  it("[UC-5N] is nothing when neither value is left", () => {
+    expect(panePresentation({ agent: " ", title: undefined })).toBeUndefined()
+  })
+
+  it("cuts an agent longer than the limit like a title", () => {
+    expect(panePresentation({ agent: "a".repeat(81), title: undefined })?.agent).toBe(`${"a".repeat(79)}…`)
+  })
+})
+
+describe("samePresentation", () => {
+  it("[UC-3N] is the same for equal values in different objects", () => {
+    expect(samePresentation({ agent: "plan", title: "T" }, { agent: "plan", title: "T" })).toBe(true)
+  })
+
+  it("[UC-3] differs on the agent alone, and on the title alone", () => {
+    expect(samePresentation({ agent: "plan", title: "T" }, { agent: "build", title: "T" })).toBe(false)
+    expect(samePresentation({ agent: "plan", title: "T" }, { agent: "plan", title: "U" })).toBe(false)
+  })
+
+  it("treats nothing and nothing as the same, nothing and a presentation as different", () => {
+    expect(samePresentation(undefined, undefined)).toBe(true)
+    expect(samePresentation(undefined, { agent: "plan", title: undefined })).toBe(false)
   })
 })
 

@@ -6,11 +6,24 @@
  */
 export const PANE_TITLE_LIMIT = 80
 
-/** The slice of an OpenCode 2 session the pane title is worked out from. */
+/** The slice of an OpenCode 2 session the pane presentation is worked out from. */
 export interface SessionLink {
   readonly id: string
   readonly parentID?: string
   readonly title?: string
+  /** The agent the session runs with (`SessionInfo.agent`): OpenCode records it when a prompt is sent. */
+  readonly agent?: string
+}
+
+/**
+ * What a pane shows: the agent of the session on screen as Herdr's displayed
+ * agent name, and the title of that session's root as the pane's title.
+ * `undefined` is a value that is not known; Herdr then shows its own default
+ * for it.
+ */
+export interface PanePresentation {
+  readonly agent: string | undefined
+  readonly title: string | undefined
 }
 
 /**
@@ -46,4 +59,21 @@ export function rootSession(
     id = session.parentID
   }
   return undefined
+}
+
+/**
+ * A presentation as Herdr shows it: both values cleaned and shortened like a
+ * title (`paneTitle`). `undefined` when neither value is left, which hands
+ * the pane back to Herdr's defaults.
+ */
+export function panePresentation(read: PanePresentation): PanePresentation | undefined {
+  const agent = paneTitle(read.agent)
+  const title = paneTitle(read.title)
+  return agent === undefined && title === undefined ? undefined : { agent, title }
+}
+
+/** Whether two presentations show the same values; nothing and nothing are the same. */
+export function samePresentation(a: PanePresentation | undefined, b: PanePresentation | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b
+  return a.agent === b.agent && a.title === b.title
 }

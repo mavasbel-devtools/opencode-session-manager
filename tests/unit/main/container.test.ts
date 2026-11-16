@@ -34,8 +34,12 @@ describe("createTuiContainer", () => {
     expect(context.disposed).toHaveLength(1)
   })
 
-  it("wires no pane title outside Herdr", () => {
+  it("[UC-9] wires no pane title outside Herdr", () => {
     expect(createTuiContainer(fakeTuiContext().client, {}, "linux").paneTitle).toBeUndefined()
+  })
+
+  it("[UC-9N] wires no pane title when HERDR_ENV is set without a socket or a pane", () => {
+    expect(createTuiContainer(fakeTuiContext().client, { HERDR_ENV: "1" }, "linux").paneTitle).toBeUndefined()
   })
 
   it("inside Herdr, wires a pane title that reports the open session's title to the pane's socket", async () => {
