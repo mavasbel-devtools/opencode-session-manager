@@ -7,6 +7,10 @@ import { JointSwapService } from "@session-manager/application/JointSwapService"
 import { NameRewriter } from "@session-manager/domain/services/NameRewriter"
 import type { NameRename } from "@session-manager/domain/model/NameRename"
 import { RelocateSessionsUseCase } from "@session-manager/application/RelocateSessionsUseCase"
+import { RepairWorktreeLinksUseCase } from "@session-manager/application/RepairWorktreeLinksUseCase"
+import { NodeFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeFileSystemAdapter"
+import { NodeLocationRepairMappingsAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeLocationRepairMappingsAdapter"
+import { GitWorktreeAdapter } from "@session-manager/infrastructure/adapters/outbound/project/GitWorktreeAdapter"
 import { RelocateCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/RelocateCliAdapter"
 import { BunRelocationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunRelocationStoreAdapter"
 import { BunMagicContextRelocationStoreAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunMagicContextRelocationStoreAdapter"
@@ -276,7 +280,15 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
     nameRewriterFor,
     combinedRewriter,
   })
-  const relocateCli = new RelocateCliAdapter({ relocate, profiles, output, runtime, environment })
+  const relocateCli = new RelocateCliAdapter({
+    relocate,
+    profiles,
+    output,
+    runtime,
+    environment,
+    mappings: new NodeLocationRepairMappingsAdapter(environment, () => runtime.homeDirectory()),
+    worktrees: new RepairWorktreeLinksUseCase(new GitWorktreeAdapter(), new NodeFileSystemAdapter()),
+  })
 
   const verifyProfile = new VerifyProfileUseCase({
     sessions: sessionStore,

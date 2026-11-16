@@ -92,8 +92,18 @@ export class SessionTransferV2TuiAdapter {
     try {
       const report = await this.services.repairSession.execute([sessionId])
       const repair = report.repaired[0]
+      const skip = report.skipped[0]
       if (repair !== undefined)
         context.ui.toast.show({ variant: "info", title: TITLE, message: `Repaired stale location to ${repair.to_directory}.`, duration: 4000 })
+      else if (report.busy)
+        context.ui.toast.show({ variant: "warning", title: TITLE, message: "Location repair skipped: another OpenCode window is repairing session locations.", duration: 5000 })
+      else if (skip?.reason === "target-missing" || skip?.reason === "worktree-unresolved")
+        context.ui.toast.show({
+          variant: "warning",
+          title: TITLE,
+          message: `Location repair skipped: ${skip.reason === "target-missing" ? "the mapped folder" : "Git cannot resolve the work tree of"} ${skip.to_directory}${skip.reason === "target-missing" ? " is missing" : ""}.`,
+          duration: 5000,
+        })
     } catch (error) {
       context.ui.toast.show({ variant: "warning", title: TITLE, message: `Location repair skipped: ${errorMessage(error)}`, duration: 5000 })
     }

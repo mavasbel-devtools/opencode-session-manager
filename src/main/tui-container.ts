@@ -2,6 +2,8 @@ import { BrowseFoldersUseCase } from "@session-manager/application/BrowseFolders
 import { BuildDirectoryOptionsUseCase } from "@session-manager/application/BuildDirectoryOptionsUseCase"
 import { MoveSessionUseCase } from "@session-manager/application/MoveSessionUseCase"
 import { RepairSessionLocationsUseCase } from "@session-manager/application/RepairSessionLocationsUseCase"
+import { RepairWorktreeLinksUseCase } from "@session-manager/application/RepairWorktreeLinksUseCase"
+import { defaultDataHome, profileAt } from "@session-manager/domain/model/Profile"
 import { RenderSidebarEntryUseCase } from "@session-manager/application/RenderSidebarEntryUseCase"
 import { ReportPaneTitleUseCase } from "@session-manager/application/ReportPaneTitleUseCase"
 import { herdrPane } from "@session-manager/domain/model/HerdrPane"
@@ -12,10 +14,13 @@ import { SessionTransferV2TuiAdapter } from "@session-manager/infrastructure/ada
 import { SessionLocationRepairV2TuiAdapter } from "@session-manager/infrastructure/adapters/inbound/tui/SessionLocationRepairV2TuiAdapter"
 import { HerdrSocketPaneMetadataAdapter } from "@session-manager/infrastructure/adapters/outbound/herdr/HerdrSocketPaneMetadataAdapter"
 import { NodeDirectoryListingAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeDirectoryListingAdapter"
+import { FsStoreLockAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/FsStoreLockAdapter"
 import { NodeFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeFileSystemAdapter"
 import { NodeLocationRepairMappingsAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeLocationRepairMappingsAdapter"
+import { GitWorktreeAdapter } from "@session-manager/infrastructure/adapters/outbound/project/GitWorktreeAdapter"
 import { OpenCode2HostAdapter } from "@session-manager/infrastructure/adapters/outbound/opencode2/OpenCode2HostAdapter"
 import { HostThemePaletteV2Adapter } from "@session-manager/infrastructure/adapters/outbound/tui/HostThemePaletteV2Adapter"
+import { SystemClockAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemClockAdapter"
 import { SystemHomeDirectoryAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemHomeDirectoryAdapter"
 import { OpenTuiSidebarViewAdapter } from "@session-manager/infrastructure/adapters/outbound/tui/OpenTuiSidebarViewAdapter"
 import type { V2Client } from "@session-manager/infrastructure/host/V2Client"
@@ -52,7 +57,18 @@ export function createTuiContainer(
   const fs = new NodeFileSystemAdapter()
   const home = new SystemHomeDirectoryAdapter()
   const listing = new NodeDirectoryListingAdapter()
-  const repair = new RepairSessionLocationsUseCase(host, fs, new NodeLocationRepairMappingsAdapter(process.env, () => home.homeDirectory()))
+  // Repairs share the session store's lock with `relocate` and `sync`, so windows never repair at once.
+  const repair = new RepairSessionLocationsUseCase(
+    host,
+    fs,
+    new NodeLocationRepairMappingsAdapter(environment, () => home.homeDirectory()),
+    new RepairWorktreeLinksUseCase(new GitWorktreeAdapter(), fs),
+    {
+      locks: new FsStoreLockAdapter(),
+      runtime: new SystemClockAdapter(),
+      store: profileAt("profile", defaultDataHome(environment, home.homeDirectory())).opencodeDb,
+    },
+  )
   return {
     sidebar: new SessionIdSidebarSlotV2Adapter(
       (context) => new RenderSidebarEntryUseCase(new HostThemePaletteV2Adapter(context), new OpenTuiSidebarViewAdapter()),

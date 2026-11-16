@@ -48,7 +48,10 @@ for (const doc of docs) {
   }
 
   const frozen = rel.split(/[\\/]/).slice(0, 2).join("/") === "docs/reference"
-  for (const match of frozen ? [] : text.matchAll(pathRef)) if (!existsSync(join(ROOT, match[0]))) failures.push(`${rel}: referenced path does not exist: ${match[0]}`)
+  // Plans describe files that do not exist yet and records must name deleted residue to prove its
+  // absence; L3 cannot apply to either folder. Fences (L1) and mermaid (L2) still do.
+  const working = ["docs/plans", "docs/sessions"].includes(rel.split(/[\\/]/).slice(0, 2).join("/"))
+  for (const match of frozen || working ? [] : text.matchAll(pathRef)) if (!existsSync(join(ROOT, match[0]))) failures.push(`${rel}: referenced path does not exist: ${match[0]}`)
 
   if (/^(README|AGENTS)\.md$/.test(rel)) {
     for (const match of text.matchAll(/bun run ([a-z0-9:_-]+)/g)) if (!scripts.has(match[1])) failures.push(`${rel}: unknown script 'bun run ${match[1]}'`)

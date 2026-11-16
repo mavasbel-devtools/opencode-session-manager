@@ -15,7 +15,7 @@ code is wrong until one of them is deliberately changed.
 | OpenCode 1 | not supported by the plugin (dropped 2026-10-14) | the program still reads and copies the OpenCode 1 sessions an OpenCode 2 store keeps |
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | build outputs | `dist/v2/{server,tui}.js` | the entrypoints the host loads |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `relocate [--data <dataHome>] (--map <from>=<to> \| --rename <folder>=<name> \| --relink)... (--session <id>... \| --all) [--dry-run] [--json]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `relocate [--data <dataHome>] (--map <from>=<to> \| --rename <folder>=<name> \| --relink \| --configured)... (--session <id>... \| --all) [--repair-worktrees] [--dry-run] [--json]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
 | CLI platforms | Linux and Windows (`linux`, `win32`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
@@ -319,6 +319,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `Relocate.ts` | sessions | `relocate` input, moved and skipped sessions, text rewrite counts, checks, the report and `relocateLines` |
 | `SessionSync.ts` | sessions | session sync input, map rules, `--prefer`, the action per history relation (`actionFor`), the report |
 | `LocationRepair.ts` | plugin | explicit online repair plans, skips, and reports |
+| `GitWorktree.ts` | plugin, sessions | the Git work tree a folder belongs to as its `.git` entries describe it, repair plans, link outcomes |
 | `Verify.ts` | sessions | `verify`: finding kinds and their severity, a session's Magic Context vitals, the report and its text (`verifyLines`) |
 | `Build.ts` | maintenance | the six checks of a compacted copy |
 | `Database.ts` | maintenance | page statistics, schema, header and per-table fingerprints of a database |
@@ -341,6 +342,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `WindowsMapping.ts` | sessions | the mapping a session's own folders imply (Windows profile → this home, plus a moved folder) |
 | `RenameRules.ts`, `NameRewriter.ts`, `CompositeTextRewriter.ts` | sessions | `relocate --rename <folder>=<name>` rules → renames and the folder moves they imply; whole-name replacement of the old names (paths, Windows paths, prose, `%XX`, dash-encoded paths); several rewriters as one |
 | `RelocateRules.ts` | sessions | `relocate --map` rules → folder moves, the text mapping (absolute, and `~/…` below the home) and the hints a rewrite searches for (`relocationsFromRules`, `relocatedFolder`) |
+| `WorktreeRepairPlanner.ts` | plugin, sessions | the one `git worktree repair` explicit mappings prove for a work tree, without guessing |
 | `MapRules.ts` | sessions | `--map` rules → a `PathMapping` (`parseMapRule`, `mappingFromRules`, `NO_WINDOWS_PROFILE`) |
 | `Versions.ts` | sessions | `compareVersions` (dotted numeric versions) |
 | `Fork.ts` (model) | sessions | OpenCode 2.0.26's fork rules: `forkTitle`, `isSettled` (what a fork copies), `opencodeId` (OpenCode's id format), slug words, the `fork` report |
@@ -372,7 +374,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
 `MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`, `RepairSessionLocationsPort.ts`,
-`MoveSessionPort.ts`, `BuildDirectoryOptionsPort.ts`, `BrowseFoldersPort.ts`,
+`RepairWorktreeLinksPort.ts`, `MoveSessionPort.ts`, `BuildDirectoryOptionsPort.ts`, `BrowseFoldersPort.ts`,
 `ReportPaneTitlePort.ts` (plugin).
 
 **`src/domain/ports/outbound`** — what the inner layers need from outside:
@@ -385,7 +387,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts`, `RelocationStorePort.ts`,
 `MagicContextRelocationStorePort.ts` (sessions); `SessionHostPort.ts`, `FileSystemPort.ts`, `LocationRepairMappingsPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`, `DirectoryListingPort.ts`,
-`SidebarViewPort.ts`, `PaneMetadataPort.ts` (plugin).
+`SidebarViewPort.ts`, `PaneMetadataPort.ts`, `GitWorktreePort.ts` (plugin).
 
 **`src/application`** — use cases and the services they compose.
 
@@ -417,6 +419,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `RenderSidebarEntryUseCase.ts` | plugin | the sidebar line |
 | `MoveSessionUseCase.ts` | plugin | the transfer through the host |
 | `RepairSessionLocationsUseCase.ts` | plugin | moves only a session whose recorded directory is absent and whose explicit mapped target exists; can inspect every session or an explicitly selected one before transfer |
+| `RepairWorktreeLinksUseCase.ts` | plugin, sessions | runs Git's own `git worktree repair` only when an explicit mapping proves it, then reports what Git resolves afterwards |
 | `BuildDirectoryOptionsUseCase.ts` | plugin | the known folders the transfer offers: once each, existing only, no filesystem root, in display order |
 | `BrowseFoldersUseCase.ts` | plugin | the folder browser's steps (type, ↑/↓, →, ←, Enter) over the listing port |
 | `ReportPaneTitleUseCase.ts` | plugin | the Herdr pane presentation (agent and root title): one report at a time, only a change of either value, a refused one sent again, `refresh` to resend, `release` on exit |
@@ -473,6 +476,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `magic-context/MagicContextIdentityAdapter.ts` | Magic Context's project identity of a folder |
 | `project/OpenCodeGitIdentity.ts` | how OpenCode 2.0.26 names a git repository's project (`origin` remote only, the id stored in `<git-common-dir>/opencode`, the first root commit in sorted order) |
 | `project/GitProjectIdentityAdapter.ts` | OpenCode 2's project id of a folder (outside a repository: `sha1("directory:" + realpath)`) |
+| `project/GitWorktreeAdapter.ts` | reads the `.git` entries Git keeps for its work trees and runs Git itself for the repair and the resolve check |
 | `platform/linux/ProcProcessListAdapter.ts`, `platform/linux/ProcFdHoldersAdapter.ts`, `platform/linux/ProcFs.ts` | Linux: running processes and file holders from `/proc` |
 | `platform/win32/TasklistAdapter.ts`, `platform/win32/RenameProbeHoldersAdapter.ts` | Windows: `tasklist` and the rename probe |
 | `fs/NodeMaintenanceFileSystemAdapter.ts` | the program's file operations |
@@ -585,6 +589,8 @@ in-process real-host tier and "live" is the real external process.
 | `sessions/sql-script.ts` | `runScript`, `statementsOf`: a fixture's extra SQL run one statement at a time (Bun 1.4's `exec` ignores errors of all but the last statement of a script) |
 | `sessions/frames.ts` | `waitForText`: waits in real time for text in OpenTUI's test renderer |
 | `sessions/terminal-streams.ts` | a silent terminal for OpenTUI's renderer |
+| `live/drive-repair.mjs` | opens the real OpenCode TUI in a pseudo-terminal and waits for the startup location repair to report through a toast |
+| `repair/repair-process.ts` | one OpenCode window's repair pass, in its own process, over a host whose sessions live in a shared JSON file |
 
 ### Coverage law
 
@@ -640,7 +646,7 @@ lives under `docs/`, named `YYYY-MM-DD-HH-MM-<name>.md` with the real time:
 plan), `docs/reference/` (ground truth: external formats, frozen predecessors'
 docs), `docs/issues/` (bugs being chased), `docs/sessions/` (an agent session's
 state), `docs/temp/` (scratch). `bun run lint:diagrams` checks fences, mermaid
-blocks, that referenced paths exist (except under `docs/reference/`), that every
+blocks, that referenced paths exist (except under `docs/reference/`, `docs/plans/` and `docs/sessions/`, which describe states other than the current tree), that every
 `bun run` script named exists, and that README and this file name every `src`
 file, every `tests/support` file, every `package.json` script and every
 environment variable the code reads.

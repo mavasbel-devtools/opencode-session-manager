@@ -1,3 +1,5 @@
+import { InvalidMapRuleError } from "@session-manager/domain/errors/InvalidMapRuleError"
+import { locationRepairMessage, locationRepairNeedsAttention, type LocationRepairReport } from "@session-manager/domain/model/LocationRepair"
 import type { RepairSessionLocationsPort } from "@session-manager/domain/ports/inbound/RepairSessionLocationsPort"
 import { APP_SLOT, type V2KeymapLayer, type V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
 
@@ -32,22 +34,26 @@ export class SessionLocationRepairV2TuiAdapter {
     })
   }
 
+  /**
+   * On request every outcome is shown. At startup only a change (a repaired session or work tree)
+   * or a configuration error is: a busy lock or a host failure there is transient and says nothing
+   * about any folder.
+   */
   private async repair(context: V2TuiContext, requested: boolean): Promise<void> {
+    let report: LocationRepairReport
     try {
-      const report = await this.repairSessions.execute()
-      if (report.repaired.length > 0) {
-        context.ui.toast.show({
-          variant: "success",
-          title: TITLE,
-          message: `Repaired ${report.repaired.length} session location${report.repaired.length === 1 ? "" : "s"}.`,
-          duration: 5000,
-        })
-      } else if (requested) {
-        const message = report.rules.length === 0 ? "No location-repair mappings are configured." : "No stale mapped session locations needed repair."
-        context.ui.toast.show({ variant: "info", title: TITLE, message, duration: 5000 })
-      }
+      report = await this.repairSessions.execute()
     } catch (error) {
-      if (requested) context.ui.toast.show({ variant: "error", title: TITLE, message: error instanceof Error ? error.message : String(error) })
+      const message = error instanceof Error ? error.message : String(error)
+      if (error instanceof InvalidMapRuleError)
+        context.ui.toast.show({ variant: "error", title: TITLE, message: `Location-repair configuration is invalid: ${message}`, duration: 8000 })
+      else if (requested) context.ui.toast.show({ variant: "error", title: TITLE, message })
+      return
     }
+    const changed = report.repaired.length > 0 || report.worktrees.some((tree) => tree.status === "repaired")
+    if (!requested && !changed) return
+    const message = locationRepairMessage(report) ?? "No location-repair mappings are configured."
+    const variant = report.busy || report.rules.length === 0 ? "info" : locationRepairNeedsAttention(report) ? "warning" : changed ? "success" : "info"
+    context.ui.toast.show({ variant, title: TITLE, message, duration: 5000 })
   }
 }

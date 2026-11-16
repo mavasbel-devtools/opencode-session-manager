@@ -257,7 +257,7 @@ opencode-session-manager fork --session <id> [--before <messageId>] [--server <u
 # Write (to copies, swapped in by renames): OpenCode must be closed
 opencode-session-manager sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... \
   (--session <id>... | --all) [--prefer further|keep|replace] [--diverged skip|fork] [--context all|sessions] [--strict] [--dry-run]
-opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name> | --relink)... (--session <id>... | --all) [--dry-run] [--json]
+opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name> | --relink | --configured)... (--session <id>... | --all) [--repair-worktrees] [--dry-run] [--json]
 opencode-session-manager context sync --from <dataHome> --to <dataHome> (--session <id>... | --all) \
   [--prefer keep|further|replace | --replace] [--context all|sessions] [--strict] [--dry-run]
 opencode-session-manager rehearse [--db <path>] [--keep]

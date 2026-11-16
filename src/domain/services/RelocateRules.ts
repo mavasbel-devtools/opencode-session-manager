@@ -57,3 +57,22 @@ export function relocatedFolder(folders: readonly Relocation[], directory: strin
 function trimSlash(path: string): string {
   return path.length > 1 ? path.replace(/\/+$/, "") : path
 }
+
+/**
+ * `relocate --configured`: the `location_repair` mappings the plugin repairs with, then the
+ * command line's own `--map` rules. A rule given both ways counts once; a command-line rule that
+ * overlaps a different configured one is refused, so the two surfaces never disagree about where
+ * a folder went.
+ */
+export function withConfiguredRules(configured: readonly MapRule[], explicit: readonly MapRule[]): MapRule[] {
+  const rules: MapRule[] = configured.map((rule) => ({ from: trimSlash(rule.from), to: trimSlash(rule.to) }))
+  for (const rule of explicit) {
+    const from = trimSlash(rule.from)
+    const to = trimSlash(rule.to)
+    const clash = rules.find((other) => isWithin(other.from, from) || isWithin(from, other.from))
+    if (clash === undefined) rules.push({ from, to })
+    else if (clash.from !== from || clash.to !== to)
+      throw new InvalidMapRuleError(`${rule.from}=${rule.to}`, `overlaps the configured location_repair mapping ${clash.from}=${clash.to}`)
+  }
+  return rules
+}

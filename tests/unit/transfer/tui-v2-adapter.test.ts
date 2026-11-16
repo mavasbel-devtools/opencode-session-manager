@@ -3,6 +3,7 @@ import {
   SessionTransferV2TuiAdapter,
   type V2TransferServices,
 } from "@session-manager/infrastructure/adapters/inbound/tui/SessionTransferV2TuiAdapter"
+import { InvalidMapRuleError } from "@session-manager/domain/errors/InvalidMapRuleError"
 import { SessionLocationRepairV2TuiAdapter } from "@session-manager/infrastructure/adapters/inbound/tui/SessionLocationRepairV2TuiAdapter"
 import type { LocationRepairReport } from "@session-manager/domain/model/LocationRepair"
 import type { RepairSessionLocationsPort } from "@session-manager/domain/ports/inbound/RepairSessionLocationsPort"
@@ -18,7 +19,7 @@ import {
   FakeSessionHostAdapter,
 } from "@test/support/fakes/transfer-ports"
 
-function makeServices(folders: Array<string | undefined> = [], repairSession: RepairSessionLocationsPort = { execute: async () => ({ rules: [], repaired: [], skipped: [] }) }) {
+function makeServices(folders: Array<string | undefined> = [], repairSession: RepairSessionLocationsPort = { execute: async () => ({ rules: [], repaired: [], skipped: [], worktrees: [], busy: false }) }) {
   const host = new FakeSessionHostAdapter()
   const fs = new FakeFileSystemAdapter()
   const listing = new FakeDirectoryListingAdapter()
@@ -89,7 +90,7 @@ class FakeRepairPort implements RepairSessionLocationsPort {
   async execute(): Promise<LocationRepairReport> {
     this.calls++
     if (this.failure !== undefined) throw this.failure
-    return this.reports.shift() ?? { rules: [], repaired: [], skipped: [] }
+    return this.reports.shift() ?? { rules: [], repaired: [], skipped: [], worktrees: [], busy: false }
   }
 }
 
@@ -139,7 +140,7 @@ describe("SessionTransferV2TuiAdapter", () => {
 
   it("repairs only the selected stale session before offering its intentional destination", async () => {
     const repair = new FakeRepairPort()
-    repair.reports.push({ rules: [{ from: "/old", to: "/new" }], repaired: [{ session_id: "ses_abc", from_directory: "/old/project", to_directory: "/new/project" }], skipped: [] })
+    repair.reports.push({ rules: [{ from: "/old", to: "/new" }], repaired: [{ session_id: "ses_abc", from_directory: "/old/project", to_directory: "/new/project" }], skipped: [], worktrees: [], busy: false })
     const { host, services } = makeServices(["/chosen"], repair)
     const ctx = makeContext({ route: { type: "session", sessionID: "ses_abc" } })
 
@@ -171,6 +172,44 @@ describe("SessionTransferV2TuiAdapter", () => {
         { variant: "success", title: "Session transferred", message: "Moved to /chosen", duration: 4000 },
       ],
     ])
+  })
+
+  it("warns but still transfers when the selected session's repair is busy, has a missing target, or an unresolved work tree", async () => {
+    const rules = [{ from: "/old", to: "/new" }]
+    const cases: Array<[LocationRepairReport, string]> = [
+      [{ rules, repaired: [], skipped: [], worktrees: [], busy: true }, "Location repair skipped: another OpenCode window is repairing session locations."],
+      [
+        { rules, repaired: [], skipped: [{ session_id: "ses_abc", directory: "/old/p", reason: "target-missing", to_directory: "/new/p" }], worktrees: [], busy: false },
+        "Location repair skipped: the mapped folder /new/p is missing.",
+      ],
+      [
+        { rules, repaired: [], skipped: [{ session_id: "ses_abc", directory: "/old/p", reason: "worktree-unresolved", to_directory: "/new/p" }], worktrees: [], busy: false },
+        "Location repair skipped: Git cannot resolve the work tree of /new/p.",
+      ],
+    ]
+    for (const [report, message] of cases) {
+      const repair = new FakeRepairPort()
+      repair.reports.push(report)
+      const { host, services } = makeServices(["/chosen"], repair)
+      const ctx = makeContext({ route: { type: "session", sessionID: "ses_abc" } })
+      await new SessionTransferV2TuiAdapter(services).open(ctx.context)
+      expect([host.moves, ctx.toasts[0]]).toEqual([[{ sessionId: "ses_abc", directory: "/chosen" }], { variant: "warning", title: "Transfer session", message, duration: 5000 }])
+    }
+  })
+
+  it("stays quiet before a transfer when the selected session needed no repair", async () => {
+    const repair = new FakeRepairPort()
+    repair.reports.push({
+      rules: [{ from: "/old", to: "/new" }],
+      repaired: [],
+      skipped: [{ session_id: "ses_abc", directory: "/work/p", reason: "directory-present", to_directory: null }],
+      worktrees: [],
+      busy: false,
+    })
+    const { services } = makeServices(["/chosen"], repair)
+    const ctx = makeContext({ route: { type: "session", sessionID: "ses_abc" } })
+    await new SessionTransferV2TuiAdapter(services).open(ctx.context)
+    expect(ctx.toasts).toEqual([{ variant: "success", title: "Session transferred", message: "Moved to /chosen", duration: 4000 }])
   })
 
   it("asks for a session first when no session is open, showing folders under the home as ~", async () => {
@@ -262,8 +301,8 @@ describe("SessionLocationRepairV2TuiAdapter", () => {
   it("reports repairs, mapped no-ops, and an explicit command failure", async () => {
     const repair = new FakeRepairPort()
     repair.reports.push(
-      { rules: [{ from: "/old", to: "/new" }], repaired: [{ session_id: "ses_a", from_directory: "/old/a", to_directory: "/new/a" }], skipped: [] },
-      { rules: [{ from: "/old", to: "/new" }], repaired: [], skipped: [] },
+      { rules: [{ from: "/old", to: "/new" }], repaired: [{ session_id: "ses_a", from_directory: "/old/a", to_directory: "/new/a" }], skipped: [], worktrees: [], busy: false },
+      { rules: [{ from: "/old", to: "/new" }], repaired: [], skipped: [], worktrees: [], busy: false },
     )
     const ctx = makeContext({ route: { type: "home" } })
     new SessionLocationRepairV2TuiAdapter(repair).register(ctx.context)
@@ -278,5 +317,55 @@ describe("SessionLocationRepairV2TuiAdapter", () => {
     command.run()
     await tick()
     expect(ctx.toasts[2]).toEqual({ variant: "error", title: "Repair session locations", message: "server unavailable" })
+  })
+
+  it("shows a startup change and a configuration error, but keeps a busy lock or host failure at startup quiet", async () => {
+    const rules = [{ from: "/old", to: "/new" }]
+    const tree = { directory: "/new/wt", root: "/new/wt", status: "repaired" as const, command: { cwd: "/new/wt", paths: [] } }
+    const startup = async (outcome: LocationRepairReport | Error) => {
+      const repair = new FakeRepairPort()
+      if (outcome instanceof Error) repair.failure = outcome
+      else repair.reports.push(outcome)
+      const ctx = makeContext({ route: { type: "home" } })
+      new SessionLocationRepairV2TuiAdapter(repair).register(ctx.context)
+      await tick()
+      return ctx.toasts
+    }
+    expect(await startup({ rules, repaired: [], skipped: [], worktrees: [tree], busy: false })).toEqual([
+      { variant: "success", title: "Repair session locations", message: "No stale mapped session locations needed repair. Repaired Git links of 1 work tree.", duration: 5000 },
+    ])
+    expect(await startup({ rules, repaired: [], skipped: [], worktrees: [], busy: true })).toEqual([])
+    expect(await startup(new Error("connection reset"))).toEqual([])
+    expect(await startup(new InvalidMapRuleError("/cfg", "location_repair maps must not overlap"))).toEqual([
+      { variant: "error", title: "Repair session locations", message: "Location-repair configuration is invalid: --map /cfg: location_repair maps must not overlap", duration: 8000 },
+    ])
+  })
+
+  it("on request reports a busy lock and sessions left for attention", async () => {
+    const rules = [{ from: "/old", to: "/new" }]
+    const repair = new FakeRepairPort()
+    const ctx = makeContext({ route: { type: "home" } })
+    new SessionLocationRepairV2TuiAdapter(repair).register(ctx.context)
+    await tick()
+    ctx.slots[0]!.render()
+    const command = ctx.layers[0]!().commands[0]!
+    repair.reports.push(
+      { rules, repaired: [], skipped: [], worktrees: [], busy: true },
+      {
+        rules,
+        repaired: [{ session_id: "a", from_directory: "/old/a", to_directory: "/new/a" }],
+        skipped: [{ session_id: "b", directory: "/old/b", reason: "worktree-unresolved", to_directory: "/new/b" }],
+        worktrees: [],
+        busy: false,
+      },
+    )
+    command.run()
+    await tick()
+    command.run()
+    await tick()
+    expect(ctx.toasts).toEqual([
+      { variant: "info", title: "Repair session locations", message: "Another OpenCode window is repairing session locations; nothing was changed.", duration: 5000 },
+      { variant: "warning", title: "Repair session locations", message: "Repaired 1 session location. 1 session left: Git cannot resolve the mapped work tree.", duration: 5000 },
+    ])
   })
 })

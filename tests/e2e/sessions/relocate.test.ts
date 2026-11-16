@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs"
+import { mkdirSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 import { buildContainer } from "@session-manager/main/cli-container"
@@ -40,11 +40,11 @@ function runtime(): RuntimePort {
   }
 }
 
-async function cli(argv: string[]) {
+async function cli(argv: string[], environment: { readonly XDG_CONFIG_HOME?: string } = {}) {
   const out = captureConsole()
   const errors = captureConsoleError()
   try {
-    const container = await buildContainer({ OPENCODE_DB_COMPACT_IMAGE: "no-such-image" }, { runtime: runtime() })
+    const container = await buildContainer({ OPENCODE_DB_COMPACT_IMAGE: "no-such-image", ...environment }, { runtime: runtime() })
     let code: number
     try {
       code = await container.run(argv)
@@ -167,6 +167,45 @@ describe("relocate (real stores and folders, the wired container)", () => {
     expect((await cli(["rollback", backup, "--db", opencodeDb(), "--db", contextDb()])).code).toBe(0)
     expect([fileSha(opencodeDb()), fileSha(contextDb())]).toEqual(before)
     expect(readdirSync(at("data", "opencode")).filter((name) => name.startsWith("relocate-backup-"))).toEqual([`relocate-backup-${STAMP}`])
+  })
+
+  it("--configured --repair-worktrees: the plugin's mappings drive relocate, and Git's links to the moved work tree are repaired", async () => {
+    const { home, old, moved, project } = makeProfile()
+    const oldWorktree = join(home, "Documents", "old-wt")
+    const newWorktree = join(home, "repos", "wt")
+    expect(spawnSync("git", ["-C", moved, "worktree", "add", "-q", "-b", "feature", oldWorktree], { encoding: "utf8" }).status).toBe(0)
+    renameSync(oldWorktree, newWorktree)
+    mkdirSync(at("config", "opencode"), { recursive: true })
+    writeFileSync(
+      at("config", "opencode", "session-manager.jsonc"),
+      `// the plugin's own mappings\n${JSON.stringify({ location_repair: { maps: [{ from: old, to: moved }, { from: oldWorktree, to: newWorktree }] } })}`,
+    )
+    const worktrees = () => spawnSync("git", ["-C", moved, "worktree", "list", "--porcelain"], { encoding: "utf8" }).stdout
+    const environment = { XDG_CONFIG_HOME: at("config") }
+
+    const dry = await cli(["relocate", "--data", at("data"), "--configured", "--all", "--repair-worktrees", "--dry-run", "--json"], environment)
+    expect([dry.code, dry.json.rules, dry.json.worktrees]).toEqual([
+      0,
+      [
+        { from: old, to: moved },
+        { from: oldWorktree, to: newWorktree },
+      ],
+      [{ directory: moved, root: moved, status: "would-repair", command: { cwd: moved, paths: [newWorktree] } }],
+    ])
+    expect(worktrees()).toContain("prunable")
+
+    const run = await cli(["relocate", "--data", at("data"), "--configured", "--all", "--repair-worktrees"], environment)
+    expect([run.errors, run.code]).toEqual([[], 0])
+    expect(run.text.split("\n").at(-1)).toBe(`Work tree ${moved}: repaired (git -C ${moved} worktree repair ${newWorktree})`)
+    expect(worktrees()).toContain(`worktree ${newWorktree}\n`)
+    expect(worktrees()).not.toContain("prunable")
+    expect(query(opencodeDb(), "select id, directory, project_id from session_v2 where id = 'ses_a'")).toEqual([{ id: "ses_a", directory: moved, project_id: project }])
+
+    // A --map that disagrees with the configured mapping is refused before any store is opened.
+    const before = fileSha(opencodeDb())
+    const clash = await cli(["relocate", "--data", at("data"), "--configured", "--map", `${old}=${join(home, "elsewhere")}`, "--all"], environment)
+    expect([clash.code, clash.errors[0]]).toEqual([1, expect.stringContaining("overlaps the configured location_repair mapping")])
+    expect(fileSha(opencodeDb())).toBe(before)
   })
 
   it("--relink: sessions OpenCode already moved are linked to their folder's Magic Context project, and the old project is merged into it", async () => {
@@ -308,7 +347,7 @@ describe("relocate (real stores and folders, the wired container)", () => {
     const { old, moved } = makeProfile(`update session_meta set wrapup_in_progress_state = '{"expiresAt":9999999999999}' where session_id = 'ses_a'`)
     const before = [fileSha(opencodeDb()), fileSha(contextDb())]
     const usage = await cli(["relocate", "--all"])
-    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name> | --relink)... (--session <id>... | --all) [--dry-run] [--json]"])
+    expect([usage.code, usage.text]).toEqual([2, "usage: opencode-session-manager relocate [--data <dataHome>] (--map <from>=<to> | --rename <folder>=<name> | --relink | --configured)... (--session <id>... | --all) [--repair-worktrees] [--dry-run] [--json]"])
     expect((await cli(["relocate", "--data", at("data"), "--map", "C:\\Users\\Me=/x", "--all"])).errors[0]).toContain("relocate moves POSIX folders")
     const busy = await cli(["relocate", "--data", at("data"), ...mapOf(old, moved), "--all"])
     expect(busy.errors[0]).toContain("Magic Context is working on ses_a")

@@ -1,5 +1,8 @@
 import { test } from "bun:test"
 import assert from "node:assert/strict"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import type { Fingerprint } from "@session-manager/domain/model/Database"
 import { buildContainer, combinedRewriter, nameRewriterFor, rewriterFor } from "@session-manager/main/cli-container"
 import { FakeFileSystem } from "@test/support/maintenance/fakes/file-system"
@@ -76,4 +79,19 @@ test("overrides replace the session and Magic Context stores behind `sessions`",
   assert.equal(cli.run(["sessions", "--data", "/d"]), 0)
   assert.equal(output.lines[0], "opencode.db: /d/opencode/opencode.db (0 sessions)")
   assert.equal(output.lines[1], "context.db: /d/cortexkit/magic-context/context.db (no Magic Context store)")
+})
+
+test("relocate --configured reads the plugin's location_repair mappings from the configured XDG_CONFIG_HOME", async () => {
+  const config = fs.mkdtempSync(path.join(os.tmpdir(), "session-manager-container-config-"))
+  try {
+    fs.mkdirSync(path.join(config, "opencode"))
+    fs.writeFileSync(
+      path.join(config, "opencode", "session-manager.jsonc"),
+      JSON.stringify({ location_repair: { maps: [{ from: "/a", to: "/b" }, { from: "/a/c", to: "/b/c" }] } }),
+    )
+    const cli = await buildContainer({ XDG_CONFIG_HOME: config }, { runtime: new FakeRuntime(), output: new FakeOutput() })
+    assert.throws(() => cli.run(["relocate", "--configured", "--all"]), /location_repair maps must not overlap/)
+  } finally {
+    fs.rmSync(config, { recursive: true, force: true })
+  }
 })

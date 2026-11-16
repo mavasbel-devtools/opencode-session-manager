@@ -14,12 +14,12 @@ interface RepairConfig {
 /** Reads only the explicit mappings the owner has opted into for live repairs. */
 export class NodeLocationRepairMappingsAdapter implements LocationRepairMappingsPort {
   constructor(
-    private readonly environment: Readonly<Record<string, string | undefined>>,
+    private readonly environment: { readonly XDG_CONFIG_HOME?: string | undefined },
     private readonly home: () => string,
   ) {}
 
   mappings(): readonly MapRule[] {
-    const file = path.join(this.environment["XDG_CONFIG_HOME"] ?? path.join(this.home(), ".config"), "opencode", "session-manager.jsonc")
+    const file = path.join(this.environment.XDG_CONFIG_HOME || path.join(this.home(), ".config"), "opencode", "session-manager.jsonc")
     if (!fs.existsSync(file)) return []
     let parsed: RepairConfig
     try {
