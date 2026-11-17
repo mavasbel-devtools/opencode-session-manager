@@ -8,7 +8,11 @@
 - Session record: `{W}/docs/sessions/ses_e1dc7d932ffe69P47CJLyPq6qR.md` (new in `{A}`). The record of the same
   session kept so far in `{S}/docs/sessions/ses_e1dc7d932ffe69P47CJLyPq6qR.md` is imported frozen under another
   path by step 5.3 (Appendix E), so the two never collide.
-- Executed against: local `main` of `{A}` at `029c1b8` = `{base}` ("chore: ignore worktrees/", 2026-11-15 23:56:50,
+- Rebased base (revision 4): from step 1.14 on, `{base}` is local `main` of `{A}` as step 1.14 records it
+  (`3d079851592c159054bec7c0b55b5e76c7095fcf` at planning, "feat(plugin): show the session's agent and its root's title in
+  the Herdr pane", 2026-11-16 10:13:54, = `origin/main` by `git ls-remote`). The first base below is `{base0}`; steps
+  1.5–1.10 ran against `{base0}`.
+- Executed against (first base, `{base0}`): local `main` of `{A}` at `029c1b8` ("chore: ignore worktrees/", 2026-11-15 23:56:50,
   committed by a concurrent session, not pushed). `origin/main` = `166e9de118c27e236b4e2d857bb0d73549d1da7a`
   (`git -C {A} log --format='%h %ci %s' 166e9de..main`; `git ls-remote origin HEAD`, 2026-11-16 00:1x). Step 1.5
   records the full SHA. A concurrent worktree `{A}/worktrees/feat-herdr-pane-agent` (same SHA, untracked
@@ -16,6 +20,18 @@
   `{A}/worktrees/feat-macos-store-migration` (created 2026-11-16 00:16, same SHA, clean), was found during the plan
   loop; user decision: the same (D27).
 - Revision 1 (2026-11-16, replaces approved SHA-256 `7cfba3d86a1124ba72b386a851228d776a130ca4d408ec2246f40910d8ccee67`): step 1.1 gates 1–2 demanded `10` files but the step's own content enumerates 9 mappings; gates now demand `9`. Nothing else changed.
+- Revision 2 (2026-11-16, replaces revision 1 SHA-256 `38b3e76a6767ff6a3fefb73d90cd03e69c02a4297d7829757b2ffddc7517f4e2`): new step 1.13 exempts `docs/plans/` and `docs/sessions/` from lint rule L3 (path-exists); step 1.9 now also depends on 1.13; D28 records the rule change; Appendix E gains row L8. Reason: the plan copy names 296 future paths by design, and the session record must name deleted residue paths to prove `test ! -e` — L3 as written can never pass on either document, which blocks every later lint gate (1.7 gate 2, 1.9 gate 2, 2.2 gate 1, stage gates). Fences and mermaid (L1/L2) still apply to both folders. Nothing else changed.
+- Revision 4 (2026-11-16, replaces revision 3 SHA-256 `ae74cea69ae9df76db57df1467a22b5b69fbfc14fc63a72eb5998fdce1fe33bd`): `main` of `{A}` moved from `029c1b8` to `3d07985` (the herdr work, D17, merged and pushed; 19 files, among them `AGENTS.md` and `README.md`, which D1 and step 1.13 also change). The user asked to rebase now (D30). Changes: `{base0}` names the first base and `{base}` the rebased one; `{D1}` names the D1 digest relative to `{base}`; new steps 1.14 (rebase `{W}`), 1.15 (D1 re-backed up against `{base}`, with a three-way proof that only the base changed), 1.16 (the `{A}` bundle and the macOS and Linux `{A}` baselines taken again at `{base}`); step 1.12 depends on 1.11 and 1.16; steps 2.1 and 8.3 use `{D1}` and the re-backed-up patch; D17 row notes the merge; D30 added. Nothing else changed.
+- Revision 3 (2026-11-16, replaces revision 2 SHA-256 `34c6b7900110db7248f79990ffddda3cb9300af1e3dc90c5c2f0f58db99d0331`): the macOS baseline (step 1.9) found 6 failures outside the taxonomy — 4 tests compare a `tmpdir()` path (`/var/…`) with a resolved one (`/private/var/…`), 1 needs a running Herdr server, 1 needs the session-manager plugin installed. The user decided (D29) that tests separate OS-specific from common code by guards plus a rule, not by per-OS directories. Changes: D29; step 1.9 gate 3 accepts `other` failures that carry a printed cause and name the step that repairs them; Stage 4 `What`, steps 4.1 and 4.3 gain the guard helper, the architecture rule, the move of the platform-adapter tests beside their `src` mirror, the `realpath` fix and the precondition skips; Appendix E gains rule I12. Nothing else changed.
+- Revision 5 (2026-11-17, replaces revision 4 SHA-256 `40eb65de5af32bedec6872133c9befb8fc9ac26faff605895f4c23328e6b7ac01`): `{M}` (msik15k, 192.168.100.6) unreachable — SSH banner-exchange timeout on 2026-11-17 after the dm-crypt+btrfs writeback stall observed 2026-11-16 (Dirty 15.4 GB, dd <1.7 MB/s, trivial ssh timing out). The user directed waiving Linux verification entirely and deferring `{M}` (question 2026-11-17). Changes: D31 added — every gate line requiring execution on `{M}`/Linux is waived, macOS gates are authoritative and must still pass in full; the `{M}` action-halves of Stages 10–11 (cutover, decommission) are deferred-pending until the host returns, not waived. Step 4.5 gate 2, the Stage 4 Linux half-gate, and all later Linux gates close under D31 with the mac evidence recorded. Nothing else changed.
+- Revision 6 (2026-11-17, replaces revision 5 SHA-256 `29425a6e103392f056ead43b4a5023c0616783025a115e10f2ee2387bb515079`): step 5.4's gate-2 run surfaced a discovered gap — architecture rule I12 scans all of `tests/` for `process.platform` and flags the 21 frozen upstream fixture files step 5.3 imported (no step owned it; steps 5.5 and 5.7 gates run that suite). D32 added (user-approved 2026-11-17): I12 excludes `tests/support/patches/fixtures/` — frozen upstream bytes checksummed by `patches.test.ts`, not project test code (same rationale as D24) — applied immediately to unblock step 5.5's gate. Nothing else changed.
+- Revision 7 (2026-11-17, replaces revision 6 SHA-256 `b2ec89ba95c65a83735bf9f9def5d229b7ca4b1a59a2ffef8c70f242ad6921fe`): step 5.12 review found two letter-of-the-plan gaps on the green tree at `2f85c28`. (a) The Stage 5 gate demands `coverage:e2e` exit 0 with 100 % per file, but the standing `{A}` posture — recorded at baseline 1.10 and unchanged by every Stage 5 commit — is exit 1 on the line-coverage threshold with 23 pre-existing base files below 100 % lines (all funcs 100 %); every file this plan created or edited is 100/100 and the run has 0 test failures (183 pass / 11 skip). The gate now accepts exit 1 solely from that threshold on exactly that pinned 23-file set, with 0 failures and all plan files 100/100; repairing the 23 base files is out of scope. (b) `tests/e2e/patches/prerelease-versions.test.ts` is mandated by the compareVersions 'New cases needed' content (pre-release ordering, build metadata, both use-case effects) but no Appendix E row names the file — the row is added (New files), the file stays. The `On {M}` half of the Stage 5 gate is confirmed waived under D31; the mac live gate is judged on the run with `OPENCODE_SESSION_MANAGER_BIN_DIR={X}/bin` and `OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN=/opt/homebrew/bin/opencode` (step 5.10). Nothing else changed.
+- Revision 8 (2026-11-17, replaces revision 7 SHA-256 `98878b32dda83cc289cc5aaeef2e281df156cb99b98696cd50af0e1044503c02`): step 7.4 applies the Revision 7 posture to the Stage 7 gates. `coverage:e2e` exit 1 is accepted when the only cause is the line-coverage threshold on exactly the pinned 23-file pre-existing base set, with 0 test failures and every plan-created/edited file at 100 % funcs and 100 % lines. The three `follow.test.ts` timeouts in the 7.1 GATE run are a confirmed load-flake (mandated file re-run 24 pass / 1 skip / 0 fail exit 0; launcher full-coverage re-run 183 pass / 11 skip / 0 fail with both affected plan files back at 100/100), not a regression. The Linux halves of steps 7.1/7.2/7.4 stay waived under D31; win32 stays blocked under D8 (7.4 gate 3). Nothing else changed.
+- Revision 9 (2026-11-17, replaces revision 8 SHA-256 `2d1d97a96fc9e0ea0a4f3af664ce2e0ec37b912ec37ca6ff305aaf951c0506c2`): step 9.2's verbatim run exposed a content/gate conflict — `chmod -R a-w {PD}/backups` strips directory write too (755→555, failing gate 4's mode equality), and 555 directories would block the new tool's future backup writes, while the old tool leaves directories at 755 with files at 444. Content amended to files-only `chmod` (directories untouched); repair is `find {PD}/backups -type d -exec chmod u+w {} +` (files already 444, untouched by the repair). Nothing else changed.
+- Revision 10 (2026-11-17, replaces revision 9 SHA-256 `2b5f5c9ff4327209ddb6aa3d2162392908cfc97c041318b6c0d402914f8c4dd4`): step 9.6 findings, user-approved. (a) `NotifyUseCase.ts:12` names the deleted old tool — new step 9.7 renames to the new CLI with typecheck/unit/lint gates. (b) The launchd agent's minimal PATH stops every scheduled `follow` at `prove` — new step 9.8 adds a full-PATH `EnvironmentVariables` to the plist template, commits 9.7+9.8 as one `{IDENT}` commit, re-merges and pushes `main`, reinstalls CLI and agent, and re-verifies with one new `follow` report (adopted → 9.5 re-arms; stopped → reason quoted). Nothing else changed.
+- Revision 11 (2026-11-17, replaces revision 10 SHA-256 `df109d4a31edeb26c6a9b3ee60a649cecfe5bd7321c6e2ae04c8f46fcfaf18f1`): two step-9.8 outcomes. (a) The launcher failed to forward the user-approved AdoptionRecorder inclusion into the running 9.8 brief, so `905261c` lacks it — new step 9.9 applies the one-line rename with targeted gates, its own `{IDENT}` commit and push. (b) The re-verification `follow` still stops at `prove`: `OpencodeSandboxAdapter.ts:84-92` hardcodes `PATH: "/usr/bin:/bin"` around a bare `"opencode"`, which the plist `EnvironmentVariables` cannot reach — new step 9.10 reads the adapter first and applies a config-only fix only when the read proves one exists, else reports blocked. Nothing else changed.
+- Revision 12 (2026-11-17, replaces revision 11 SHA-256 `e235ff6624a0d5076a6cb3787232cc25c03ecddb6a7a5c378dc9e595a97d84f07589`): `{M}` (msik15k) is unreachable and the user deferred it, so Stage 10 is deferred whole (steps 10.1–10.9, gate not judged); Stage 11 runs its Mac steps now (11.1 re-wired to Stage 9 closed; 11.8 `{S}`-only; 11.9/11.10/11.11 Mac rows) and defers its `{M}` steps (11.5, 11.6, 11.8-`{MS}`, 11.10/11.11-`{M}`); Stage 12 runs 12.1/12.2 Mac-only, keeps `{X}` as retained follow-up backing, defers 12.3; Stage 13 runs now on 12.2-Mac. A follow-up plan takes the deferred `{M}` set when the host is reachable. Nothing else changed.
+- Revision 13 (2026-11-17, replaces revision 12 SHA-256 `71b8f728563407321c41a2026aa52e81c3949b3d49e9b89cdc58f5bd90aec23f`): user decision — `{M}` (Linux) and win32 are **out of scope of this plan**; the user handles them himself on those machines, and no follow-up plan is written. Stage 10 and the `{M}` steps of Stage 11 (11.5, 11.6, 11.8-`{MS}`, 11.10/11.11-`{M}`) are recorded as out of scope, not run. `{M}`'s own backups and bundles live in `{MX}` on `{M}` (steps 1.1, 1.2, 1.3, 1.4, 1.8), never on this Mac, so `{MX}` becomes a Retained row on `{M}` for the user's own cutover; this plan never deletes it. On this Mac, `{X}` holds only Mac backups whose protected gates (7.4, 9.x, Mac 11.x) are green, so 12.2 deletes `{X}` whole, plus the 11.11 subagent's stray `{T}/step-11-11-find.out`. 12.3 moves after the record commit as step 13.5, and 13.1 first copies this plan revision into `{W}/docs/plans/` so it is committed. New step 13.1b installs from the merged `main`. The Stage 12 gate is judged on `{X}/before` only. Nothing else changed.
 - Plan SHA-256 at approval: quoted in the approval question; `build` recomputes `shasum -a 256` of the scratch copy
   in step 0.1 and stops on any difference
 - Baseline gate: steps 1.9 (macOS), 1.10 (Linux, `{A}`), 1.11 (Linux, `{S}`); Appendix A
@@ -35,6 +51,9 @@
 | `{MX}` | `/tmp/opencode/ses_e1dc7d932ffe69P47CJLyPq6qR/merge` — this plan's only scratch directory on `{M}` |
 | `{C}` | `/Users/mavasbel/.config/opencode` |
 | `{SID}` | `ses_e1dc7d932ffe69P47CJLyPq6qR` |
+| `{base0}` | `029c1b8f36aded049a131d463c1bb05c582dccba` — `main` of `{A}` when the plan started (steps 1.5–1.10) |
+| `{base}` | `main` of `{A}` after the rebase of step 1.14 (recorded there); every step after 1.14 that names `{base}` means this SHA |
+| `{D1}` | the Appendix D digest computed in `{A}` by step 1.15, after `{A}`'s main checkout moved to `{base}` with D1 still uncommitted |
 | `{IDENT}` | `user.name "Marco Augusto Vásquez Beltrán"`, `user.email m.a.vasbel@epistelabs.com`: the identity of all 51 commits of `{A}` (`git log --format='%an <%ae>\|%cn <%ce>' \| sort \| uniq -c` → `51`); this Mac has no global or local git identity (`git config --global --get-regexp '^user\.'` → empty), so every commit step passes `-c user.name=… -c user.email=…` |
 | `{S-final}` | the SHA of `{S}` `main` after plan `2026-11-15-22-13-agent-docs-residue-rule` closes; recorded by step 0.2 |
 | `{PD}` | `<XDG_DATA_HOME, else ~/.local/share>/opencode-session-manager/patches` — the new tool's data folder |
@@ -75,7 +94,8 @@
    | D14 | win32 for `patches` | full adapters (PowerShell), unit-tested with stand-in commands; win32 e2e and live reported blocked |
    | D15 | Bun | 1.4.4 on both hosts, `"packageManager": "bun@1.4.4"` in `package.json` |
    | D16 | commit identity | `{IDENT}` |
-   | D17 | concurrent `feat-herdr-pane-agent` work | start now from `{base}`; whoever integrates second rebases (step 8.1) |
+   | D17 | concurrent `feat-herdr-pane-agent` work | start now from `{base0}`; whoever integrates second rebases (step 8.1). It merged first (`3d07985`, 2026-11-16 10:13), so this plan rebases (step 1.14, D30) |
+   | D30 | `main` moves during the plan | rebase `{W}` onto local `main` as soon as it moves, before the next stage starts (step 1.14 now; step 8.1 before integration), and take the `{A}` baselines again on the new base (step 1.16), so every comparison is against the base the branch sits on |
    | D18 | final cleanup | every installation and residual file of opencode-magic-context-patches deleted on both hosts (Stage 11) |
    | D19 | output of the moved commands | session-manager's style: program name `opencode-session-manager patches`, `--version` as `HelpCliAdapter` prints it, an unexpected error as `ERROR: <message>` exit 1, `notify-send --app-name=opencode-session-manager`, staging prefix `.osm-patches-`; notification titles, flags, JSON shapes and exit codes 0/1/2 unchanged |
    | D20 | source layout | subfolders `src/domain/model/patches/`, `src/domain/services/patches/`, `src/application/patches/`, `src/domain/patch-definitions/`; ports flat with the `Patch` prefix |
@@ -84,8 +104,13 @@
    | D23 | moved test file names | kebab case (`ApplyUndo.test.ts` → `apply-undo.test.ts`) |
    | D24 | docs lint and fixtures | `scripts/lint-diagrams.mjs` L6 skips `tests/support/patches/fixtures/` (upstream bytes, not variables this tool reads) |
    | D25 | `@npmcli/arborist` 9.4.0 | `devDependencies`, as session-manager lists every library it compiles in |
+   | D29 | OS-specific vs common tests | common tests stay where they are; tests of `outbound/platform/<p>/` adapters live in `tests/unit/platform/<p>/` (mirroring `src`); `tests/support/platform.ts` is the only place a test may read `process.platform` (helpers `onlyOn(platform)` and `requires(precondition, reason)`, both skipping with the reason, never failing); an architecture test enforces it; a failure outside a guard is always a regression (steps 4.1, 4.3) |
+   | D28 | docs lint L3 and working documents | `docs/plans/` and `docs/sessions/` are exempt from rule L3 (referenced paths must exist): plans describe future files and records must name deleted residue to prove its absence; fences and mermaid (L1/L2) still apply (step 1.13) |
    | D26 | small design points | non-semver core parts count as 0; tests reach the seams through `buildContainer(env, { patches: seams })`; the CLI ends with `process.exit(code)` after its output is flushed |
    | D27 | concurrent `feat-macos-store-migration` work | as D17: never touched; step 8.1 rebases over it; darwin adapters it lands first are reused, not duplicated |
+   | D32 | I12 and frozen fixtures | architecture rule I12 excludes `tests/support/patches/fixtures/`: frozen upstream bytes (checksummed by `patches.test.ts`), not project test code — same rationale as D24 (Revision 6) |
+   | D31 | Linux verification waived, `{M}` actions deferred | `{M}` unreachable (SSH banner timeout 2026-11-17, after the 2026-11-16 writeback stall); user directed waiving all Linux-execution gates. Every gate line requiring runs on `{M}`/Linux is waived — macOS gates are authoritative and must still pass in full. The `{M}` halves of Stages 10–11 (cutover, decommission) are deferred-pending until the host returns, not waived, and are recorded pending in the session record. Risk stated: Linux-only regressions are undetectable until `{M}` returns; mitigations: `Store.ts check()` already Linux-verified (7/7 unit incl. the fallback path + 24/24 e2e on `a-wip3` pre-stall), darwin-only files are excluded from Linux coverage by config, and typecheck/lint/architecture tests are platform-neutral and run on mac (Revision 5) |
+   | D33 | Stage 5 gate posture and missing file-map row | `coverage:e2e` exit 1 is accepted when the only cause is the line-coverage threshold on exactly the pinned 23-file pre-existing base set (funcs 100 % everywhere, 0 test failures, every plan-created/edited file 100/100); the 23 base files are out of scope. Appendix E gains the `tests/e2e/patches/prerelease-versions.test.ts` row (compareVersions new-cases content). The `On {M}` Stage 5 gate half stays waived under D31 (Revision 7) |
 
 4. Evidence of the current state (read-only, 2026-11-15 23:00 to 2026-11-16 00:20):
    - `{A}` refuses macOS: `src/main/cli/platform.ts` `LOADERS` holds `linux` and `win32` only, and `buildContainer`
@@ -169,6 +194,7 @@
 | new entries in `/Users/mavasbel/.npm/_cacache` and `/home/mavasbel/.npm/_cacache` | npm's shared download cache, present before (580,420 KB here), written by Arborist |
 | new entries in `~/.bun/install/cache` on both hosts | Bun's shared download cache |
 | `~/.cache/opencode/npm/…` changes | OpenCode's own package cache |
+| `{MX}` on `{M}` (Revision 13) | `{M}`'s own backups, bundles and clones (Bun 1.4.2 binary, configs, old-tool tar, D1 patch); kept for the user's own `{M}` cutover, which is out of scope of this plan |
 
 Every backup this plan takes (steps 1.3, 1.4) lives in `{X}`/`{MX}` and is deleted by Stage 12 after the gate it
 protects is green.
@@ -286,7 +312,7 @@ digest confirmed.
 needs the worktree's own environment; D15 needs Bun 1.4.4 on `{M}` before any baseline so before and after run on one
 version.
 
-**What.** `{X}` and `{MX}` with before-snapshots; backups of D1's work, both `opencode.jsonc` files and the old
+**What.** `{W}` rebased onto `{base}` (D30) with D1 re-backed up against it; `{X}` and `{MX}` with before-snapshots; backups of D1's work, both `opencode.jsonc` files and the old
 tool's folders; Bun 1.4.4 on `{M}`; `{W}` prepared; the plan copied and the session record opened; baselines of
 `{A}` (macOS, Linux) and `{S}` (Linux) recorded in Appendix A.
 
@@ -373,12 +399,12 @@ tool's folders; Bun 1.4.4 on `{M}`; `{W}` prepared; the plan copied and the sess
 - **target**: `git -C {A} worktree add -b feat-magic-context-patches {W} main`
 - **content**: first `git -C {A} show main:.gitignore | grep -x 'worktrees/'` (committed in `{base}`); then the command.
 - **depends on**: 1.3
-- **gates**: 1. `git -C {W} rev-parse HEAD` = `git -C {A} rev-parse main` (record the full SHA as `{base}`);
+- **gates**: 1. `git -C {W} rev-parse HEAD` = `git -C {A} rev-parse main` (record the full SHA as `{base0}`);
   2. `git -C {W} status --porcelain` → empty; 3. `git -C {A} worktree list` names `{W}`.
 - **problems**: the branch name exists → stop (never reuse).
 - **escalation**: the user, with `git -C {A} branch -a`.
 - **failure**: `git -C {A} worktree remove {W} && git -C {A} branch -D feat-magic-context-patches`.
-- **returns**: `{base}`.
+- **returns**: `{base0}`.
 
 ### Step 1.6 — Prepare the worktree's environment
 
@@ -429,16 +455,121 @@ tool's folders; Bun 1.4.4 on `{M}`; `{W}` prepared; the plan copied and the sess
 - **failure**: `ssh msik15k rm -rf {MX}/a-base {MX}/s-final {MX}/bundles`.
 - **returns**: SHAs.
 
+### Step 1.13 — Exempt working documents from lint L3
+
+- **runs in**: subagent general
+- **action**: `edit`
+- **target**: `{W}/scripts/lint-diagrams.mjs` and `{W}/AGENTS.md`
+- **content**: in `scripts/lint-diagrams.mjs`, replace
+  ```js
+  const frozen = rel.split(/[\\/]/).slice(0, 2).join("/") === "docs/reference"
+  for (const match of frozen ? [] : text.matchAll(pathRef)) if (!existsSync(join(ROOT, match[0]))) failures.push(`${rel}: referenced path does not exist: ${match[0]}`)
+  ```
+  with
+  ```js
+  const frozen = rel.split(/[\\/]/).slice(0, 2).join("/") === "docs/reference"
+  // Plans describe files that do not exist yet and records must name deleted residue to prove its
+  // absence; L3 cannot apply to either folder. Fences (L1) and mermaid (L2) still do.
+  const working = ["docs/plans", "docs/sessions"].includes(rel.split(/[\\/]/).slice(0, 2).join("/"))
+  for (const match of frozen || working ? [] : text.matchAll(pathRef)) if (!existsSync(join(ROOT, match[0]))) failures.push(`${rel}: referenced path does not exist: ${match[0]}`)
+  ```
+  and in `{W}/AGENTS.md` replace `that referenced paths exist (except under \`docs/reference/\`)` with
+  `that referenced paths exist (except under \`docs/reference/\`, \`docs/plans/\` and \`docs/sessions/\`, which describe states other than the current tree)`. Then `cd {W} && bun run lint:diagrams`.
+- **depends on**: 1.7
+- **gates**: 1. `cd {W} && bun run lint:diagrams` → exit 0 (the record has no findings and the plan copy's 296 are L3, all else clean); 2. `git -C {W} diff --stat` names exactly the two files.
+- **problems**: the linter reports a non-L3 finding on either document → fix the document text (plans and records must still be fence- and mermaid-clean).
+- **escalation**: the launcher, with the linter output.
+- **failure**: `git -C {W} checkout -- scripts/lint-diagrams.mjs AGENTS.md`.
+- **returns**: the diff, the linter output.
+- **evidence**: record section `1.13` in `{W}/docs/sessions/{SID}.md`, written by the launcher from the returns.
+
+### Step 1.14 — Rebase the worktree onto the moved `main` (D30)
+
+- **runs in**: subagent general
+- **action**: `run`
+- **target**: `{W}`
+- **content**: `git -C {A} fetch origin`; record `git -C {A} rev-parse main origin/main` and
+  `git -C {A} log --format='%h %ci %an %s' {base0}..main`; when `origin/main` is ahead of `main`, stop (local `main`
+  is updated only by its owner). Then, because `feat-magic-context-patches` has no commit yet and `{W}` holds only
+  step 1.7's two untracked documents and step 1.13's two edits:
+  `git -C {W} stash push -m 'merge-plan 1.13' -- AGENTS.md scripts/lint-diagrams.mjs`;
+  `git -C {W} merge --ff-only main` (with no commit on the branch, a fast-forward is the rebase);
+  `git -C {W} stash pop`. When the pop conflicts in `AGENTS.md`, take `main`'s file with
+  `git -C {W} checkout main -- AGENTS.md`, re-apply step 1.13's one-sentence replacement by its anchor, then
+  `git -C {W} stash drop`. Then `cd {W} && bun install --frozen-lockfile`. Record `{base}` = `git -C {W} rev-parse HEAD`.
+- **depends on**: 1.13
+- **gates**: 1. `git -C {W} rev-parse HEAD` = `git -C {A} rev-parse main` = `git -C {A} ls-remote origin refs/heads/main | cut -f1`;
+  2. `git -C {W} diff --stat` names exactly `AGENTS.md` and `scripts/lint-diagrams.mjs`, and `git -C {W} diff AGENTS.md`
+  is exactly step 1.13's one-line change; 3. `git -C {W} status --porcelain` shows only those two `M` lines and the two
+  `??` documents of step 1.7; 4. `git -C {W} stash list` → empty; 5. `bun install --frozen-lockfile` exit 0;
+  6. `cd {W} && bun run lint:diagrams` → exit 0 and `bun run typecheck` → exit 0.
+- **problems**: `origin/main` ahead of `main` → stop; the anchor of step 1.13 is gone from `main`'s `AGENTS.md` →
+  stop (checked at planning: present once, `git show main:AGENTS.md | grep -c` → `1`); `merge --ff-only` refuses
+  because an untracked document collides with a file of `main` → stop (checked at planning: `main` adds
+  `docs/plans/2026-11-15-23-27-herdr-pane-agent.md`, a different name).
+- **escalation**: the user, with the `git log` of the new commits and the failing output.
+- **failure**: `git -C {W} reset --hard {base0}`, then `git -C {W} stash pop` if the stash still exists; the two
+  documents are untracked and untouched.
+- **returns**: `{base}`, the new commits, the diff of `AGENTS.md`.
+
+### Step 1.15 — Back up D1's work again against `{base}`
+
+- **runs in**: subagent general
+- **action**: `run`
+- **target**: `{X}/backup/a-wip-rebased.patch`
+- **content**: `{A}`'s main checkout moved to `{base}` with D1 still uncommitted (both sides change `AGENTS.md` and
+  `README.md`). Prove that only the base changed, then back it up: `git -C {A} worktree add --detach {X}/d1-proof
+  {base}`; `git -C {X}/d1-proof apply --3way {X}/backup/a-wip.patch`; `tar -xpf {X}/backup/a-untracked.tar -C
+  {X}/d1-proof`; for each of the 30 Appendix D paths `cmp {X}/d1-proof/<path> {A}/<path>` (for the folder
+  `tests/support/repair/`, each file in it). Then `git -C {A} diff --binary > {X}/backup/a-wip-rebased.patch`,
+  `chmod 600` it; compute `{D1}` with the Appendix D digest command in `{A}`. Then
+  `git -C {A} worktree remove --force {X}/d1-proof && git -C {A} worktree prune`.
+- **depends on**: 1.14
+- **gates**: 1. the three-way apply exits 0 and every `cmp` exits 0 (D1 in `{A}` is the backed-up D1 on the new base);
+  2. `git -C {A} apply --check -R {X}/backup/a-wip-rebased.patch` → exit 0; 3. `git -C {A} ls-files -o
+  --exclude-standard | wc -l` → `12` and the 12 files `cmp`-equal their copies in `a-untracked.tar`;
+  4. `test ! -e {X}/d1-proof` → 0 and `git -C {A} worktree list` does not name it; 5. `{D1}` recorded.
+- **problems**: the three-way apply conflicts, or a `cmp` differs → D1 changed beyond the rebase (someone edited it)
+  → stop.
+- **escalation**: the user: "D1's work in `{A}` differs from the backup of step 1.3 beyond the rebase: <files>. Use
+  the current files?" with `diff` of each differing file.
+- **failure**: `git -C {A} worktree remove --force {X}/d1-proof; git -C {A} worktree prune`; delete
+  `{X}/backup/a-wip-rebased.patch`. `{A}`'s main checkout is only read.
+- **returns**: `{D1}`, the `cmp` results, the patch's sha256.
+
+### Step 1.16 — Take the `{A}` baselines again at `{base}`
+
+- **runs in**: subagent general
+- **action**: `run`
+- **target**: `{X}/gates/baseline-mac/`, `{MX}/gates/baseline-linux-a/` (and its copy in `{X}`), `{X}/bundles/a-base.bundle`
+- **content**: keep the first runs as evidence: `mv {X}/gates/baseline-mac {X}/gates/baseline-mac-base0`,
+  `mv {X}/gates/baseline-linux-a {X}/gates/baseline-linux-a-base0`, the same in `{MX}`. Then step 1.8's `{A}` half at
+  `{base}`: `git -C {A} bundle create {X}/bundles/a-base.bundle main` (overwrites), `scp` to `{MX}/bundles/`,
+  `ssh msik15k rm -rf {MX}/a-base`, `git clone {MX}/bundles/a-base.bundle {MX}/a-base`, `bun install
+  --frozen-lockfile` there. Then step 1.9 (macOS, in `{W}`) and step 1.10 (Linux, in `{MX}/a-base`) exactly as
+  written, into the original folder names, with step 1.9's gate 3 as revision 3 states it.
+- **depends on**: 1.14
+- **gates**: 1. `ssh msik15k 'git -C {MX}/a-base rev-parse HEAD'` = `{base}`; 2. the gates of step 1.9; 3. the gates
+  of step 1.10; 4. per command, the failing names that are new against the `-base0` run are listed with their printed
+  cause (expected: only tests the herdr commit added or changed).
+- **problems**: a new failure outside the herdr files → the base itself regressed; record it as pre-existing at
+  `{base}` (`{C}/AGENTS.md` 3.8), never as this plan's.
+- **escalation**: the user, with the new failures and their causes.
+- **failure**: the `-base0` folders stay; delete the new ones and run again.
+- **returns**: as steps 1.9 and 1.10, plus the new-against-base0 list.
+
 ### Step 1.9 — Baseline, macOS, `{A}`
 
 - **runs in**: subagent general
 - **action**: `run`
 - **target**: `GATE` in `{W}`, outputs to `{X}/gates/baseline-mac/`
 - **content**: `GATE`; then `FAILS` of each output into `<name>.fails`.
-- **depends on**: 1.7
+- **depends on**: 1.7, 1.13
 - **gates**: 1. every command ran to completion (an `.exit` file per command); 2. every failing name is classified as
   `darwin-unsupported` (output shows `UnsupportedPlatformError`), `proc` (reads `/proc`), `no-darwin-coverage-config`
-  (`coverage:e2e` prints `no e2e coverage configuration for darwin`) or `other`; 3. `other` = 0.
+  (`coverage:e2e` prints `no e2e coverage configuration for darwin`) or `other`; 3. every `other` failure carries its
+  printed cause and names the step that repairs it (D29: the `tmpdir()`/`realpath` class and the missing-precondition
+  class are repaired by step 4.3); an `other` failure without a cause, or without a repairing step, fails the gate.
 - **problems**: `test:live` needs Herdr or a TUI → its failures are classified with their printed cause; an `other`
   failure stops the step.
 - **escalation**: the launcher, then the user: "Baseline on macOS has unexplained failures: …" with the names and
@@ -483,7 +614,7 @@ tool's folders; Bun 1.4.4 on `{M}`; `{W}` prepared; the plan copied and the sess
 - **target**: `{X}/gates/baseline-*/`
 - **content**: re-run `FAILS` on two outputs of each set and compare with the returned lists; write Appendix A rows
   into the session record.
-- **depends on**: 1.9, 1.10, 1.11
+- **depends on**: 1.11, 1.16
 - **gates**: 1. re-computed lists `cmp`-equal the returned ones.
 - **problems**: a mismatch → the subagent summarised wrongly; re-run the subagent step.
 - **escalation**: the user, if a re-run disagrees again.
@@ -508,10 +639,12 @@ macOS `typecheck` and `lint:diagrams` exit 0.
 - **runs in**: subagent general
 - **action**: `run`
 - **target**: `{W}`
-- **content**: `git -C {W} apply {X}/backup/a-wip.patch`; `tar -xpf {X}/backup/a-untracked.tar -C {W}`; recompute the
-  Appendix D digest in `{W}`.
-- **depends on**: 1.12
-- **gates**: 1. digest in `{W}` = `4d962b44…3407`; 2. `git -C {W} status --porcelain | wc -l` → `30` (18 `M`, 12 `??`).
+- **content**: `git -C {W} apply {X}/backup/a-wip-rebased.patch`; `tar -xpf {X}/backup/a-untracked.tar -C {W}`;
+  recompute the Appendix D digest in `{W}`.
+- **depends on**: 1.12, 1.15
+- **gates**: 1. each of D1's 30 paths in `{W}` `cmp`-equals the same path in `{A}`, except `AGENTS.md`, which equals
+  `{A}/AGENTS.md` with step 1.13's sentence re-applied (`diff` shows exactly that line); 2. `git -C {W} status
+  --porcelain` shows D1's 18 `M` and 12 `??` entries plus `scripts/lint-diagrams.mjs` and step 1.7's two documents.
 - **problems**: the patch does not apply (main moved under it) → stop.
 - **escalation**: the user, with `git apply` output.
 - **failure**: `git -C {W} checkout -- . && git -C {W} clean -fd` (worktree only).
@@ -679,6 +812,18 @@ loaded on demand, gated by its own e2e coverage configuration.
   `/proc` run on darwin through the darwin container unchanged; tests that read the real `/proc` directly
   (`ProcFdHoldersAdapter names every holder…`) run only where `process.platform === "linux"`, using the mechanism the
   win32 tests already use (step 4.1 reads it).
+- D29 (tests separate OS-specific from common code):
+  - `tests/support/platform.ts` — `onlyOn(platform: NodeJS.Platform)` and `requires(present: boolean, reason: string)`,
+    each returning the `describe.skipIf`/`it.skipIf` condition with its reason printed in the test name; the only
+    test file allowed to read `process.platform`;
+  - every test of a `src/infrastructure/adapters/outbound/platform/<p>/` adapter moves to `tests/unit/platform/<p>/`,
+    with `git mv` (names from step 4.1's table); `darwin-adapters.test.ts` is created there, not under `maintenance/`;
+  - `tests/unit/architecture/imports.test.ts` gains rule I12: outside `tests/support/platform.ts` and
+    `tests/unit/platform/<p>/`, no test file contains `process.platform`;
+  - every test that compares a path built from `tmpdir()` with a path the code resolved uses
+    `realpathSync(tmpdir())` (the 4 macOS `other` failures of Appendix A `mac`);
+  - every live test that needs Herdr or the installed plugin is guarded by `requires(...)` with the reason.
+  - `AGENTS.md` testing section names the helper, the folder rule and I12.
 - `AGENTS.md` (platform table row `CLI platforms`: `Linux, Windows and macOS (linux, win32, darwin)`, the platform law
   paragraph, the adapter table) and `README.md` (supported platforms).
 
@@ -693,8 +838,12 @@ shows no failure absent from Appendix A `linux-a`.
 - **target**: `{W}/tests` (files listed by `grep -rln "process.platform" {W}/tests`: 17 files)
 - **content**: learn the existing idiom (e.g. `describe.if`, `it.skipIf`, a helper in `tests/support/maintenance/platform.ts`)
   and list every test that reads `/proc`, runs `tasklist`, or otherwise needs one OS; for each, the OS it needs.
+  Also list (D29): every test file of a `outbound/platform/<p>/` adapter with its target under `tests/unit/platform/<p>/`;
+  every test that compares a `tmpdir()`-built path with a resolved one; every live test that needs Herdr or the
+  installed plugin.
 - **depends on**: 3.3
-- **gates**: 1. a table `test file | test name | OS | idiom` covering all 17 files.
+- **gates**: 1. a table `test file | test name | OS | idiom` covering all 17 files; 2. the three D29 lists, each
+  row with file and line; the 6 `other` failures of Appendix A `mac` each appear in exactly one list.
 - **problems**: two idioms in use → report both; step 4.3 uses the one in `tests/support`.
 - **escalation**: the launcher.
 - **failure**: read-only.
@@ -721,11 +870,18 @@ shows no failure absent from Appendix A `linux-a`.
 - **runs in**: subagent general
 - **action**: `create`
 - **target**: `{W}/tests/unit/maintenance/infrastructure/darwin-adapters.test.ts` (and the gating edits from 4.1's table)
-- **content**: the seven unit scenarios of the What list, each negative path included; mark the Linux-only tests of
-  4.1's table with the existing idiom.
+- **content**: the seven unit scenarios of the What list, each negative path included; create
+  `tests/support/platform.ts` (D29) and gate every OS-only test of 4.1's table with `onlyOn`, every precondition test
+  with `requires`; `git mv` the platform-adapter tests to `tests/unit/platform/<p>/`; add rule I12 to
+  `tests/unit/architecture/imports.test.ts`; apply `realpathSync(tmpdir())` to the tests of 4.1's tmpdir list; name
+  the helper and I12 in `AGENTS.md` and `tests/support/platform.ts` in its test support table.
 - **depends on**: 4.2
 - **gates**: 1. `bun run coverage:unit` → 0 fail, 100 % per file; 2. `bun run coverage:e2e` (darwin) → 0 fail, 100 %
-  per darwin-measured file; 3. `bun run test:component` → 0 fail.
+  per darwin-measured file; 3. `bun run test:component` → 0 fail; 4. `grep -rln 'process.platform' {W}/tests` lists
+  only `tests/support/platform.ts` and files under `tests/unit/platform/`; 5. I12 fails on a crafted file that reads
+  `process.platform` outside them (written to `{X}`, copied in, run, removed, `test ! -e`); 6. the 4 `tmpdir()`
+  failures of Appendix A `mac` pass, the 2 precondition failures print as skips with their reason; 7. `bun run
+  lint:diagrams` → 0.
 - **problems**: an e2e test asserts Linux `comm` truncation (15 characters) → gate it to linux with the reason in a comment.
 - **escalation**: the launcher, then the user for behaviour.
 - **failure**: as 4.2.
@@ -784,10 +940,14 @@ collision resolutions; `compareVersions` in semver order (D7); the Arborist root
 three macOS test defects fixed; `@npmcli/arborist` 9.4.0 a direct dependency; the old documents imported frozen;
 the file map committed as a reference document.
 
-**Stage gate.** On this Mac in `{W}`: `GATE` with `typecheck`, `lint:diagrams`, `coverage:unit`, `test:component`,
-`coverage:e2e` all exit 0 and 100 % per file; `test:live` failures ⊆ Appendix A `mac` live list; every Appendix B row
-reproduced by `tests/e2e/patches/cli-surface.test.ts`. On `{M}`: the same with Appendix A `linux-a`, and
-`tests/live/patches/*.test.ts` passing. `git -C {W} log --format=%s {c4}..` lists exactly the six subjects of steps 5.1,
+**Stage gate.** On this Mac in `{W}`: `GATE` with `typecheck`, `lint:diagrams`, `coverage:unit`, `test:component`
+all exit 0; `coverage:e2e` has 0 test failures with every plan-created/edited file at 100 % funcs and 100 % lines
+(exit 1 is accepted solely from the line-coverage threshold on exactly the pinned 23-file pre-existing base set —
+Revision 7; the 23 base files are out of scope); `test:live` failures ⊆ Appendix A `mac` live list (judged on the
+run with `OPENCODE_SESSION_MANAGER_BIN_DIR={X}/bin` and
+`OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN=/opt/homebrew/bin/opencode`); every Appendix B row
+reproduced by `tests/e2e/patches/cli-surface.test.ts`. On `{M}`: waived under D31 (Revision 7).
+`git -C {W} log --format=%s {c4}..` lists exactly the six subjects of steps 5.1,
 5.2, 5.7, 5.8, 5.9, 5.10.
 
 ### Step 5.1 — The file map as a reference document
@@ -1201,7 +1361,7 @@ baseline; 6.8: e2e last.
 - **content**: re-run `bun run coverage:unit` and `bun run coverage:e2e` in `{W}` myself; compute
   `comm -13 <baseline FAILS> <final FAILS>` per command and host (regressions) and `comm -23` (improvements).
 - **depends on**: 7.1, 7.2, 7.3
-- **gates**: 1. regressions = 0 on both hosts; 2. coverage 100 % per file, darwin and linux; 3. the win32 e2e gate is
+- **gates**: 1. regressions = 0 on both hosts (Linux waived under D31; macOS authoritative); 2. coverage 100 % per file on darwin under the Revision 7 posture — 0 test failures, every plan-created/edited file 100/100, sub-100 set ⊆ pinned 23-file pre-existing base set (Revision 8); Linux waived under D31; 3. the win32 e2e gate is
   written in the record as **blocked** (no Windows host; D8) with the command that would run it
   (`bun run coverage:e2e` on win32).
 - **problems**: a regression → back to the stage that owns the file.
@@ -1260,7 +1420,7 @@ whatever reached `main` meanwhile.
 - **target**: merge: `git -C {A} merge --ff-only feat-magic-context-patches && git -C {A} push origin main`; PR:
   `git -C {W} push -u origin feat-magic-context-patches && gh pr create --repo mavasbel-devtools/opencode-session-manager --base main --head feat-magic-context-patches --title 'Patches: merge opencode-magic-context-patches; macOS platform' --body-file {X}/pr-body.md`
 - **content**: as chosen. `{A}`'s main checkout still holds D1's work uncommitted: before `merge --ff-only`, confirm
-  its digest is `4d962b44…`, then restore those 18 files and remove the 12 untracked entries (Appendix D list, backed
+  its digest is `{D1}` (step 1.15), then restore those 18 files and remove the 12 untracked entries (Appendix D list, backed
   up in step 1.3; committed in `{c2}`), so the fast-forward does not refuse on local changes.
 - **depends on**: 8.2
 - **gates**: 1. merge: `git -C {A} rev-parse main` = `git -C {W} rev-parse HEAD` = remote `main`; `git -C {A} status
@@ -1329,7 +1489,9 @@ migrated file `cmp` 0.
 - **target**: `~/.local/share/opencode-magic-context-patches/backups` → `{PD}/backups`;
   `~/.local/state/opencode-magic-context-patches/audit.log` → `{PS}/audit.log`
 - **content**: first `test ! -e {PD} && test ! -e {PS}` (the new tool has written nothing); `mkdir -p {PD} {PS}`;
-  `cp -Rp` each; `chmod -R a-w {PD}/backups` keeps the backups read-only as the old tool made them.
+  `cp -Rp` each; `chmod -R a-w {PD}/backups` keeps the backups read-only as the old tool made them (Revision 9: files only —
+  `find {PD}/backups -type f -exec chmod a-w {} +`, directories stay 755; `chmod -R a-w` would also strip directory
+  write and block future backup writes, and fails gate 4 since the old tool leaves directories at 755).
 - **depends on**: 9.1
 - **gates**: 1. `diff -r` old vs new backups → no output; 2. `cmp` audit logs → 0; 3. file counts equal; 4. modes equal
   (`find … -perm` lists).
@@ -1399,9 +1561,68 @@ migrated file `cmp` 0.
 - **failure**: `rm -rf {X}/notify-home`.
 - **returns**: the answer.
 
+### Step 9.7 — Name the new CLI in the notify message (Revision 10)
+
+- **runs in**: subagent general
+- **action**: `edit`
+- **target**: `{W}/src/application/patches/NotifyUseCase.ts:12` (and its unit test asserting the message)
+- **content**: the message names `opencode-session-manager patches status` instead of `opencode-magic-context-patches status`. Update the asserting unit test to the new string.
+- **depends on**: 9.6
+- **gates**: 1. `bun run typecheck` 0; 2. the notify unit test file passes; 3. `bun run lint:diagrams` 0; 4. the installed CLI's `patches notify --json` (throwaway home) prints the new name.
+- **problems**: the message is asserted elsewhere (help text, docs) → update every occurrence (`grep` the old name in `src/`, `tests/`, `README.md`, `AGENTS.md`; docs occurrences updated only if they quote the message).
+- **escalation**: the launcher.
+- **failure**: `git -C {W} checkout -- <touched files>`.
+- **returns**: diff.
+
+### Step 9.8 — Full PATH for the launchd agent, commit, push, re-verify (Revision 10)
+
+- **runs in**: subagent general, then the launcher merges and the user restarts only if the entry changed
+- **action**: `edit`, then `run`
+- **target**: `{W}/launchd/opencode-session-manager-patches.plist`, `{W}/scripts/watch.mjs` (+ its test), `{W}/scripts/watch.d.mts` if the render shape changes
+- **content**: the plist template gains `EnvironmentVariables` with a `PATH` that finds `opencode` on macOS (`/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`); `watch.mjs` renders it on the darwin path (no substitution needed — fixed string); update `tests/unit/scripts/watch.test.ts` if it asserts the rendered plist. Then: `bun run typecheck` 0, watch test file passes, `lint:diagrams` 0; commit both 9.7 and 9.8 work as one commit `Patches: launchd PATH and notify message` with `{IDENT}`; reinstall the CLI (`bun run install:cli && bun run validate:installed:cli`); `git -C {A} merge --ff-only feat-magic-context-patches && git -C {A} push origin main` (only when `git -C {A} rev-parse main` = remote `main`, else stop); reinstall the agent (`cd {W} && bun run install:watch`); wait ≤ 60 s for the new `follow` report in `~/Library/Logs/opencode-session-manager-patches.log`.
+- **depends on**: 9.7
+- **gates**: 1. typecheck/test/lint green; 2. local main = remote main = branch HEAD after push; 3. `launchctl print` exit 0; 4. one new `follow` report within 60 s — quoted in full; when it says `adopted`, step 9.5 re-arms (ask the user to restart, repeat 9.3's gates); when `stopped`, the reason is quoted and Stage 9 closes on it.
+- **problems**: the re-verification `follow` adopts 0.49.61 (npm latest stages, patches and proves) → by design (D6); 9.5 handles the restart; the adopted copy is reported with its `status`.
+- **escalation**: the user, with the report.
+- **failure**: `launchctl bootout gui/$(id -u)/{LABEL}; rm ~/Library/LaunchAgents/{LABEL}.plist`; `git -C {W} reset --soft HEAD~1` only before the push.
+- **returns**: SHAs, the report.
+
+### Step 9.9 — Name the new CLI in the follow-stopped message (Revision 11)
+
+- **runs in**: subagent general
+- **action**: `edit`
+- **target**: `{W}/src/application/patches/follow/AdoptionRecorder.ts:62` (and its asserting test)
+- **content**: the user-approved inclusion the launcher failed to forward into step 9.8: rename `opencode-magic-context-patches follow` to `opencode-session-manager patches follow` in the follow-stopped message; update the asserting test. Then `bun run typecheck` 0, the asserting test file passes, `bun run lint:diagrams` 0; commit with `{IDENT}` as `Patches: name the new CLI in the follow message` (exact-path `git add`, record file excluded); `git -C {A} merge --ff-only feat-magic-context-patches && git -C {A} push origin main` (only when local `main` = remote `main`, else stop); reinstall the CLI (`bun run install:cli && bun run validate:installed:cli`).
+- **depends on**: 9.8
+- **gates**: 1. typecheck/test/lint green; 2. the installed CLI's follow-stopped message (throwaway home, removed after) names the new CLI; 3. local main = remote main = branch HEAD after push.
+- **problems**: the message is asserted in more files → update all and report the list.
+- **escalation**: the launcher.
+- **failure**: `git -C {W} checkout -- <touched files>` (before the push); `git -C {W} reset --soft HEAD~1` only before the push.
+- **returns**: SHA.
+
+### Step 9.10 — Prove PATH inside the sandbox (Revision 11)
+
+- **runs in**: subagent general
+- **action**: `read`, then `edit` only when the read proves a config-only fix
+- **target**: `{W}/src/infrastructure/adapters/outbound/opencode2/OpencodeSandboxAdapter.ts:84-92`, `{W}/src/main/patches-paths.ts:83`
+- **content**: read-only first: does the sandbox adapter (or the paths module) honor `OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN` (or another env var) for the proof server's executable, or does it hardcode `PATH: "/usr/bin:/bin"` around a bare `"opencode"`? When a config-only fix exists (the adapter reads an env var for the binary): add that variable (`/opt/homebrew/bin/opencode`) to the plist template's `EnvironmentVariables`, update the watch test, typecheck + watch test + lint green, commit `{IDENT}` as `Patches: opencode binary for the launchd sandbox`, push as in 9.9, reinstall the agent, and quote one new `follow` report. When the read proves only a code change would work: report blocked with the exact lines, change nothing, and Stage 9 closes with the `stopped`-at-`prove` posture recorded.
+- **depends on**: 9.9
+- **gates**: 1. the read verdict names the exact lines and the honored-or-not env var; 2a. config fix applied: typecheck/test/lint green, main pushed, agent reinstalled, one new report quoted (adopted → 9.5 re-arms); 2b. no config fix: blocked report with lines, tree unchanged.
+- **problems**: the re-verification `follow` adopts 0.49.61 → by design (D6); 9.5 handles the restart.
+- **escalation**: the user, with the read verdict or the report.
+- **failure**: read-only, except the config-fix path whose failure ops mirror 9.8.
+- **returns**: the verdict or the report.
+
 ## Stage 10 — Cutover on `{M}`
 
-**Why.** What 3; D10. The old units must stop first: old and new tool have different locks and could both switch
+## Stage 10 — Cutover on `{M}`
+
+## Stage 10 — Cutover on `{M}`
+
+**Why.** What 3; D10. Revision 12 (2026-11-17): this whole stage is DEFERRED — `{M}` (msik15k) is
+unreachable (host I/O stall, user: "Forget connecting to msik15, it is deferred"), so steps 10.1–10.9 cannot run and
+the stage gate is not judged. A follow-up plan executes them when `{M}` is reachable. Nothing below runs now.
+The old units must stop first: old and new tool have different locks and could both switch
 the entry.
 
 **What.** Old units stopped; `{MA}` on merged `main`; new CLI; history migrated; plugin re-installed; entry on
@@ -1547,6 +1768,10 @@ redundant is green, and only by the main session (`{C}/AGENTS.md` 4.7).
 
 **What.** Every Appendix C row gone on both hosts; `{S}` and `{MS}` removed; the GitHub repository archived with a
 pointer to its new home; the OpenCode session moved off `{S}`.
+Revision 12 (2026-11-17): `{M}` rows deferred — run now: 11.1 (depends: Stage 9 closed, not 10.9), 11.2, 11.3, 11.4,
+11.7, 11.8 for `{S}` only (gate 2 stands: ls-remote = 11.7 SHA), 11.9 (depends: 11.8-`{S}`), 11.10 Mac rows only,
+11.11 Mac scans only. Deferred to the follow-up plan: 11.5, 11.6, the 11.8 `{MS}` half, the 11.10/11.11 `{M}` rows.
+The stage gate is judged on the Mac rows + `isArchived`; the `{M}` rows and Appendix C `{M}` rows go to the follow-up.
 
 **Stage gate.** Step 11.11's re-scan prints only the allowed references of Appendix C; `gh repo view
 mavasbel-devtools/opencode-magic-context-patches --json isArchived` → `{"isArchived":true}`.
@@ -1726,6 +1951,13 @@ mavasbel-devtools/opencode-magic-context-patches --json isArchived` → `{"isArc
 **Why.** `{C}/AGENTS.md` rule 3.10 (added by plan 2026-11-15-22-13).
 
 **What.** Every path this plan created that is neither a deliverable nor retained is gone, proved path by path.
+Revision 12 (2026-11-17): 12.1 runs on this Mac only (`{X}/after`; `{MX}/after` deferred with `{M}`); 12.2 deletes
+the `{T}` scratch dirs and the withdrawn plan-2 copy but KEEPS `{X}` — its evidence and `{X}/backup` back the
+deferred `{M}` work, so `{X}` is retained for the follow-up, not residue; 12.3 (delete this plan's scratch copy) is
+deferred — the plan is not finished.
+Revision 13 (2026-11-17): supersedes the Revision 12 note above — 12.1 and 12.2 run on this Mac only; 12.2 deletes
+`{X}` whole (Mac backups only, every gate they protect is green) and `{T}/step-11-11-find.out`, and never touches
+`{MX}` (Retained on `{M}`); 12.3 is now step 13.5. The stage gate is judged on `{X}/before` only.
 
 **Stage gate.** The after-snapshot differs from `{X}/before`/`{MX}/before` only by rows in What, Retained, Appendix C
 deletions, and foreign rows (other sessions', shown with birth time, never deleted); every deleted path has
@@ -1762,7 +1994,7 @@ deletions, and foreign rows (other sessions', shown with birth time, never delet
 - **failure**: none possible after deletion of scratch; backups in `{X}` are deleted last, after 7.4, 9.x and 11.x are green.
 - **returns**: per-path output.
 
-### Step 12.3 — Delete this plan's scratch copy
+### Step 12.3 — Delete this plan's scratch copy (superseded by Revision 13: runs as step 13.5; not run here)
 
 - **runs in**: main session (destructive)
 - **action**: `delete`
@@ -1781,6 +2013,12 @@ deletions, and foreign rows (other sessions', shown with birth time, never delet
 **Why.** `{C}/AGENTS.md` 2.13, 9.3; 7.6.
 
 **What.** The session record complete on `main`; the worktree and branch removed; memory corrected; the report.
+Revision 12 (2026-11-17): 13.1 runs now with depends re-wired to 12.2 (Mac rows) — the record covers Mac completion
+plus the `{M}` deferral; 13.2–13.4 run now.
+Revision 13 (2026-11-17): order is 13.1 → 13.1b → 13.2 → 13.3 → 13.4 → 13.5. 13.1 first runs
+`cp /Users/mavasbel/.opencode/plan/2026-11-15-23-45-merge-magic-context-patches.md {W}/docs/plans/2026-11-15-23-45-merge-magic-context-patches.md`
+and adds both the plan and the record by exact path to its commit (extra gate: `cmp` of the two copies → 0 before commit).
+The record states `{M}` and win32 as out of scope (user-run), not deferred. The 13.2 stage gate stands.
 
 **Stage gate.** `git -C {A} worktree list` → `{A}` plus `feat-herdr-pane-agent` and `feat-macos-store-migration`
 (each only if it still exists);
@@ -1796,11 +2034,30 @@ deletions, and foreign rows (other sessions', shown with birth time, never delet
   data for `{S}`), the retained list. Commit `Docs: session record of the patches merge` with `{IDENT}`; `git -C {A}
   merge --ff-only feat-magic-context-patches && git -C {A} push origin main`.
 - **depends on**: 12.3
+- **depends on**: 12.2 (Revision 13: Mac rows; 12.3 moved after this step as 13.5)
 - **gates**: 1. `bun run lint:diagrams` 0; 2. remote `main` = local `main`.
 - **problems**: —
 - **escalation**: —
 - **failure**: before push, `git -C {A} reset --hard ORIG_HEAD`.
 - **returns**: SHA.
+
+### Step 13.1b — Install from the merged `main` (Revision 13)
+
+- **runs in**: main session (installs into the user's `~/.local/bin`; changes the live tool)
+- **action**: `run`
+- **target**: `cd {W} && bun run install:cli && bun run validate:installed:cli && bun run validate:watch`
+- **content**: `{W}` is at local `main` = remote `main` after 13.1. Rebuild and install the CLI from it, byte-compare,
+  and confirm the launchd agent is still installed and valid. `bun run install:watch` is **not** re-run: 13.1 changes
+  only `docs/`, so the plist template is unchanged since 9.8 (gate 4 proves it).
+- **depends on**: 13.1
+- **gates**: 1. `validate:installed:cli` exit 0 (byte-identical, `--version` printed); 2. `opencode-session-manager --version`
+  prints the `package.json` version; 3. `opencode-session-manager patches check` exit 0; 4. `git -C {W} diff --stat
+  fe43262..HEAD -- launchd/ scripts/watch.mjs` prints nothing; 5. `bun run validate:watch` exit 0.
+- **problems**: gate 4 prints a change → re-run `bun run install:watch` and then `validate:watch`. Gate 3 exit 1 → stop;
+  quote `patches status`.
+- **escalation**: the user, with the failing gate's output.
+- **failure**: re-install from the same commit; the previous binary is byte-identical by construction (docs-only diff).
+- **returns**: gate outputs.
 
 ### Step 13.2 — Remove the worktree and branch
 
@@ -1809,7 +2066,7 @@ deletions, and foreign rows (other sessions', shown with birth time, never delet
 - **target**: `{W}` and branch `feat-magic-context-patches`
 - **content**: `git -C {A} worktree remove {W} && git -C {A} worktree prune && git -C {A} branch -d feat-magic-context-patches`.
   Its evidence goes into the closing report (the record is already committed).
-- **depends on**: 13.1
+- **depends on**: 13.1b (Revision 13)
 - **gates**: the stage gate.
 - **problems**: `branch -d` refuses (not merged) → 13.1 did not merge; back to it.
 - **escalation**: —
@@ -1842,6 +2099,19 @@ deletions, and foreign rows (other sessions', shown with birth time, never delet
 - **problems**: —
 - **escalation**: —
 - **failure**: —
+- **returns**: —
+
+### Step 13.5 — Delete this plan's scratch copy (Revision 13; was 12.3)
+
+- **runs in**: main session (destructive)
+- **action**: `delete`
+- **target**: `/Users/mavasbel/.opencode/plan/2026-11-15-23-45-merge-magic-context-patches.md`
+- **content**: `cmp` with `git -C {A} show main:docs/plans/2026-11-15-23-45-merge-magic-context-patches.md` → 0, then `rm`.
+- **depends on**: 13.4
+- **gates**: 1. `test ! -e` → 0.
+- **problems**: `cmp` differs → the committed revision is stale; stop and ask.
+- **escalation**: the user.
+- **failure**: `git -C {A} show main:docs/plans/2026-11-15-23-45-merge-magic-context-patches.md > <scratch path>`.
 - **returns**: —
 
 ## Appendix A — Baselines
@@ -1975,6 +2245,7 @@ enforce it.
 | I9 | The `main/<word>-container.ts` files are **exactly** `cli-container.ts`, `linux-container.ts`, `server-container.ts`, `tui-container.ts`, `win32-container.ts`; the import graph of `main/v2/server.ts` holds no `.tsx` file and no `tui-container.ts`. | :99-123 |
 | I10 | Ports sit under `domain/ports/inbound/` or `domain/ports/outbound/`, **directly** (the test takes `rest.split("/")[1]` as the file name, so a subfolder fails), and each port file exports exactly one `interface …Port`, whose name equals the file name. | :125-141 |
 | I11 | Adapters exist on both the inbound and the outbound side, and every `*Adapter.ts(x)` file is under `infrastructure/adapters/`. | :143-152 |
+| I12 | Outside `tests/support/platform.ts` and `tests/unit/platform/<p>/`, no test file reads `process.platform` (D29). | added by step 4.3 |
 
 #### `tests/unit/architecture/solid-principles.test.ts`
 
@@ -2015,6 +2286,7 @@ enforce it.
 | L5 | README.md and AGENTS.md together name every package.json script as `bun run <name>`. | :62 |
 | L6 | README.md and AGENTS.md together name every `(OPENCODE|XDG|MAGIC_CONTEXT|HERDR)_[A-Z0-9_]+` read in any tracked or untracked `src`, `tests` or `scripts` file ending `.ts`, `.tsx`, `.mjs` or `.js` — **fixture `.js` files included**. | :65-74 |
 | L7 | AGENTS.md names every file under `src/` and `tests/support/`: by its path below the folder, by its basename when that is unique, or through a folder written as `` `dir/` `` or `dir/*`. | :76-89 |
+| L8 | Rule L3 does not apply under `docs/plans/` or `docs/sessions/` (working documents describe future and deleted states); L1/L2 still do. AGENTS.md §9 names the exception. | lint-diagrams.mjs (step 1.13); AGENTS.md:§9 |
 
 #### Configuration and AGENTS.md rules
 
@@ -2253,6 +2525,7 @@ are marked with their origin. `src/…/outbound/` stands for `src/infrastructure
 | `tests/unit/patches/infrastructure/liveness.test.ts` | `ProcLivenessAdapter`, and `FsFollowLockAdapter` with a liveness stand-in. |
 | `tests/e2e/patches/platform-<os>.test.ts` (`linux`, `darwin`, `win32`) | e2e of `patches effect`, `patches notify` and the follow lock through the real platform adapters on their own OS (C2 measures each platform's files only on that platform). Exact split: see Gaps. |
 | `tests/live/patches/platform.test.ts` | live check, on the running OS, that the service start time, liveness and notification adapters work against the real system. |
+| `tests/e2e/patches/prerelease-versions.test.ts` | compareVersions §11 pairs through `follow` (prerelease ordering incl. the §11 example chain, build metadata ignored, `MagicContextVersionsUseCase` + `FollowUseCase` effects); the 'New cases needed' content of the compareVersions section (Revision 7). |
 
 Help text needs no new file: `PATCHES_HELP` lives in `PatchesCliAdapter.ts`, and one line is added to A's
 `HELP` (see below).
