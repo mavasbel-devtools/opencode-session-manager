@@ -103,6 +103,7 @@ describe("hexagonal architecture", () => {
       "main/cli-container.ts",
       "main/darwin-container.ts",
       "main/linux-container.ts",
+      "main/patches-container.ts",
       "main/server-container.ts",
       "main/tui-container.ts",
       "main/win32-container.ts",
@@ -171,7 +172,7 @@ describe("test platform gating (D29, I12)", () => {
     walk(root)
     const offenders = files
       .map((file) => path.relative(root, file).replaceAll(path.sep, "/"))
-      .filter((rel) => rel !== "support/platform.ts" && !rel.startsWith("unit/platform/"))
+      .filter((rel) => rel !== "support/platform.ts" && !rel.startsWith("unit/platform/") && !rel.startsWith("support/patches/fixtures/")) // D32: frozen upstream bytes, not project test code
       .filter((rel) => fs.readFileSync(path.join(root, rel), "utf8").includes(needle))
     expect(offenders).toEqual([])
   })

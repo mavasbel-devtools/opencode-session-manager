@@ -263,6 +263,17 @@ opencode-session-manager context sync --from <dataHome> --to <dataHome> (--sessi
 opencode-session-manager rehearse [--db <path>] [--keep]
 opencode-session-manager run [--db <path>]
 opencode-session-manager rollback <backupDir> [--db <path>]...
+
+# The installed Magic Context, kept patched (see below)
+opencode-session-manager patches status [--json]
+opencode-session-manager patches apply [--patch <id>] [--version <v>] [--json]
+opencode-session-manager patches undo [--patch <id>] [--version <v>] [--json]
+opencode-session-manager patches check [--json]
+opencode-session-manager patches inspect --version <v> [--json]
+opencode-session-manager patches effect [--since <ISO time>] [--json]
+opencode-session-manager patches notify [--json]
+opencode-session-manager patches follow [--version <v>] [--json]
+opencode-session-manager patches follow --rollback [--json]
 ```
 
 `context copy` and `rehearse` write only their own output (a new file, or a
@@ -692,6 +703,162 @@ keeps the failed copy for inspection.
   there; `--keep` keeps the copy. `run` keeps its evidence in
   `db-backup-<timestamp>/report.json`.
 
+## The patches group (`patches`)
+
+Local, auditable patches for the [Magic Context](https://github.com/cortexkit/magic-context) plugin
+that OpenCode installs, re-runnable after every Magic Context update.
+
+Each patch is written down once, in `src/domain/patch-definitions/`, with the exact files it changes,
+the text it replaces, how many times, and the sha256 of each file before and after — for every Magic
+Context version it has been checked against. The tool changes a file only when it is exactly the
+recorded original and the result is exactly the recorded patched file; it keeps a backup of every
+original, writes every action to an audit log, and can put everything back.
+
+`follow` goes one step further: when npm publishes a new Magic Context, it installs that release into
+a folder of its own, finds each patch's sites by content (a matcher per patch), patches the copy,
+proves it in an isolated `opencode serve`, and only then points the one Magic Context entry of
+`opencode.jsonc` at that folder. OpenCode reloads it without a restart, so it never loads an unpatched
+copy. Any doubt — an unknown shape of a site, a rejected setting, a server that does not reload — stops
+it, and OpenCode keeps what it loaded.
+A file may belong to more than one patch: patches are applied in `index.ts` order, each
+matcher reading the file the previous patch left, so the later release's `before` is the earlier
+release's `after`. A patch whose site upstream introduced (or dropped) leaves `optional: true` on its
+matcher: on a release that holds none of its sites it has nothing to change and does not stop
+`follow` (a file holding only some of its sites still stops it).
+
+### The patches
+
+| Patch | What it changes | Why | Checked versions |
+|---|---|---|---|
+| `execute-threshold-min` | The configuration minimum of `execute_threshold_percentage`: `min(20).max(90` → `min(1).max(90` (3 places in each of 2 files) | Magic Context rejects a configured `13` ("invalid value (number 13), using default 65") although the code that uses the threshold has no lower limit | 0.47.0, 0.48.0, 0.49.0, 0.49.2, 0.49.7, 0.49.12, 0.49.13, 0.49.15, 0.49.19, 0.49.35, 0.49.41, 0.49.42, 0.49.43, 0.49.50, 0.49.55, 0.49.56 |
+| `no-session-model-fallback` | The historian's retry chain: `...args.fallbackModelId ? [{ model: args.fallbackModelId }] : []` → `...[]` (1 place in each of 2 files; from 0.49.19 the text is `...!primary && args.fallbackModelId ? [{ model: args.fallbackModelId }] : []`) | After every configured model failed, the historian retried once on the summarised session's own model, which no setting turns off; it ran a paid model while only free models were configured | 0.49.15, 0.49.19, 0.49.35, 0.49.41, 0.49.42, 0.49.43, 0.49.50, 0.49.55, 0.49.56 |
+| `refusal-recovery` | Five sites, each once in each of 2 files (3 files in all): the historian wait is no longer clamped to 60 s, so `historian_timeout_ms` applies; the "may take up to … seconds" notice states that wait; `EmergencyFailClosedError` gets the error toast the other blocking errors get; after such a refusal the session runs the first-pass reset again | With a historian slower than 60 s, a turn was interrupted before the provider request whatever `historian_timeout_ms` said, and the user saw no reason | 0.49.35, 0.49.41, 0.49.42, 0.49.43, 0.49.50, 0.49.55, 0.49.56 |
+| `fold-identity-stable` | The store identity, once in each of 2 files: `${stat.dev}:${stat.ino}:${stat.birthtimeMs}` → `${stat.ino}:${stat.birthtimeMs}` | btrfs gives `st_dev` a new anonymous number at every boot, so every fold admission stopped matching and the native fold was rebuilt instead of reused | 0.49.15, 0.49.50, 0.49.55, 0.49.56 |
+| `fold-provenance-heal` | The admission guard, once in each of 2 files: a `proof.sourceDigest` that no longer matches while the checkpoint id and the summary digest do rewrites the admission with the current digest and reports `replay provenance refreshed after the store identity changed` | An admission written under another mount can never repair itself — with `fold-identity-stable` this heals the admissions stored before it, once per session, instead of a rebuild on every transform | 0.49.50, 0.49.55, 0.49.56 |
+
+The evidence behind each patch is frozen under `docs/reference/`.
+
+### Watching for updates
+
+`bun run install:watch` installs the watch that runs `patches follow` when OpenCode installs another
+Magic Context, when `opencode.jsonc` changes (after 30 s, to let the install finish), 2 minutes after
+login, and every 6 hours: systemd user units
+(`systemd/opencode-session-manager-patches.path`, `.service`, `.timer`) on Linux, a launchd agent on
+macOS; on Windows it exits 1. `bun run validate:watch` checks the units are installed, valid, enabled
+and active; `bun run uninstall:watch` removes them. `OPENCODE_SESSION_MANAGER_PATCHES_SYSTEMD_DIR` puts
+the units elsewhere.
+
+### Commands
+
+| Command | Does | Changes files? | Exit code |
+|---|---|---|---|
+| `status` | Every installed Magic Context copy (which one `opencode.jsonc` pins is marked `LOADED`), and each patch on it: `applied`, `not-applied`, `partial`, `changed` (a file matches neither checksum), `missing-file`, or `unchecked-version` | no | 0 |
+| `apply` | Applies every patch to the loaded copy (or to the copies of `--version`). Each file must be the recorded original; the result must have the recorded checksum; the original is backed up first; the file is replaced in one step and read back. If anything fails, every file it already wrote is put back. Running it again changes nothing. | yes | 1 if anything was refused or failed |
+| `undo` | Puts the originals back: from the backup when it is intact, otherwise by reversing the replacements — either way only if the result has the recorded original checksum | yes | 1 if refused or failed |
+| `check` | Passes only if every patch is applied on the copy OpenCode loads | no | 1 if not |
+| `inspect` | For a version a patch has not been checked against: where the replaced text occurs in that version's `dist/**/*.js`, how often, whether each file is the same as in the checked version, with context, for a person to review before adding the version to the patch | no | 0 |
+| `effect` | Reads Magic Context's own log since the OpenCode server started (or `--since`): how often `execute_threshold_percentage` was rejected, which proactive floor was logged, and so which threshold is really in use, against the configured one | no | 0 only if `respected` |
+| `notify` | Runs `check`; when it fails, shows a desktop notification, once per distinct problem | no | 1 if `check` fails |
+| `follow` | Adopts npm `latest` (or `--version <v>`, even an older one) already patched; see below. Prints every step with its time and what it found. | a new install folder, and the one Magic Context entry of `opencode.jsonc` | 0 if `adopted` or `up-to-date`, 1 if `stopped` or `busy` |
+| `follow --rollback` | Puts back the entry `opencode.jsonc` had before the last adoption (or rollback) and confirms the running server reloaded it | the one Magic Context entry of `opencode.jsonc` | 0 if `rolled-back` |
+
+Where things are kept:
+
+| What | Where |
+|---|---|
+| Backups (read-only, one per original, named by checksum) | `<XDG_DATA_HOME>/opencode-session-manager/patches/backups/<version>/<patch>/<path>@<sha256>` (default `~/.local/share/…`) |
+| Audit log (one JSON line per file per `apply`/`undo`, including refusals) | `<XDG_STATE_HOME>/opencode-session-manager/patches/audit.log` (default `~/.local/state/…`, mode 600) |
+| Last notification sent | `<XDG_STATE_HOME>/opencode-session-manager/patches/last-notification` (`notify`), `last-follow-notification` (`follow`) |
+| Patched copies `follow` installed (the adopted one, and the one the previous entry names) | `<XDG_DATA_HOME>/opencode-session-manager/patches/installs/<version>/node_modules/@cortexkit/opencode-magic-context` |
+| Releases `follow` derived (checksums `status`, `apply` and `undo` use for unreviewed versions) | `<XDG_DATA_HOME>/opencode-session-manager/patches/derived-releases.json` |
+| Evidence of each adoption (every step, every patched file with both checksums) | `<XDG_STATE_HOME>/opencode-session-manager/patches/evidence/YYYY-MM-DD-HH-MM-magic-context-<v>-follow.md` |
+| Backups of `opencode.jsonc` before each entry change | `<XDG_DATA_HOME>/opencode-session-manager/patches/backups/config/follow/opencode.jsonc@<sha256>` |
+| The entry `follow --rollback` restores | `<XDG_STATE_HOME>/opencode-session-manager/patches/follow-previous-entry` |
+| The lock one `follow` run holds | `<XDG_STATE_HOME>/opencode-session-manager/patches/follow.lock` (holds its pid; taken over when that process is gone) |
+
+What it reads: Magic Context installations under `<XDG_CACHE_HOME>/opencode/npm/@cortexkit/opencode-magic-context@<spec>/`
+(OpenCode 2.0.24 puts the package one numbered folder further down) and the ones `follow` installed; the
+pinned spec (or folder) from `<XDG_CONFIG_HOME>/opencode/opencode.jsonc` (else `opencode.json`); the configured threshold from
+`<XDG_CONFIG_HOME>/cortexkit/magic-context.jsonc`; Magic Context's log at `MAGIC_CONTEXT_LOG_PATH`,
+else `<TMPDIR or /tmp>/opencode2/magic-context/magic-context.log` (Magic Context's own rule); the
+OpenCode server's start time from the platform's process list (`OPENCODE_SESSION_MANAGER_PATCHES_PROC`
+points elsewhere on Linux, for tests).
+`OPENCODE_SESSION_MANAGER_PATCHES_NOTIFY_BIN` replaces the notifier. For `follow`:
+`OPENCODE_SESSION_MANAGER_PATCHES_REGISTRY`
+(default `https://registry.npmjs.org`), npm's cache `~/.npm/_cacache`,
+`OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN`
+(default `~/.opencode/bin/opencode`, for the isolated server), the running service's address and
+password from `<XDG_STATE_HOME>/opencode/service.json`,
+`OPENCODE_SESSION_MANAGER_PATCHES_TIMEOUT_MS` (each wait,
+default 120000) and `OPENCODE_SESSION_MANAGER_PATCHES_SETTLE_MS` (the wait before a log is read,
+default 5000).
+
+```mermaid
+flowchart LR
+  CLI[CLI: PatchesCliAdapter] --> UC[use cases: status apply undo check inspect effect notify]
+  UC --> CAT[InstallationCatalog]
+  UC --> INS[PatchInspector]
+  UC --> CW[ChangeWriter]
+  CAT --> P1[(OpenCode npm cache)]
+  CAT --> P2[(opencode.jsonc)]
+  INS --> P3[(installed files)]
+  CW --> P3
+  CW --> P4[(backups)]
+  CW --> P5[(audit log)]
+  UC --> P6[(Magic Context log, magic-context.jsonc, process list)]
+  UC --> P7[platform notifier]
+  UC --> F[follow: registry, Arborist, isolated opencode serve, running server]
+  F --> P8[(installs, derived releases, evidence)]
+  F --> P2
+```
+
+### follow
+
+| Step | What it does | Stops when |
+|---|---|---|
+| detect | npm `dist-tags.latest` (or `--version`) and its tarball integrity; compares with the copy OpenCode loads | not newer (`up-to-date`), no entry in `opencode.jsonc`, the registry fails, the version was never published, or the running server still loads an old folder of that version |
+| stage | Installs it with `@npmcli/arborist` 9.4.0 and OpenCode 2.1.1's own options into `installs/.osm-patches-<pid>/`; the installed version and integrity must be the registry's | install failure, another version, another integrity |
+| locate | Each patch's matcher reads every `dist/**/*.js` for each of its sites: exactly 2 files must hold a known shape of the site, each exactly its count of times, each hit within its site's window after its anchor, no replacement already present, no file changed by two patches | any other count, file count, shape or anchor |
+| patch | Replaces the text, checks every changed bundle still parses (Bun's parser), writes it and reads it back; a reviewed version must give exactly its reviewed checksums; then renames the folder to `installs/<v>/` | parse error, read-back mismatch, a reviewed checksum differs |
+| prove | An isolated `opencode serve --port 0` (its own HOME, XDG folders and TMPDIR; nothing else from the environment) with the user's `magic-context.jsonc` and that folder as its only plugin: the plugin must be `active`, loaded from that folder, and Magic Context's log must hold no `config reload failed` | anything else; the folder is removed |
+| publish | Backs up `opencode.jsonc`, replaces only the Magic Context string with the folder (comments and layout kept), reads it back | not exactly one entry, read-back mismatch |
+| confirm | Waits until every location of the running OpenCode server reports the plugin `active` from that folder (OpenCode watches its configuration; nothing restarts), then reads Magic Context's log from the switch: no `config reload failed`, and the threshold in use must not differ from the configured one | timeout or rejection: the previous entry is put back and confirmed |
+| record | Keeps the derived releases, removes older installs nothing names or loads, appends the audit log, writes the evidence document, remembers the previous entry for `--rollback`, notifies | – |
+
+A stopped run is audited and notified once per distinct reason. Versions adopted this way show as
+`(auto-checked by follow)` in `status` until a person adds them to `src/domain/patch-definitions/`
+(with fixtures).
+
+### After a Magic Context update
+
+When `follow` stopped (a notification says on which step), or for an npm pin changed by hand:
+
+1. `patches status`. If the new version shows `not-applied`, it has been
+   checked: run `patches apply`, then restart OpenCode.
+2. If it shows `unchecked-version`, run `patches inspect --version <v>` and
+   review where the text now is. When it is safe, add a release for that version to the patch in
+   `src/domain/patch-definitions/` (from the published npm tarball: `before` and `after` checksums, counts), add a fixture
+   under `tests/support/patches/fixtures/magic-context-<v>/`, run the gates, commit, install the CLI,
+   then `apply`.
+3. Restart OpenCode (`~/.opencode/bin/opencode service restart`) after `apply`, then
+   `patches effect` should say `verdict: respected`.
+
+To remove a patch: `patches undo`, then restart OpenCode.
+
+### What it can and cannot do
+
+- It patches only the copy OpenCode loads, unless `--version` names another; copies of other versions
+  are listed by `status` and left alone.
+- It does not patch the `magic-context` command (`~/.local/bin/magic-context`), which is a separate
+  build; `magic-context doctor` may still call the threshold invalid.
+- OpenCode loads an npm-pinned plugin when it restarts, so `apply` and `undo` on such a copy take
+  effect after a restart. A folder entry (what `follow` writes) is watched: OpenCode reloads it as soon
+  as the entry changes, which `follow` relies on and confirms.
+- `follow` never changes a copy OpenCode has loaded: it only installs new folders and removes ones
+  nothing names or loads.
+- A file changed by anything else (`changed`) is never touched; `undo` or a reinstall of that version
+  by OpenCode brings it back to a known state.
+
 ## Architecture
 
 Strict hexagonal, dependencies point inward only; the full contract is in
@@ -809,8 +976,10 @@ flowchart LR
 ```
 
 Composition roots: `src/main/server-container.ts` (v2 server),
-`src/main/tui-container.ts` (v2 TUI). Entrypoints: `src/main/v2/server.ts`,
-`src/main/v2/tui.ts`. `scripts/build.mjs` binds the v2 TUI bundle to the host's shared Solid/OpenTUI runtime.
+`src/main/tui-container.ts` (v2 TUI), `src/main/cli-container.ts` (the CLI,
+including the `patches` group wired by `src/main/patches-container.ts`).
+Entrypoints: `src/main/v2/server.ts`,
+`src/main/v2/tui.ts`, `src/main/cli/cli.ts`. `scripts/build.mjs` binds the v2 TUI bundle to the host's shared Solid/OpenTUI runtime, and bundles the CLI (with `@npmcli/arborist`) into one executable.
 
 ## Build and test
 
@@ -831,6 +1000,9 @@ bun run cli -- <command>          # the program from the checkout
 bun run install:plugin:v2
 bun run validate:installed:v2
 bun run install:cli
+bun run install:watch
+bun run validate:watch
+bun run uninstall:watch
 bun run fixtures:live -- --other <folder> --old-context <context.db>   # keep the live tier's real stores (see below)
 bun run validate:installed:cli
 ```
@@ -883,6 +1055,14 @@ live tier needs `node` (for the pseudo-terminal).
 | `OPENCODE_SESSION_MANAGER_BIN_DIR` | `install:cli` | install folder (`~/.local/bin`) |
 | `OPENCODE_SESSION_MANAGER_OFFLINE` | `tui` | non-empty: npm is never asked for the newest Magic Context (as `--offline`) |
 | `OPENCODE_SESSION_MANAGER_NPM_REGISTRY` | `tui` | the registry asked for the newest Magic Context (`https://registry.npmjs.org`) |
+| `MAGIC_CONTEXT_LOG_PATH` | `patches effect` | Magic Context's log (default `<TMPDIR or /tmp>/opencode2/magic-context/magic-context.log`) |
+| `OPENCODE_SESSION_MANAGER_PATCHES_NOTIFY_BIN` | `patches notify`, `patches follow` | the desktop-notification command (default `notify-send`, `osascript`, PowerShell) |
+| `OPENCODE_SESSION_MANAGER_PATCHES_PROC` | `patches effect` on Linux | the `/proc` root (default `/proc`) |
+| `OPENCODE_SESSION_MANAGER_PATCHES_REGISTRY` | `patches follow` | the npm registry read for new releases (default `https://registry.npmjs.org`) |
+| `OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN` | `patches follow` | the OpenCode binary proving releases in isolation (default `~/.opencode/bin/opencode`, else `opencode` on `PATH`) |
+| `OPENCODE_SESSION_MANAGER_PATCHES_TIMEOUT_MS` | `patches follow` | each wait in ms (default 120000) |
+| `OPENCODE_SESSION_MANAGER_PATCHES_SETTLE_MS` | `patches follow` | the wait before a log is read in ms (default 5000) |
+| `OPENCODE_SESSION_MANAGER_PATCHES_SYSTEMD_DIR` | `install:watch` | the folder the systemd units go in (default `<XDG_CONFIG_HOME>/systemd/user`) |
 | `OPENCODE_V2_PLUGIN_DIR` | the plugin installer | the plugins folder |
 | `OPENCODE_V2_EXECUTABLE` | live tier | the OpenCode 2 executable (else `~/.opencode/bin/opencode`, `~/.local/bin/opencode.exe` on Windows, else `PATH`) |
 | `OPENCODE_BIN` | live `sync` test | the `opencode` that lists the synced copy (default `opencode` on `PATH`) |

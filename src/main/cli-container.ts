@@ -89,7 +89,12 @@ import { JsonReportAdapter } from "@session-manager/infrastructure/adapters/outb
 import { NodeMaintenanceFileSystemAdapter } from "@session-manager/infrastructure/adapters/outbound/fs/NodeMaintenanceFileSystemAdapter"
 import { BunSqliteAdapter } from "@session-manager/infrastructure/adapters/outbound/sqlite/BunSqliteAdapter"
 import { SystemClockAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemClockAdapter"
-import { platformAdapters } from "@session-manager/main/cli/platform"
+import { patchesPlatformAdapters, platformAdapters } from "@session-manager/main/cli/platform"
+import { createPatchCommands, type Seams } from "@session-manager/main/patches-container"
+import { resolvePatchPaths } from "@session-manager/main/cli/patches-paths"
+import { PATCHES } from "@session-manager/domain/patch-definitions/index"
+import { PatchesCliAdapter } from "@session-manager/infrastructure/adapters/inbound/cli/PatchesCliAdapter"
+import { StderrOutputAdapter } from "@session-manager/infrastructure/adapters/outbound/system/StderrOutputAdapter"
 
 /** The rewriter for one sync's path mapping. */
 /** The rewriter of folder names renamed in place. */
@@ -127,6 +132,8 @@ export interface ContainerOverrides {
   readonly runtime?: RuntimePort
   readonly reports?: ReportSinkPort
   readonly output?: OutputPort
+  /** Fault-injection seams for the patches group; production passes nothing. */
+  readonly patches?: Seams
   /** A policy demanding more space than a test machine has, so the real disk guard can be exercised. */
   readonly space?: RequiredSpacePolicy
   /** Waiting between looks at a running rebuild; tests wait no real time. */
@@ -333,5 +340,14 @@ export async function buildContainer(environment: CliEnvironment, overrides: Con
   const help = { run: (argv: readonly string[]) => helpCli.run(argv, "help") }
   const version = { run: (argv: readonly string[]) => helpCli.run(argv, "version") }
 
-  return new CliRouter(compactCli, { sync: syncCli, relocate: relocateCli, fork: forkCli, verify: verifyCli, sessions: sessionsCli, context: contextCli, tui: browseCli, help, "--help": help, "-h": help, version, "--version": version })
+  const patchPaths = resolvePatchPaths(environment, runtime.homeDirectory())
+  const patchAdapters = await patchesPlatformAdapters(runtime.platform(), { proc: patchPaths.proc, notifyCommand: patchPaths.notifyCommand })
+  const errors = new StderrOutputAdapter()
+  const patchesCli = new PatchesCliAdapter(
+    createPatchCommands(patchPaths, PATCHES, patchAdapters, overrides.patches ?? {}),
+    { out: (text: string) => output.line(text), err: (text: string) => errors.line(text) },
+    packageJson.version,
+  )
+
+  return new CliRouter(compactCli, { sync: syncCli, relocate: relocateCli, fork: forkCli, verify: verifyCli, sessions: sessionsCli, context: contextCli, tui: browseCli, patches: patchesCli, help, "--help": help, "-h": help, version, "--version": version })
 }

@@ -1,8 +1,9 @@
 import { homedir, tmpdir } from "node:os"
+import type { ClockPort } from "@session-manager/domain/ports/outbound/ClockPort"
 import type { RuntimePort } from "@session-manager/domain/ports/outbound/RuntimePort"
 
 /** The only place the ambient process state is read. `stamp` takes an optional date so tests can pin it. */
-export class SystemClockAdapter implements RuntimePort {
+export class SystemClockAdapter implements RuntimePort, ClockPort {
   constructor() {}
 
   pid(): number {
@@ -15,6 +16,10 @@ export class SystemClockAdapter implements RuntimePort {
 
   now(): number {
     return Date.now()
+  }
+
+  sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   stamp(date: Date = new Date()): string {

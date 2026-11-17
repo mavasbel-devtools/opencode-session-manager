@@ -61,7 +61,8 @@ async function bundle(entry, file, plugins, directory = outdir) {
  * and silently drops the sidebar. Checked against the pinned packages.
  */
 /**
- * The CLI (maintenance commands and the session browser) as one self-contained executable (`dist/cli/opencode-session-manager`,
+ * The CLI (maintenance commands, the session browser and the patches group, with its bundled
+ * `@npmcli/arborist`) as one self-contained executable (`dist/cli/opencode-session-manager`,
  * `.exe` on Windows), built for the platform running the build, like OpenCode itself ships.
  */
 async function compileCli() {

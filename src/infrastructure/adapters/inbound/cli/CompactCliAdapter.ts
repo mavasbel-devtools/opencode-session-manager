@@ -23,6 +23,22 @@ export interface CliEnvironment {
   readonly OPENCODE_SESSION_MANAGER_OFFLINE?: string | undefined
   /** The npm registry asked for the newest Magic Context (default https://registry.npmjs.org). */
   readonly OPENCODE_SESSION_MANAGER_NPM_REGISTRY?: string | undefined
+  /** Where `patches follow` stages (default /proc on Linux, unused elsewhere). */
+  readonly OPENCODE_SESSION_MANAGER_PATCHES_PROC?: string | undefined
+  /** The desktop-notification command `patches` uses (default notify-send, osascript, PowerShell). */
+  readonly OPENCODE_SESSION_MANAGER_PATCHES_NOTIFY_BIN?: string | undefined
+  /** The npm registry `patches follow` reads (default https://registry.npmjs.org). */
+  readonly OPENCODE_SESSION_MANAGER_PATCHES_REGISTRY?: string | undefined
+  /** The OpenCode binary `patches follow` proves releases with (default ~/.opencode/bin/opencode). */
+  readonly OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN?: string | undefined
+  /** Each wait of `patches follow` in ms (default 120000). */
+  readonly OPENCODE_SESSION_MANAGER_PATCHES_TIMEOUT_MS?: string | undefined
+  /** The settle wait of `patches follow` in ms (default 5000). */
+  readonly OPENCODE_SESSION_MANAGER_PATCHES_SETTLE_MS?: string | undefined
+  /** Magic Context's log, read by `patches effect` (default under TMPDIR). */
+  readonly MAGIC_CONTEXT_LOG_PATH?: string | undefined
+  /** Temporary directory (default /tmp). */
+  readonly TMPDIR?: string | undefined
 }
 
 export const USAGE =

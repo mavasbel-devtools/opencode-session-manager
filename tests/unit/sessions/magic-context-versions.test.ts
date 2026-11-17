@@ -30,6 +30,13 @@ describe("reading OpenCode's configuration for Magic Context", () => {
     expect(pinnedMagicContext('{ // "@cortexkit/opencode-magic-context@0.1.0"\n "plugin": [] }')).toBeNull()
     expect(MAGIC_CONTEXT_PACKAGE).toBe("@cortexkit/opencode-magic-context")
   })
+
+  it("reads a folder entry as its absolute path, and null when no entry names Magic Context", () => {
+    const folder = "/home/u/.local/share/opencode-session-manager/patches/installs/0.49.56/node_modules/@cortexkit/opencode-magic-context"
+    expect(pinnedMagicContext(`{ "plugin": ["${folder}"] }`)).toBe(folder)
+    expect(pinnedMagicContext('{ "plugin": ["other"] }')).toBeNull()
+    expect(pinnedMagicContext("{}")).toBeNull()
+  })
 })
 
 describe("the Magic Context this machine runs", () => {

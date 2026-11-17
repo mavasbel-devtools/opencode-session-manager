@@ -70,7 +70,9 @@ const tracked = (folder) =>
     .stdout.split("\n")
     .filter((line) => line.length > 0 && existsSync(join(ROOT, line)))
 const variables = new Set()
-for (const file of [...tracked("src"), ...tracked("tests"), ...tracked("scripts")]) {
+// The patches fixtures are frozen upstream bytes (their env-looking names are Magic Context's
+// own), not variables this tool reads: `patches.test.ts` checksums them byte for byte.
+for (const file of [...tracked("src"), ...tracked("tests"), ...tracked("scripts")].filter((file) => !file.startsWith("tests/support/patches/fixtures/"))) {
   if (!/\.(tsx?|mjs|js)$/.test(file)) continue
   for (const match of readFileSync(join(ROOT, file), "utf8").matchAll(/\b(?:OPENCODE|XDG|MAGIC_CONTEXT|HERDR)_[A-Z0-9_]+\b/g)) variables.add(match[0])
 }

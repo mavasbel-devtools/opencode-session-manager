@@ -1,0 +1,11 @@
+[Unit]
+Description=Adopt new Magic Context releases already patched, or report why not
+Documentation=file://%h/Dev/repos/devtools/opencode-session-manager/README.md
+
+[Service]
+Type=oneshot
+# OpenCode writes a new Magic Context in several steps; give it time to finish before looking.
+ExecStartPre=/usr/bin/sleep 30
+ExecStart=%h/.local/bin/opencode-session-manager patches follow
+# follow exits 1 when it stopped on a step: that is the report it was asked for (and notified), not a failure.
+SuccessExitStatus=1

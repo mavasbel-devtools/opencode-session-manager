@@ -1,4 +1,4 @@
-import { test } from "bun:test"
+import { spyOn, test } from "bun:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"
@@ -23,6 +23,24 @@ test("buildContainer wires the real adapters when nothing is overridden", async 
 test("buildContainer runs offline without asking npm for Magic Context", async () => {
   const cli = await buildContainer({ OPENCODE_SESSION_MANAGER_OFFLINE: "1" })
   assert.equal(typeof cli.run, "function")
+})
+
+test("the patches group is wired with the platform's adapters", async () => {
+  const output = new FakeOutput()
+  const cli = await buildContainer({}, { output })
+  assert.equal(await cli.run(["patches", "--help"]), 0)
+  assert.match(output.lines[0] ?? "", /^opencode-session-manager patches/)
+  const errors: string[] = []
+  const write = spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+    errors.push(String(chunk))
+    return true
+  })
+  try {
+    assert.equal(await cli.run(["patches", "--bogus"]), 2)
+    assert.match(errors.join(""), /^usage error:/)
+  } finally {
+    write.mockRestore()
+  }
 })
 
 test("--help and --version are wired to the help adapter", async () => {

@@ -1,7 +1,7 @@
 {
   "name": "opencode-session-manager",
   "version": "0.3.0",
-  "description": "OpenCode session manager: the in-app plugin (session ID under the sidebar title, the session-id tool, /transfer-session) and an offline maintenance CLI for opencode.db (verified compaction, migration, rollback); strict hexagonal, Bun, OpenCode 2",
+  "description": "OpenCode session manager: the in-app plugin (session ID under the sidebar title, the session-id tool, /transfer-session) and an offline maintenance CLI for opencode.db (verified compaction, migration, rollback), plus a patches group keeping the installed Magic Context patched; strict hexagonal, Bun, OpenCode 2",
   "type": "module",
   "main": "./dist/v2/server.js",
   "scripts": {
@@ -19,6 +19,9 @@
     "install:plugin:v2": "bun run build && bun scripts/install-plugin.mjs v2",
     "validate:installed:v2": "bun scripts/install-plugin.mjs validate-v2",
     "install:cli": "bun run build && bun scripts/install-cli.mjs install",
+    "install:watch": "bun scripts/watch.mjs install",
+    "uninstall:watch": "bun scripts/watch.mjs uninstall",
+    "validate:watch": "bun scripts/watch.mjs validate",
     "fixtures:live": "bun scripts/live-fixtures.mjs",
     "validate:installed:cli": "bun scripts/install-cli.mjs validate",
     "cli": "bun src/main/cli/cli.ts",
@@ -26,10 +29,12 @@
   },
   "devDependencies": {
     "@lydell/node-pty": "1.2.0-beta.12",
+    "@npmcli/arborist": "9.4.0",
     "@opencode/plugin": "2.0.14",
     "@opentui/core": "0.5.10",
     "@opentui/solid": "0.5.10",
     "@types/bun": "1.4.2",
+    "@types/npmcli__arborist": "6.3.3",
     "@xterm/headless": "6.0.0",
     "bun-types": "1.4.2",
     "drizzle-orm": "0.45.4",

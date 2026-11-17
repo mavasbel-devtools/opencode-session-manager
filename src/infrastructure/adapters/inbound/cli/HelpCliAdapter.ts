@@ -23,6 +23,8 @@ export const HELP = [
   "                                                 fork a session through the running OpenCode",
   "  preflight|rehearse|run [--db <path>] [--keep]  verified compaction of opencode.db (OpenCode closed)",
   "  rollback <backupDir> [--db <path>]...          restore the originals a run or a sync moved aside",
+  "  patches <status|apply|undo|check|inspect|effect|notify|follow> [--json] ...",
+  "                                                 patch OpenCode's Magic Context copy (see `patches --help`)",
   "  --version, --help",
   "",
   "A <dataHome> holds opencode/opencode.db and cortexkit/magic-context/context.db (default: $XDG_DATA_HOME or ~/.local/share).",

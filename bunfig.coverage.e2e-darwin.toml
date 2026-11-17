@@ -1,4 +1,4 @@
-# The e2e coverage gate on darwin (`bun run coverage:e2e`, through scripts/coverage.mjs).
+# The e2e coverage gate on macOS (`bun run coverage:e2e`, through scripts/coverage.mjs).
 # Same as bunfig.coverage.toml, except that the linux and win32 adapters and containers are left
 # to their own e2e runs: they only work on their own platform (AGENTS.md, platform law).
 # Separate from bunfig.toml because the per-file 100 % gate applies to the tier
@@ -13,5 +13,5 @@ preload = ["@opentui/solid/preload", "./tests/support/no-herdr.ts"]
 coverage = true
 coverageReporter = ["text"]
 coverageSkipTestFiles = true
-coveragePathIgnorePatterns = ["tests/**", "dist/**", "build/**", "scripts/**", "**/*.test.ts", "**/*.test.tsx", "src/infrastructure/adapters/outbound/platform/linux/**", "src/main/linux-container.ts", "src/infrastructure/adapters/outbound/platform/win32/**", "src/main/win32-container.ts"]
+coveragePathIgnorePatterns = ["tests/**", "dist/**", "build/**", "scripts/**", "**/*.test.ts", "**/*.test.tsx", "src/infrastructure/adapters/outbound/platform/win32/**", "src/main/win32-container.ts", "src/infrastructure/adapters/outbound/platform/linux/**", "src/main/linux-container.ts"]
 coverageThreshold = { lines = 1.0, functions = 1.0 }

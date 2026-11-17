@@ -1,0 +1,10 @@
+[Unit]
+Description=Look for a new Magic Context release after login and every 6 hours
+
+[Timer]
+OnStartupSec=2min
+OnUnitActiveSec=6h
+Unit=opencode-session-manager-patches.service
+
+[Install]
+WantedBy=timers.target

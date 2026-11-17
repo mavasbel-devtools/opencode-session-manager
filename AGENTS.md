@@ -15,15 +15,16 @@ code is wrong until one of them is deliberately changed.
 | OpenCode 1 | not supported by the plugin (dropped 2026-10-14) | the program still reads and copies the OpenCode 1 sessions an OpenCode 2 store keeps |
 | deployed at (v2) | `<plugins>/session-manager/` (`server.js`, `tui.js`) | auto-discovered; never listed in config |
 | build outputs | `dist/v2/{server,tui}.js` | the entrypoints the host loads |
-| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `relocate [--data <dataHome>] (--map <from>=<to> \| --rename <folder>=<name> \| --relink \| --configured)... (--session <id>... \| --all) [--repair-worktrees] [--dry-run] [--json]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs) |
+| CLI | `opencode-session-manager` (`dist/cli/`, `bun build --compile`), entry `src/main/cli/cli.ts` | `<preflight\|rehearse\|run\|rollback <backupDir>> [--db <path>] [--keep]`, `rollback <backupDir> [--db <path>]...` (one or several stores), `sync --from <dataHome> --to <dataHome> [--map <from>=<to>]... (--session <id>... \| --all) [--prefer further\|keep\|replace] [--diverged skip\|fork] [--context all\|sessions] [--strict] [--dry-run]`, `relocate [--data <dataHome>] (--map <from>=<to> \| --rename <folder>=<name> \| --relink \| --configured)... (--session <id>... \| --all) [--repair-worktrees] [--dry-run] [--json]`, `fork --session <id> [--before <messageId>] [--server <url>] [--json]`, `verify [--data <dataHome>] [--session <id>]... [--behind <messages>] [--json]` (read-only), `sessions [--data <dataHome>] [--json]` (read-only), `context copy --from <context.db> --to <file>`, `context sync --from <dataHome> --to <dataHome> (--session <id>... \| --all) [--prefer keep\|further\|replace \| --replace] [--context all\|sessions] [--strict] [--dry-run]`, `context wrapup\|recomp --session <id>... [--data <dataHome>] [--keep <messages>] [--server <url>] [--no-wait] [--timeout <minutes>] [--json]`, `tui [--left <dataHome> \| --left-db <db> [--left-context <db>]] [--right …] [--map <from>=<to>]... [--offline]` (session browser; its queue applies whole-session syncs), `patches <status\|apply\|undo\|check\|inspect\|effect\|notify\|follow> [--json] ...` (the installed Magic Context, kept patched; `patches --help`) |
 | CLI platforms | Linux, Windows and macOS (`linux`, `win32`, `darwin`) | others are refused (`UnsupportedPlatformError`) |
 | runtime | Bun 1.4 (`bun:sqlite`); the plugin bundles and the CLI have no runtime dependencies | — |
 | licence | MIT © mavasbel | — |
 
-This repository merges `opencode-session-id`, `opencode-sessions-transfer` and
-`opencode-db-manager` (formerly `opencode-db-compact`); all histories are in
-`git log`. The installer retires the plugin predecessors' deployed artifacts.
-Their final docs are frozen under `docs/reference/`.
+This repository merges `opencode-session-id`, `opencode-sessions-transfer`,
+`opencode-db-manager` (formerly `opencode-db-compact`) and
+`opencode-magic-context-patches`; all histories are in `git log`. The installer
+retires the plugin predecessors' deployed artifacts. Their final docs are
+frozen under `docs/reference/`.
 
 ## 2. The tool contract is frozen
 
@@ -151,6 +152,43 @@ report, the check lines, the run report (minus timings and free disk) and the
 rollback output. The sync reports' keys follow the same rule and are defined
 in `src/domain/model/SessionSync.ts` and `src/domain/model/MagicContextSync.ts`.
 
+### The safety invariants of `patches` — inherited from opencode-magic-context-patches
+
+1. A file is written only when its sha256 is the recorded `before` (apply) or
+   `after` (undo), and the new content's sha256 is the recorded `after` (apply)
+   or `before` (undo) — computed before writing. Anything else is `refused` and
+   nothing is written.
+2. Every original is backed up (read-only, content-addressed) before it is replaced.
+3. Files are replaced in one step: written beside the target (under a
+   `.osm-patches-<pid>` staging folder), given its mode, renamed over it, then
+   read back and checked. On any failure, every file already written for that
+   patch is put back.
+4. Every apply and undo, including refusals, is appended to the audit log.
+5. A patch is applied automatically to an unreviewed version only by `follow`,
+   and only when every matcher count, file count and anchor holds AND the
+   sandbox proof (an isolated `opencode serve` with the patched copy and the
+   user's `magic-context.jsonc`) passes; otherwise never. A version becomes
+   reviewed only by a person adding it to `src/domain/patch-definitions/` after
+   `patches inspect --version <v>` and the published npm tarball.
+6. The watch units run `follow`, which may install a new patched copy; it never
+   applies a patch to, or removes, a copy OpenCode has already loaded. `notify`
+   only reports.
+7. The tool never restarts OpenCode. The only configuration it edits is the one
+   Magic Context entry of `opencode.jsonc` (`follow` and `follow --rollback`):
+   the whole file is backed up first, only that string literal changes, and the
+   file is read back; a mismatch puts the original back.
+
+The patches group's folders are `opencode-session-manager/patches` under the
+XDG data and state homes (not `opencode-magic-context-patches`), its variables
+are `OPENCODE_SESSION_MANAGER_PATCHES_*` (not `OPENCODE_MC_PATCHES_*`), the
+staging prefix is `.osm-patches-`, notifications go through
+`--app-name=opencode-session-manager`, the unexpected error reads
+`ERROR: <message>` (exit 1), `--version` prints
+`opencode-session-manager <version>`, and the program is
+`opencode-session-manager patches`. Titles, flags, JSON shapes and exit codes
+0/1/2 are unchanged. `MAGIC_CONTEXT_LOG_PATH` keeps its name (Magic Context's
+own variable).
+
 ### Declared fault-injection seams (e2e only)
 
 `DemandingSpacePolicy` (demands more space than any disk has) and
@@ -204,9 +242,14 @@ demand (`await import`), so one platform never loads another's code. Linux:
 `ProcProcessListAdapter` (`/proc/<pid>/comm`) and `ProcFdHoldersAdapter`
 (`/proc/<pid>/fd`). Windows: `TasklistAdapter` and `RenameProbeHoldersAdapter`.
 macOS: `PsProcessListAdapter` (`ps -axo pid=,comm=`, matched on the basename) and
-`LsofHoldersAdapter` (`lsof -F pc`). All take their system root or executable as a
-constructor argument, so the unit tier runs every platform's adapters on any
-machine. Enforced by `tests/unit/maintenance/architecture.test.ts`.
+`LsofHoldersAdapter` (`lsof -F pc`). The patches half per platform: Linux
+(`ProcServiceAdapter`, `ProcLivenessAdapter`, `NotifySendAdapter`), macOS
+(`PsServiceAdapter`, `KillZeroLivenessAdapter`, `OsascriptNotifierAdapter`) and
+Windows (`CimServiceAdapter`, `GetProcessLivenessAdapter`,
+`PowerShellToastNotifierAdapter`), wired by `src/main/<platform>-container.ts` as
+`…PatchesAdapters` and loaded the same way. All take their system root or
+executable as a constructor argument, so the unit tier runs every platform's
+adapters on any machine. Enforced by `tests/unit/maintenance/architecture.test.ts`.
 
 ### Storage: drizzle-orm through one engine, no SQL text elsewhere
 
@@ -301,7 +344,9 @@ test that expands `~` points `HOME` at a temporary directory.
 
 Every file under `src`, by layer (the docs lint fails when one is missing here).
 Areas: **plugin** (session id, transfer), **maintenance** (compaction),
-**sessions** (profiles, browser, sync, Magic Context).
+**sessions** (profiles, browser, sync, Magic Context), **patches** (the installed
+Magic Context, kept patched: model, ports, services, use cases, adapters,
+definitions).
 
 **`src/domain/model`** — plain data and pure functions.
 
@@ -327,6 +372,14 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `DatabasePaths.ts` | all | `baseName`, `dirName`, `joinPath` for either separator, so inner layers never import `node:path` |
 | `Sidecars.ts` | maintenance | a database's `-wal`/`-shm`/`-journal` sidecars |
 | `StoreLock.ts` | maintenance, sessions | a store's lock: its owner (pid, command, start), a stale lock removed, `lockFileOf` |
+| `patches/Patch.ts` | patches | `PatchDefinition` (with its `matcher`), `PatchRelease`, `PatchedFile`, `Replacement`, `CheckedBy` (`reviewed` / `auto`), `DerivedRelease` |
+| `patches/Installation.ts` | patches | an installed copy (`spec`, `root`, `version`) and whether it is loaded |
+| `patches/Matcher.ts` | patches | `PatchMatcher`, `MatcherSite`, `MatcherShape`: how `follow` finds a patch's sites by content |
+| `patches/Reports.ts` | patches | what every command returns, including `FollowReport` and its steps |
+| `patches/Status.ts` | patches | file and patch states, and who checked the release compared with |
+| `patches/StepLog.ts` | patches | `stepLog(clock)`: the timed steps of a `follow` run (a factory, since use cases never `new` a class) |
+| `patches/PatchCommands.ts` | patches | the nine use cases as one record (not a port) |
+| `patches/PatchTargets.ts` | patches | `Target` (a patch × copy) and `FileOnDisk`, so `blocker` can live in the domain |
 | `Paths.ts` | plugin | `~` expansion and abbreviation |
 | `FolderBrowser.ts` | plugin | the folder browser's rules: path or filter, completion split, parent folder, display order (`compareLabels`), `fitMiddle`, scrolling |
 | `Session.ts` | plugin | session summaries, projects, transfer and move results, picker options |
@@ -341,15 +394,24 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 |---|---|---|
 | `PathRewriter.ts` | sessions | `TextRewriter`: rewrites Windows profile paths in text, through nested JSON escaping; counts what is left |
 | `WindowsMapping.ts` | sessions | the mapping a session's own folders imply (Windows profile → this home, plus a moved folder) |
+| `patches/EffectReading.ts` | patches | Magic Context's log summarised (rejections, proactive floors; the threshold in use is floor + 2), the lines since a time |
+| `patches/MatcherRules.ts` | patches | `locate`: a matcher over a release's files, accepted or refused with the reason |
+| `patches/PatchRules.ts` | patches | files and patches classified by checksum; replacements applied and reverted with exact counts |
+| `patches/PatchRefusals.ts` | patches | `blocker`: the refusals `apply` and `undo` share |
+| `patches/FollowRules.ts` | patches | the values the `follow` use cases share (`loadsFrom`, `loadsEntry`, `packageRoot`, `CONFIG_REJECTION`, `PREVIOUS_ENTRY`, `LAST_FOLLOW_NOTIFICATION`, `FOLLOW_TITLE`) |
 | `RenameRules.ts`, `NameRewriter.ts`, `CompositeTextRewriter.ts` | sessions | `relocate --rename <folder>=<name>` rules → renames and the folder moves they imply; whole-name replacement of the old names (paths, Windows paths, prose, `%XX`, dash-encoded paths); several rewriters as one |
 | `RelocateRules.ts` | sessions | `relocate --map` rules → folder moves, the text mapping (absolute, and `~/…` below the home) and the hints a rewrite searches for (`relocationsFromRules`, `relocatedFolder`) |
 | `WorktreeRepairPlanner.ts` | plugin, sessions | the one `git worktree repair` explicit mappings prove for a work tree, without guessing |
 | `MapRules.ts` | sessions | `--map` rules → a `PathMapping` (`parseMapRule`, `mappingFromRules`, `NO_WINDOWS_PROFILE`) |
-| `Versions.ts` | sessions | `compareVersions` (dotted numeric versions) |
+| `Versions.ts` | sessions | `compareVersions` (semver 2.0.0 §11 order: numeric core parts, a pre-release below its release, numeric identifiers below alphanumeric, a longer set above its prefix, build metadata ignored; a missing or non-numeric core part counts as 0) |
 | `Fork.ts` (model) | sessions | OpenCode 2.0.26's fork rules: `forkTitle`, `isSettled` (what a fork copies), `opencodeId` (OpenCode's id format), slug words, the `fork` report |
 | `Rebuild.ts` (model) | sessions | `/ctx-wrapup` / `/ctx-recomp` through the server: snapshots, `phaseOf`, statuses, report text, poll/grace/timeout defaults |
-| `Jsonc.ts` | sessions | `stripComments`, `pinnedMagicContext` (the spec `opencode.jsonc` pins), `MAGIC_CONTEXT_PACKAGE` |
+| `Jsonc.ts` | sessions | `stripComments`; `pinnedMagicContext` (what `opencode.jsonc` pins: an npm entry's version, `latest` for a bare package, a folder entry's path); `MAGIC_CONTEXT_PACKAGE`; `StringLiteral`/`stringLiterals` (string literals outside comments, with positions); `isMagicContextEntry`/`magicContextEntries`/`magicContextEntry`; `replaceMagicContextEntry` (byte-exact, exactly one entry); `numericSetting` |
 | `GitRemote.ts` | sessions | a remote URL in the form OpenCode hashes into a project id |
+
+**`src/domain/patch-definitions`** — the patches as data: `execute-threshold-min.ts`,
+`no-session-model-fallback.ts`, `refusal-recovery.ts`, `fold-identity-stable.ts`,
+`fold-provenance-heal.ts` (each with its releases' checksums), `index.ts` (the list, in apply order).
 | `PosixPaths.ts` | sessions | `isWithin`, `sessionSubpath` |
 | `FingerprintComparer.ts` | maintenance | names every difference between two database fingerprints |
 | `ParityPolicy.ts` | maintenance | whether a build passed (strict offline, drift-tolerant rehearsal) |
@@ -360,7 +422,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `MissingOriginalError.ts`, `ProcessRunningError.ts`, `SwapFailedError.ts`,
 `TargetExistsError.ts`, `UnsupportedPlatformError.ts`, `StoreLockedError.ts` (maintenance);
 `MagicContextFormatMismatchError.ts`, `MagicContextTooNewError.ts`,
-`MagicContextUnavailableError.ts`, `MagicContextUpgradeError.ts`,
+`MagicContextUnavailableError.ts`, `MagicContextUpgradeError.ts`, `PatchError.ts` (patches: refusals — `count-mismatch`, `usage`, `not-installed` — which the CLI turns into exit codes),
 `ProfileUnreadableError.ts`, `SyncVerificationError.ts`,
 `InvalidMapRuleError.ts`, `OpenCodeFormatMismatchError.ts`,
 `UnknownStoreSchemaError.ts`, `BusySessionsError.ts`, `ServerNotFoundError.ts`,
@@ -376,7 +438,9 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`, `RepairSessionLocationsPort.ts`,
 `RepairWorktreeLinksPort.ts`, `MoveSessionPort.ts`, `BuildDirectoryOptionsPort.ts`, `BrowseFoldersPort.ts`,
-`ReportPaneTitlePort.ts` (plugin).
+`ReportPaneTitlePort.ts` (plugin); `PatchStatusPort.ts`, `PatchApplyPort.ts`,
+`PatchUndoPort.ts`, `PatchCheckPort.ts`, `PatchInspectPort.ts`, `PatchEffectPort.ts`,
+`PatchNotifyPort.ts`, `PatchFollowPort.ts`, `PatchFollowRollbackPort.ts` (patches: one per command).
 
 **`src/domain/ports/outbound`** — what the inner layers need from outside:
 `SqlitePort.ts`, `ProjectIdentityPort.ts`,
@@ -388,7 +452,17 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts`, `RelocationStorePort.ts`,
 `MagicContextRelocationStorePort.ts` (sessions); `SessionHostPort.ts`, `FileSystemPort.ts`, `LocationRepairMappingsPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`, `DirectoryListingPort.ts`,
-`SidebarViewPort.ts`, `PaneMetadataPort.ts`, `GitWorktreePort.ts` (plugin).
+`SidebarViewPort.ts`, `PaneMetadataPort.ts`, `GitWorktreePort.ts` (plugin);
+`FilesPort.ts` (read bytes, mode-keeping one-step replace, list by extension),
+`HashPort.ts`, `TextSourcePort.ts` (files and Magic Context's log as text),
+`BackupPort.ts`, `AuditLogPort.ts`, `EvidencePort.ts`, `DerivedReleasesPort.ts`,
+`ManagedStorePort.ts`, `KeyValuePort.ts`, `RegistryPort.ts` (a version's integrity,
+thrown reasons), `PackageInstallerPort.ts`, `SandboxPort.ts` (the isolated proof),
+`TranspilePort.ts`, `InstallationsPort.ts` (every copy with its root),
+`LivePluginsPort.ts` (the running server's locations and Magic Context),
+`ClockPort.ts` (`now`, `sleep`), `LogPort.ts`, `ServicePort.ts` (the running
+server's start), `NotifierPort.ts`, `ProcessLivenessPort.ts` (is a lock owner
+alive), `FollowLockPort.ts` (one `follow` run at a time) (patches).
 
 **`src/application`** — use cases and the services they compose.
 
@@ -424,6 +498,24 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `BuildDirectoryOptionsUseCase.ts` | plugin | the known folders the transfer offers: once each, existing only, no filesystem root, in display order |
 | `BrowseFoldersUseCase.ts` | plugin | the folder browser's steps (type, ↑/↓, →, ←, Enter) over the listing port |
 | `ReportPaneTitleUseCase.ts` | plugin | the Herdr pane presentation (agent and root title): one report at a time, only a change of either value, a refused one sent again, `refresh` to resend, `release` on exit |
+| `patches/StatusUseCase.ts` | patches | `status`: every installed copy with each patch's state |
+| `patches/CheckUseCase.ts` | patches | `check`: passes only when every patch is applied on the loaded copy |
+| `patches/ApplyUseCase.ts` | patches | `apply`: every file exactly the recorded original, the result exactly the recorded checksum |
+| `patches/UndoUseCase.ts` | patches | `undo`: the originals back, by backup or by reversal |
+| `patches/PatchInspector.ts` | patches | reads and classifies a patch's files on one copy |
+| `patches/ChangeWriter.ts` | patches | writes one patch's files as a unit (backup, replace, read back, put back on failure), and audits |
+| `patches/InstallationCatalog.ts` | patches | installed copies, which one is loaded, the patch × copy targets |
+| `patches/ReleaseCatalog.ts` | patches | the release of a patch for a version (reviewed, else derived) |
+| `patches/InspectUseCase.ts` | patches | `inspect`: where the replaced text occurs in an unchecked version |
+| `patches/EffectUseCase.ts` | patches | `effect`: the threshold really in use, from Magic Context's log |
+| `patches/NotifyUseCase.ts` | patches | `notify`: a desktop notification when `check` fails, once per problem |
+| `patches/FollowUseCase.ts` | patches | `follow`: detect → stage → locate → patch → prove → publish → confirm → record, under the lock; reverts the entry after a failed confirm |
+| `patches/FollowRollbackUseCase.ts` | patches | `follow --rollback`: the previous entry back, confirmed against the running server |
+| `patches/follow/ReleaseStager.ts` | patches | stage, locate, patch |
+| `patches/follow/ReleaseProver.ts` | patches | prove: the isolated server loads the patched copy without rejection |
+| `patches/follow/PluginEntryEditor.ts` | patches | the one `opencode.jsonc` entry, backed up, replaced, read back |
+| `patches/follow/EntrySwitcher.ts` | patches | publish, confirm, revert |
+| `patches/follow/AdoptionRecorder.ts` | patches | record: derived releases, evidence, audit, the previous entry, notification |
 
 **`src/infrastructure/adapters/inbound`**
 
@@ -440,6 +532,8 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `cli/ContextCliAdapter.ts` | `context copy`, `context sync` |
 | `cli/BrowseCliAdapter.ts` | `tui`: opens the profiles, shows the browser, wires its controls |
 | `cli/HelpCliAdapter.ts` | `--help`, `--version` |
+| `cli/PatchesCliAdapter.ts` | patches | `patches <status\|apply\|undo\|check\|inspect\|effect\|notify\|follow> [--json]`: parsing, dispatch, exit codes 0/1/2, `PATCHES_HELP` (see `cli-surface.test.ts`) |
+| `cli/PatchesTextFormatter.ts` | patches | the human-readable output of every patches command |
 | `manager-tui/OpenTuiBrowser.tsx` | the browser view (the only file there importing OpenTUI at run time) |
 | `manager-tui/keys.ts` | keys → commands |
 | `manager-tui/format.ts` | state → text |
@@ -488,7 +582,34 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `fs/NodeDirectoryListingAdapter.ts` | the folder browser's reads: is a folder, folders inside one |
 | `fs/JsonReportAdapter.ts` | JSON evidence files |
 | `system/ConsoleOutputAdapter.ts` | the program's stdout |
-| `system/SystemClockAdapter.ts` | time, process id, platform, temp and home folders |
+| `system/SystemClockAdapter.ts` | time, process id, platform, temp and home folders; also `ClockPort` (`sleep`) for the patches group |
+| `system/StderrOutputAdapter.ts` | patches | `OutputPort` writing to stderr: `PatchesCliAdapter` reports usage and refusals there |
+| `magic-context/CompositeInstallationsAdapter.ts`, `magic-context/ManagedInstallationsAdapter.ts`, `magic-context/OpencodeCacheInstallationsAdapter.ts` | patches | installed copies: OpenCode's npm cache (directly or one numbered folder down), `follow`'s installs, both lists in one |
+| `crypto/Sha256Adapter.ts` | patches | the hash checksums are compared with |
+| `fs/NodeFilesAdapter.ts` | patches | read, one-step replace (staged under `.osm-patches-<pid>`), list by extension |
+| `fs/TextFileAdapter.ts` | patches | configuration files and Magic Context's log as text |
+| `fs/FileKeyValueAdapter.ts` | patches | the last notification (`notify`, `follow`) |
+| `fs/FsBackupAdapter.ts` | patches | read-only, content-addressed backups |
+| `fs/FsEvidenceAdapter.ts` | patches | adoption evidence (never overwrites) |
+| `fs/FsManagedStoreAdapter.ts` | patches | `installs/<v>/` and staging folders |
+| `fs/JsonDerivedReleasesAdapter.ts` | patches | the releases `follow` derived |
+| `fs/JsonlAuditLogAdapter.ts` | patches | the audit log |
+| `fs/FsFollowLockAdapter.ts` | patches | one `follow` run at a time (`FollowLockPort`), liveness through `ProcessLivenessPort` |
+| `npm/ArboristInstallerAdapter.ts` | patches | `@npmcli/arborist` 9.4.0 with OpenCode 2.1.1's options (bundled into the executable) |
+| `npm/NpmPackumentAdapter.ts` | patches | the abbreviated packument: `latest`, a version's integrity (thrown reasons) |
+| `opencode2/OpencodeLivePluginsAdapter.ts` | patches | the running service's locations and their Magic Context |
+| `opencode2/OpencodeSandboxAdapter.ts` | patches | the isolated `opencode serve` of the proof |
+| `parse/BunTranspileAdapter.ts` | patches | a changed bundle still parses |
+| `platform/linux/ClockTicks.ts` | patches | `clockTicks`: `getconf CLK_TCK` (100 when unaskable) |
+| `platform/linux/ProcServiceAdapter.ts` | patches | the newest `opencode … serve` start from `/proc` |
+| `platform/linux/ProcLivenessAdapter.ts` | patches | `<procRoot>/<pid>` exists |
+| `platform/linux/NotifySendAdapter.ts` | patches | `notify-send --app-name=opencode-session-manager` |
+| `platform/darwin/PsServiceAdapter.ts` | patches | the newest `opencode … serve` start from `ps -axo pid=,lstart=,command=` |
+| `platform/darwin/KillZeroLivenessAdapter.ts` | patches | `kill -0` (`ESRCH` means gone) |
+| `platform/darwin/OsascriptNotifierAdapter.ts` | patches | `osascript -e 'display notification …'` |
+| `platform/win32/CimServiceAdapter.ts` | patches | the newest `opencode(.exe) … serve` start from `Get-CimInstance Win32_Process` |
+| `platform/win32/GetProcessLivenessAdapter.ts` | patches | `Get-Process -Id <pid>` |
+| `platform/win32/PowerShellToastNotifierAdapter.ts` | patches | a PowerShell toast notification (unverified on hardware) |
 | `system/SystemHomeDirectoryAdapter.ts` | the home folder, read per call |
 | `opencode2/OpenCode2HostAdapter.ts` | the OpenCode 2 host API |
 | `tui/HostThemePaletteV2Adapter.ts`, `tui/OpenTuiSidebarViewAdapter.tsx` | theme colours and the sidebar line view |
@@ -498,10 +619,15 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `V2ServerContext.ts`, `V2TuiContext.ts`, `V2Client.ts`.
 
 **`src/main`** — composition roots and entries: `server-container.ts`,
-`tui-container.ts`, `cli-container.ts`,
-`darwin-container.ts`, `linux-container.ts`, `win32-container.ts`, `plugin-id.ts` (plugin ids);
-`v2/server.ts`, `v2/tui.ts`; `cli/cli.ts` (the
-program's entry), `cli/platform.ts` (loads one platform's container).
+`tui-container.ts`, `cli-container.ts` (which also wires the patches group through
+`createPatchCommands` and registers `patches` in the router),
+`patches-container.ts` (the patches group's adapters and use cases, with the
+declared fault-injection `Seams`), `darwin-container.ts`, `linux-container.ts`,
+`win32-container.ts` (each also exporting `…PatchesAdapters`), `plugin-id.ts`
+(plugin ids); `v2/server.ts`, `v2/tui.ts`; `cli/cli.ts` (the program's entry:
+exits with the code at once, since Arborist's idle connections would hold the
+process), `cli/platform.ts` (loads one platform's container, and the patches
+half of it), `cli/patches-paths.ts` (every location the patches group uses).
 
 ## 5. Host behaviour this plugin relies on
 
@@ -605,6 +731,13 @@ it from `realpathSync(tmpdir())` (`/var` vs `/private/var` on macOS).
 | `sessions/terminal-streams.ts` | a silent terminal for OpenTUI's renderer |
 | `live/drive-repair.mjs` | opens the real OpenCode TUI in a pseudo-terminal and waits for the startup location repair to report through a toast |
 | `repair/repair-process.ts` | one OpenCode window's repair pass, in its own process, over a host whose sessions live in a shared JSON file |
+| `patches/fake-opencode.ts` | patches | an `opencode serve` stand-in (`ok`, `reject`, `nolog`, `missing`, `silent`, `exit`) |
+| `patches/fakes.ts` | patches | in-memory ports and a small synthetic patch with computed checksums |
+| `patches/follow-fakes.ts` | patches | in-memory registry, installer, store, sandbox, running server, lock and evidence |
+| `patches/registry.ts` | patches | an npm tarball of a fixture, and a local npm registry |
+| `patches/sandbox.ts` | patches | a temporary home holding installed copies, a config pin, a log, a fake `/proc`, a recording `notify-send` |
+| `patches/world.ts` | patches | the application wired to the fakes |
+| `patches/fixtures/` | patches | the upstream Magic Context files every patch definition moves (16 versions; frozen bytes, checksummed by `definitions/patches.test.ts`, skipped by the docs lint's variable scan) |
 
 ### Coverage law
 
@@ -613,7 +746,9 @@ it from `realpathSync(tmpdir())` (`/var` vs `/private/var` on macOS).
 require 100 % lines and functions on every `src` file. The e2e gate is per
 platform: the real platform adapters only work on their own platform, so each
 platform's e2e run leaves the other platforms' adapter folders and containers to
-theirs, and a release needs the e2e gate green on Linux and on Windows. Bun
+theirs (Linux, Windows and macOS each have a config; darwin's is
+`bunfig.coverage.e2e-darwin.toml`), and a release needs the e2e gate green on
+every platform it ships. Bun
 instruments only loaded files, so each measured tier has a completeness test
 that imports every `src` file (the e2e one, every file of its platform). Never claim coverage without reading the report. There are no
 coverage-ignore comments: unreachable code is removed by code shape.
@@ -651,6 +786,14 @@ the command in use); `validate:installed:cli` byte-compares it and runs
 `--version` (`scripts/install-cli.mjs`, live-tested in a throwaway folder).
 `validate:installed:v2` byte-compares the installed files with `dist/`, checks
 the module shapes, and fails if a retired form is present.
+`bun run install:watch` installs the watch that runs
+`opencode-session-manager patches follow` when OpenCode adds another Magic
+Context, when `opencode.jsonc` changes, 2 minutes after login and every 6
+hours: systemd user units (`systemd/opencode-session-manager-patches.path`,
+`.service`, `.timer`) on Linux, a launchd agent on macOS; on Windows it exits 1
+(`scripts/watch.mjs`, `OPENCODE_SESSION_MANAGER_PATCHES_SYSTEMD_DIR`).
+`bun run validate:watch` checks the units are installed, valid, enabled and
+active; `bun run uninstall:watch` removes them.
 
 ## 9. Documents
 
@@ -680,5 +823,7 @@ A change is done only when:
 ## 11. Git
 
 Dev dependencies are pinned exactly (no `^`/`~`/`latest`); the built plugin and
-the compiled CLI have no runtime dependencies. `node_modules/`, `dist/`, `build/`, `coverage/` are
-ignored. History is append-only; pushing needs the owner's explicit go-ahead.
+the compiled CLI have no runtime dependencies. That includes the libraries the
+CLI bundles: `@npmcli/arborist` 9.4.0 (the `patches follow` installer) and every
+OpenTUI, drizzle and Solid package sit in `devDependencies`. `node_modules/`,
+`dist/`, `build/`, `coverage/` are ignored. History is append-only; pushing needs the owner's explicit go-ahead.
