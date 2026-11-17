@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { MAGIC_CONTEXT_PACKAGE } from "@session-manager/domain/services/Jsonc"
 import { CompositeInstallationsAdapter } from "@session-manager/infrastructure/adapters/outbound/magic-context/CompositeInstallationsAdapter"
@@ -164,6 +164,22 @@ describe("NpmPackumentAdapter and ArboristInstallerAdapter on a local registry",
         readFileSync(path.join(import.meta.dir, "../../../support/patches/fixtures/magic-context-0.49.19/dist/v2/server-271qxsf5.js")),
       )
       await expect(installer.install("left-pad@1.0.0", path.join(box.home, "other"))).rejects.toThrow()
+    } finally {
+      registry.stop()
+    }
+  })
+
+  it("installs into a folder reached through a symlink by staging through the real path", async () => {
+    const pack = tarball(box.home, "0.49.19", "2.0.0")
+    const registry = new LocalRegistry([pack])
+    try {
+      const real = path.join(box.home, "real-install")
+      mkdirSync(real)
+      const link = path.join(box.home, "link-install")
+      symlinkSync(real, link)
+      const installer = new ArboristInstallerAdapter(registry.url, path.join(box.home, "npm-cache"))
+      const installed = await installer.install(`${MAGIC_CONTEXT_PACKAGE}@2.0.0`, link)
+      expect(installed).toEqual({ root: path.join(realpathSync(real), "node_modules", MAGIC_CONTEXT_PACKAGE), version: "2.0.0", integrity: pack.integrity })
     } finally {
       registry.stop()
     }
