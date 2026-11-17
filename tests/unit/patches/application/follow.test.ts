@@ -201,7 +201,7 @@ describe("follow: stopping", () => {
     expect(failure(report)).toBe("Magic Context 9.9.9 was never published")
     expect(unknown.audit.records.map((r) => [r.outcome, r.version, r.reason])).toEqual([["stopped", "9.9.9", "detect: Magic Context 9.9.9 was never published"]])
     expect(unknown.notifier.sent[0]!.body).toBe(
-      "Stopped on 9.9.9: detect: Magic Context 9.9.9 was never published. OpenCode keeps what it loaded. Run `opencode-magic-context-patches follow` to see every step.",
+      "Stopped on 9.9.9: detect: Magic Context 9.9.9 was never published. OpenCode keeps what it loaded. Run `opencode-session-manager patches follow` to see every step.",
     )
   })
 

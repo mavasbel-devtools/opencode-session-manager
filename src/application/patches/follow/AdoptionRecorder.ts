@@ -59,7 +59,7 @@ export class AdoptionRecorder {
   async stopped(version: string | null, log: StepLog): Promise<void> {
     const reason = log.failure()!
     await this.audit.append({ time: new Date(this.clock.now()).toISOString(), action: "follow", patch: "", version: version ?? "", root: "", path: "", from: null, to: null, outcome: "stopped", backup: null, reason })
-    const message = `Stopped${version === null ? "" : ` on ${version}`}: ${reason}. OpenCode keeps what it loaded. Run \`opencode-magic-context-patches follow\` to see every step.`
+    const message = `Stopped${version === null ? "" : ` on ${version}`}: ${reason}. OpenCode keeps what it loaded. Run \`opencode-session-manager patches follow\` to see every step.`
     if ((await this.store.get(LAST_FOLLOW_NOTIFICATION)) === message) return
     await this.notifier.notify(FOLLOW_TITLE, message)
     await this.store.set(LAST_FOLLOW_NOTIFICATION, message)
