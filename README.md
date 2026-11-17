@@ -38,6 +38,10 @@ The plugin:
    pane, Herdr shows the open session's agent (for example `plan`) as the agent
    name in its sidebar, and the session's full title as the pane title, instead
    of "opencode".
+6. **Restore after reconnect** — when an event-stream reconnect re-sync
+   failure sends the TUI home although the session still exists, the plugin
+   navigates back to it with a toast (see
+   [Restore after reconnect](#restore-after-reconnect)).
 
 ```
 ┌ sidebar ─────────────────────────────┐
@@ -164,6 +168,40 @@ opencode = [["state_icon", "machine", "workspace", "tab"], ["agent", "pane"]]
 The second row then reads, for example, `plan · Update magic-context`.
 - Another plugin that sets `display_agent` for OpenCode panes (for example
 `herdr-opencode-bridge`) competes with this one for the same field.
+
+### Restore after reconnect
+
+When OpenCode's event stream reconnects, the TUI re-syncs the open session;
+when that re-sync fails the TUI shows an error toast and sends the route home
+("splash"), even though the session still exists (UC-R1). The plugin watches
+for that and navigates back: when the route leaves session `S` for home within
+10 s (`WINDOW` = `10000` ms in `src/domain/model/ReconnectRestore.ts`) of a
+`server.connected` event — in either order — and `S` still exists, the plugin
+verifies `S` (`data.session.sync`) with delays of 500, 1000, 2000, 4000 and
+8000 ms (`VERIFY_BACKOFF`: five attempts, about 15.5 s in total) and navigates
+back to `S` with a success toast (`Session restored` / `Restored <session ID>
+after reconnect`). At most 3 restores happen per session per 60 s
+(`RESTORE_LIMIT` over `RESTORE_WINDOW_MS` = `60000` ms); the open route is read
+four times a second (250 ms poll).
+
+It does nothing when the home screen is not a reconnect reset:
+
+| UC | When | Outcome |
+|---|---|---|
+| UC-R2N | home with no `server.connected` within 10 s either side (a deliberate trip home) | no verify, no navigate, no toast |
+| UC-R3N | `S` was deleted (`session.deleted`), or the verify rejects as `SessionNotFoundError` | no navigate, no toast |
+| UC-R4N | the verify keeps failing | after the fifth attempt one info toast (`Session restore skipped` / `Could not verify <session ID> after reconnect`), no navigate |
+| UC-R5N | the route leaves home while verifying (the person already went somewhere) | the loop aborts, no navigate, no toast |
+| UC-R6N | `S` already reached 3 restores in the last 60 s | no verify, no navigate, no toast |
+| UC-R7N | the route moves session → session (tabs, multi-tab) without going home | never a trigger, no verify, no navigate, no toast |
+
+This guards [upstream issue anomalyco/opencode#59542](https://github.com/anomalyco/opencode/issues/59542):
+until the upstream reconnect effect retries transient re-sync failures instead
+of navigating home, the plugin puts the session back. Once an upstream release
+fixes the effect, the route never leaves for home on a transient failure, so
+the guard never triggers and becomes inert — nothing to uninstall. Verified
+against the real OpenCode 2.3.0 TUI and service
+(`tests/live/tui-reconnect-restore.test.ts`).
 
 ## What it can and cannot do
 
@@ -896,6 +934,7 @@ live tier needs `node` (for the pseudo-terminal).
 | `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID` | the TUI plugin | set by Herdr in its panes: the pane title is reported only when all three are (`HERDR_ENV=1`) |
 | `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID` | `tests/support/no-herdr.ts` | removed with the three above before any test, so tests never reach the user's Herdr |
 | `OPENCODE_SM_LIVE_HERDR_BIN` | live Herdr pane-title test | the `herdr` executable to run it with (e.g. a newer release before installing it); unset: `herdr` on PATH |
+| `OPENCODE_SM_EVIDENCE` | live reconnect-restore test | the folder the per-it title/FP logs are written to (default: `osm-reconnect-live-evidence` in the system temp dir) |
 | `OPENCODE_TEST_HOME`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_SERVER_PASSWORD` | `tests/support/live/isolated-host.ts` | set for the isolated OpenCode the live tier starts: its home, no self-update, a fixed server password |
 
 ## License

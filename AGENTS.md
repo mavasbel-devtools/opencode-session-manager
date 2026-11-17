@@ -296,6 +296,27 @@ base therefore comes from `HomeDirectoryPort`
 (`SystemHomeDirectoryAdapter` reads `HOME`/`USERPROFILE` per call), and every
 test that expands `~` points `HOME` at a temporary directory.
 
+### Restore after reconnect (F3)
+
+The TUI registers `container.reconnectRestore` for every V2 TUI (never
+Herdr-gated): `RestoreAfterReconnectUseCase` owns the async verify loop over
+`VERIFY_BACKOFF` through the reused `TimerPort`, behind
+`ReconnectRestoreV2Adapter` (250 ms route poll, `data.on("server.connected")`
+and `data.on("session.deleted")`; the disposer unsubscribes both, clears the
+poll and releases the port, aborting a pending loop) and
+`V2SessionNavigatorAdapter` (`verify` via `data.session.sync` with the
+not-found discriminator, `open` via `ui.router.navigate`, `notify` via
+`ui.toast.show`). The pure trigger is `decideRestore` in
+`src/domain/model/ReconnectRestore.ts` (`WINDOW` 10000, `RESTORE_LIMIT` 3 per
+60 s, `VERIFY_BACKOFF` 500/1000/2000/4000/8000). Tests: the trigger in
+`tests/unit/domain/reconnect-restore.test.ts`, the loop in
+`tests/unit/application/restore-after-reconnect.test.ts`, the adapters in
+`tests/unit/infrastructure/reconnect-restore-adapter.test.ts` and
+`tests/unit/infrastructure/v2-session-navigator-adapter.test.ts`, the wired
+feature in `tests/component/reconnect/restore.test.ts`
+(`[UC-R1]`, `[UC-R2N]`…`[UC-R7N]`, `[UC-R8]`), and the real OpenCode 2.3.0 TUI
+and service in `tests/live/tui-reconnect-restore.test.ts`.
+
 ### Source map
 
 Every file under `src`, by layer (the docs lint fails when one is missing here).
@@ -319,6 +340,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 | `Relocate.ts` | sessions | `relocate` input, moved and skipped sessions, text rewrite counts, checks, the report and `relocateLines` |
 | `SessionSync.ts` | sessions | session sync input, map rules, `--prefer`, the action per history relation (`actionFor`), the report |
 | `LocationRepair.ts` | plugin | explicit online repair plans, skips, and reports |
+| `ReconnectRestore.ts` | sessions | the pure reconnect-restore trigger (`decideRestore`): the open session, the last reconnect, deletions and recent restores → `none` / `verify` / `navigate` / `giveUp`; `WINDOW` 10000, `RESTORE_LIMIT` 3 per 60 s, `VERIFY_BACKOFF` 500/1000/2000/4000/8000 |
 | `Verify.ts` | sessions | `verify`: finding kinds and their severity, a session's Magic Context vitals, the report and its text (`verifyLines`) |
 | `Build.ts` | maintenance | the six checks of a compacted copy |
 | `Database.ts` | maintenance | page statistics, schema, header and per-table fingerprints of a database |
@@ -370,7 +392,7 @@ Areas: **plugin** (session id, transfer), **maintenance** (compaction),
 `PreflightPort.ts`, `RehearsePort.ts`, `RollbackPort.ts` (maintenance);
 `OpenProfilePort.ts`, `CatalogProfilePort.ts`, `CopyMagicContextPort.ts`,
 `SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
-`MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`
+`MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`, `RestoreAfterReconnectPort.ts`
 (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`, `RepairSessionLocationsPort.ts`,
 `MoveSessionPort.ts`, `BuildDirectoryOptionsPort.ts`, `BrowseFoldersPort.ts`,
 `ReportPaneTitlePort.ts` (plugin).
@@ -383,7 +405,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextSyncStorePort.ts`, `SessionSyncStorePort.ts`, `MagicContextReleasePort.ts`,
 `MagicContextIdentityPort.ts`, `MagicContextConfigPort.ts`, `PublishedVersionPort.ts`, `OpencodeServerPort.ts`,
 `MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts`, `RelocationStorePort.ts`,
-`MagicContextRelocationStorePort.ts` (sessions); `SessionHostPort.ts`, `FileSystemPort.ts`, `LocationRepairMappingsPort.ts`,
+`MagicContextRelocationStorePort.ts`, `SessionNavigatorPort.ts` (sessions); `SessionHostPort.ts`, `FileSystemPort.ts`, `LocationRepairMappingsPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`, `DirectoryListingPort.ts`,
 `SidebarViewPort.ts`, `PaneMetadataPort.ts` (plugin).
 
@@ -410,6 +432,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `SyncSessionsUseCase.ts` | sessions | `sync`: whole sessions (OpenCode rows + Magic Context state) into working copies of both target stores, checked, swapped in together |
 | `RelocateSessionsUseCase.ts` | sessions | `relocate`: sessions in mapped folders (with their sub-agent sessions) get their new folder and the project OpenCode derives there, text naming an old folder is rewritten, Magic Context links and merges their projects; on working copies, checked, swapped in together |
 | `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one whole-session sync per direction |
+| `RestoreAfterReconnectUseCase.ts` | sessions | restore after reconnect: the async verify loop over `VERIFY_BACKOFF` while the route is still home; `exists` → open + restored-toast, `missing` → nothing, all `failed` → one info notify |
 | `ForkSessionUseCase.ts` | sessions | `fork` and the browser's `F`: OpenCode's own fork through the running server (writes nothing itself) |
 | `RebuildContextUseCase.ts` | sessions | `context wrapup|recomp` and the browser's `W`/`R`: one session at a time through the OpenCode server, followed in the store (read-only); refuses a session Magic Context already works on |
 | `MagicContextVersionsUseCase.ts` | sessions | the Magic Context OpenCode loads here and the newest on npm (the browser's header) |
@@ -440,6 +463,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `manager-tui/keys.ts` | keys → commands |
 | `manager-tui/format.ts` | state → text |
 | `manager-tui/controls.ts` | `BrowserControls`: what the view asks of the program |
+| `tui/ReconnectRestoreV2Adapter.ts` | polls the open route and forwards route, reconnect and deletion observations to the restore port; the disposer unsubscribes both host events, clears the poll and releases the port |
 | `server/SessionIdToolV2Adapter.ts` | registers the `session-id` tool (v2) |
 | `tui/SessionIdSidebarSlotV2Adapter.ts` | the sidebar slot (v2) |
 | `tui/SessionTransferV2TuiAdapter.ts` | `/transfer-session` |
@@ -484,6 +508,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 | `system/ConsoleOutputAdapter.ts` | the program's stdout |
 | `system/SystemClockAdapter.ts` | time, process id, platform, temp and home folders |
 | `system/SystemHomeDirectoryAdapter.ts` | the home folder, read per call |
+| `tui/V2SessionNavigatorAdapter.ts` | verifies the session by re-syncing it (`SessionNotFoundError` name/`_tag` → missing, any other rejection → failed), navigates back through the host router and shows the notice through the host toast; skips what an older host stub omits |
 | `opencode2/OpenCode2HostAdapter.ts` | the OpenCode 2 host API |
 | `tui/HostThemePaletteV2Adapter.ts`, `tui/OpenTuiSidebarViewAdapter.tsx` | theme colours and the sidebar line view |
 | `herdr/HerdrSocketPaneMetadataAdapter.ts` | Herdr's API socket (a named pipe on Windows): `pane.report_metadata` with `title` (root title) and `display_agent` (the open session's agent), each left out when not known, under the source `opencode-session-manager:title`, guarded by `agent: opencode`, numbered with `seq`; answers `false` (never throws) when Herdr refuses, garbles, hangs up, is silent for a second or is gone |
@@ -536,6 +561,12 @@ program's entry), `cli/platform.ts` (loads one platform's container).
   Herdr's agent *name* (`agent rename`) is not set: names are
   `[a-z][a-z0-9_-]{0,31}`, so titles would collide. Verified with the real TUI (OpenCode 2.3.0) in a
   real Herdr 0.9.5 (`tests/live/tui-herdr.test.ts`).
+- **Reconnect restore.** `data.on("server.connected" | "session.deleted")`
+  observes reconnects and deletions, `data.session.sync(S)` verifies the
+  session the route left (rejecting with `name`/`_tag` `SessionNotFoundError`
+  when it is gone, measured on the real 2.3.0 TUI), and `ui.router.navigate`
+  puts it back. The route is polled (`ui.router.current()`) because no host
+  event fires after the synced data changes.
 - `plugin.list` does not wait for activation; `integration.list` does, so tests
   call it first. The CLI `session list` can answer `[]` for a just-created
   session; tests use `api session.list`.
@@ -559,6 +590,7 @@ in-process real-host tier and "live" is the real external process.
 | `source-files.ts` | every `src` file, for the architecture and completeness gates |
 | `no-herdr.ts` | preloaded by every test run: removes `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, so a test run inside a Herdr pane never reports to the user's Herdr |
 | `fakes/herdr-socket.ts` | a stand-in for Herdr's API socket that records requests and answers `ok`, `error`, `garbage`, `split`, `silent` or `close` |
+| `fault-proxy.ts` | the event-stream fault proxy (`startFaultProxy`: `pass`, `stall`, `stall-then-fail`, `stall-then-404`); a repo deliverable used by the live reconnect-restore tests |
 | `fakes/hosts.ts`, `fakes/transfer-ports.ts` | stand-ins for the OpenCode hosts and the transfer ports (`FakeDirectoryListingAdapter`: folders in memory) |
 | `fakes/dialog-host.tsx` | the host's dialog stack and keymap as a plugin dialog sees them: paints with OpenTUI's test renderer, runs the command a modal layer binds to a key, types, clicks, Esc |
 | `fixtures/host-2.0.14/` | verbatim OpenCode 2.0.14 host sources (re-extracted, never edited), so tests run the host's own rules |

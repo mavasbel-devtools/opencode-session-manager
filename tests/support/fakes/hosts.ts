@@ -42,16 +42,45 @@ export function fakeV2Client(): V2Client & { moves: Array<{ sessionID: string; d
 /**
  * Records slot claims and their disposals, like the v2.0.14 `ui.slot`: sidebar
  * claims in `claims`, app claims in `appClaims`, every disposal in `disposed`.
- * The dialog and toast members answer "nothing" unless a test needs more.
+ * The dialog member answers "nothing" unless a test needs more.
  * `route` and `sessions` stand for the host's router and its synced session
  * data; tests change them to open another session or rename one.
+ * `subscriptions` stands for the host's `data.on` event table (the reconnect
+ * guard reads `server.connected` / `session.deleted` from it); `emit` fires
+ * the active handlers. `sync` stands for `data.session.sync` (tests replace
+ * the implementation to script resolve/reject per call); `navigations` and
+ * `toasts` record `ui.router.navigate` / `ui.toast.show`.
  */
+export type FakeTuiEvent = "server.connected" | "session.deleted"
+
+export interface FakeTuiSubscription {
+  event: FakeTuiEvent
+  handler: (...args: string[]) => void
+  active: boolean
+}
+
+export interface FakeTuiRoute {
+  readonly type: string
+  readonly sessionID?: string
+}
+
+export interface FakeTuiToast {
+  readonly title?: string
+  readonly message: string
+  readonly variant?: "info" | "success" | "warning" | "error"
+  readonly duration?: number
+}
+
 export function fakeTuiContext(muted: HostColor = "#808080") {
   const claims: RecordedClaim[] = []
   const appClaims: V2AppClaim[] = []
   const disposed: V2SlotClaim[] = []
   const layers: Array<() => V2KeymapLayer> = []
   const sessions = new Map<string, SessionLink>()
+  const subscriptions: FakeTuiSubscription[] = []
+  const navigations: FakeTuiRoute[] = []
+  const toasts: FakeTuiToast[] = []
+  let syncImpl: (sessionID: string) => Promise<void> = async () => undefined
   const theme = { text: { muted } }
   const context: V2TuiContext & {
     claims: RecordedClaim[]
@@ -60,7 +89,24 @@ export function fakeTuiContext(muted: HostColor = "#808080") {
     layers: Array<() => V2KeymapLayer>
     theme: typeof theme
     sessions: Map<string, SessionLink>
-    route: { readonly type: string; readonly sessionID?: string }
+    route: { type: string; sessionID?: string }
+    subscriptions: FakeTuiSubscription[]
+    navigations: FakeTuiRoute[]
+    toasts: FakeTuiToast[]
+    emit(event: FakeTuiEvent, ...args: string[]): void
+    data: {
+      session: {
+        get(sessionID: string): SessionLink | undefined
+        sync(sessionID: string, options?: { readonly children?: boolean }): Promise<void>
+      }
+      on(event: FakeTuiEvent, handler: (...args: string[]) => void): () => void
+    }
+    ui: {
+      slot(claim: V2SlotClaim): () => void
+      dialog: V2TuiContext["ui"]["dialog"]
+      toast: { show(toast: FakeTuiToast): void }
+      router: { current(): FakeTuiRoute; navigate(route: FakeTuiRoute): void }
+    }
   } = {
     claims,
     appClaims,
@@ -69,8 +115,28 @@ export function fakeTuiContext(muted: HostColor = "#808080") {
     theme,
     sessions,
     route: { type: "home" },
+    subscriptions,
+    navigations,
+    toasts,
+    emit: (event, ...args) => {
+      for (const subscription of subscriptions) {
+        if (subscription.active && subscription.event === event) subscription.handler(...args)
+      }
+    },
     client: fakeV2Client(),
-    data: { session: { get: (sessionID) => sessions.get(sessionID) } },
+    data: {
+      session: {
+        get: (sessionID) => sessions.get(sessionID),
+        sync: (sessionID, _options) => syncImpl(sessionID),
+      },
+      on: (event, handler) => {
+        const subscription: FakeTuiSubscription = { event, handler, active: true }
+        subscriptions.push(subscription)
+        return () => {
+          subscription.active = false
+        }
+      },
+    },
     keymap: { layer: (layer) => void layers.push(layer) },
     ui: {
       slot(claim) {
@@ -81,8 +147,11 @@ export function fakeTuiContext(muted: HostColor = "#808080") {
         }
       },
       dialog: { show: () => undefined, set: () => undefined, clear: () => undefined, select: async () => undefined },
-      toast: { show: () => undefined },
-      router: { current: () => context.route },
+      toast: { show: (toast) => void toasts.push(toast) },
+      router: {
+        current: () => context.route,
+        navigate: (route) => void navigations.push(route),
+      },
     },
   }
   return context
