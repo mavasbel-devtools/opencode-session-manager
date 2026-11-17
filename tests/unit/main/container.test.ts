@@ -38,6 +38,12 @@ describe("createTuiContainer", () => {
     expect(createTuiContainer(fakeTuiContext().client, {}, "linux").paneTitle).toBeUndefined()
   })
 
+  it("[UC-R9] wires a reconnect restore for every V2 TUI, Herdr or not", () => {
+    expect(createTuiContainer(fakeTuiContext().client, {}, "linux").reconnectRestore).toBeDefined()
+    const herdr = { HERDR_ENV: "1", HERDR_SOCKET_PATH: "/tmp/herdr.sock", HERDR_PANE_ID: "w1:p1" }
+    expect(createTuiContainer(fakeTuiContext().client, herdr, "linux").reconnectRestore).toBeDefined()
+  })
+
   it("[UC-9N] wires no pane title when HERDR_ENV is set without a socket or a pane", () => {
     expect(createTuiContainer(fakeTuiContext().client, { HERDR_ENV: "1" }, "linux").paneTitle).toBeUndefined()
   })

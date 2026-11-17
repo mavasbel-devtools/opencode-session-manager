@@ -80,7 +80,9 @@ export interface V2TuiContext {
   readonly data: {
     readonly session: {
       get(sessionID: string): SessionLink | undefined
+      sync?(sessionID: string, options?: { readonly children?: boolean }): Promise<void>
     }
+    on?(event: "server.connected" | "session.deleted", handler: (...args: string[]) => void): () => void
   }
   readonly keymap: {
     layer(input: () => V2KeymapLayer): void
@@ -108,6 +110,7 @@ export interface V2TuiContext {
     }
     readonly router: {
       current(): { readonly type: string; readonly sessionID?: string }
+      navigate?(route: { readonly type: "session"; readonly sessionID: string } | { readonly type: "home" }): void
     }
   }
 }

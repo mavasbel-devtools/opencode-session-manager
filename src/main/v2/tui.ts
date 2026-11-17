@@ -4,7 +4,8 @@
  * subpath `tui` in the same plugin directory as the server entry.
  *
  * Registers the session ID line at the top of the sidebar and the
- * `/transfer-session` command, and inside a Herdr pane keeps the pane showing
+ * `/transfer-session` command, restores the open session when a reconnect
+ * re-sync sends the TUI home, and inside a Herdr pane keeps the pane showing
  * the open session's agent and its root's title; the returned cleanup removes
  * them all.
  */
@@ -23,7 +24,12 @@ export function setupWith(
   platform: string,
 ): () => void {
   const container = createTuiContainer(context.client, environment, platform)
-  const disposers = [container.sidebar.register(context), container.transfer.register(context), container.repair.register(context)]
+  const disposers = [
+    container.sidebar.register(context),
+    container.transfer.register(context),
+    container.repair.register(context),
+    container.reconnectRestore.register(context),
+  ]
   if (container.paneTitle) disposers.push(container.paneTitle.register(context))
   return () => {
     for (const dispose of disposers) dispose()

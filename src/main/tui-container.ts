@@ -23,15 +23,29 @@ import { HostThemePaletteV2Adapter } from "@session-manager/infrastructure/adapt
 import { SystemClockAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemClockAdapter"
 import { SystemHomeDirectoryAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemHomeDirectoryAdapter"
 import { OpenTuiSidebarViewAdapter } from "@session-manager/infrastructure/adapters/outbound/tui/OpenTuiSidebarViewAdapter"
+import { RestoreAfterReconnectUseCase } from "@session-manager/application/RestoreAfterReconnectUseCase"
+import { ReconnectRestoreV2Adapter } from "@session-manager/infrastructure/adapters/inbound/tui/ReconnectRestoreV2Adapter"
+import { V2SessionNavigatorAdapter } from "@session-manager/infrastructure/adapters/outbound/tui/V2SessionNavigatorAdapter"
+import { SystemTimerAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemTimerAdapter"
+import type { V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
 import type { V2Client } from "@session-manager/infrastructure/host/V2Client"
+
+export interface ReconnectRestoreHandle {
+  register(context: V2TuiContext): () => void
+}
 
 export interface TuiContainer {
   readonly sidebar: SessionIdSidebarSlotV2Adapter
   readonly transfer: SessionTransferV2TuiAdapter
   readonly repair: SessionLocationRepairV2TuiAdapter
+  /** Restores the open session after a reconnect home-reset, for every V2 TUI (never Herdr-gated). */
+  readonly reconnectRestore: ReconnectRestoreHandle
   /** Only inside a Herdr pane (`HERDR_ENV=1` with a socket and a pane). */
   readonly paneTitle?: HerdrPaneTitleV2Adapter
 }
+
+/** How often the reconnect guard reads the open route. */
+const RECONNECT_RESTORE_SCHEDULE = { pollMilliseconds: 250 }
 
 /** The open session's title is read four times a second and resent every ten seconds; Herdr answers within a second. */
 const PANE_TITLE_SCHEDULE = { pollMilliseconds: 250, refreshEvery: 40 }
@@ -69,7 +83,15 @@ export function createTuiContainer(
       store: profileAt("profile", defaultDataHome(environment, home.homeDirectory())).opencodeDb,
     },
   )
+  const timer = new SystemTimerAdapter()
   return {
+    reconnectRestore: {
+      register: (context) =>
+        new ReconnectRestoreV2Adapter(
+          new RestoreAfterReconnectUseCase(new V2SessionNavigatorAdapter(context), timer),
+          RECONNECT_RESTORE_SCHEDULE,
+        ).register(context),
+    },
     sidebar: new SessionIdSidebarSlotV2Adapter(
       (context) => new RenderSidebarEntryUseCase(new HostThemePaletteV2Adapter(context), new OpenTuiSidebarViewAdapter()),
     ),
