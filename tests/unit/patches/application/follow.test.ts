@@ -394,6 +394,36 @@ describe("follow --rollback", () => {
     expect((await w.rollback.rollback()).to).toBe(ROOT)
   })
 
+  it("rolls back to a previous folder entry that still exists", async () => {
+    const w = followWorld({ entry: rootOf("2.0.0") })
+    const folder = rootOf("1.5.0")
+    w.files.contents.set(`${folder}/index.js`, encode("module.exports = {}"))
+    await w.store.set(PREVIOUS_ENTRY, folder)
+    const report = await w.rollback.rollback()
+    expect([report.outcome, steps(report), report.to, w.entryNow()]).toEqual(["rolled-back", ["rollback:ok", "confirm:ok"], folder, folder])
+    expect(await w.store.get(PREVIOUS_ENTRY)).toBe(rootOf("2.0.0"))
+  })
+
+  it("refuses a previous folder entry that no longer exists, changing nothing", async () => {
+    const w = followWorld()
+    const missing = rootOf("9.9.9")
+    await w.store.set(PREVIOUS_ENTRY, missing)
+    const report = await w.rollback.rollback()
+    expect([report.outcome, failure(report), report.from, report.to, w.entryNow()]).toEqual(["stopped", `previous entry ${missing} no longer exists`, NPM_ENTRY, NPM_ENTRY, NPM_ENTRY])
+    expect(await w.store.get(PREVIOUS_ENTRY)).toBe(missing)
+    expect(w.lock.released).toBe(1)
+  })
+
+  it("refuses a previous folder entry it cannot list, changing nothing", async () => {
+    const w = followWorld()
+    const missing = rootOf("9.9.9")
+    await w.store.set(PREVIOUS_ENTRY, missing)
+    w.files.list = async () => {
+      throw new Error("EACCES")
+    }
+    expect(failure(await w.rollback.rollback())).toBe(`previous entry ${missing} no longer exists`)
+  })
+
   it("is busy under the lock, and stops when nothing was adopted or the revert fails", async () => {
     const w = followWorld()
     w.lock.held = true
@@ -402,6 +432,7 @@ describe("follow --rollback", () => {
     const none = await w.rollback.rollback()
     expect([none.outcome, failure(none), none.to]).toEqual(["stopped", "no previous entry is recorded: follow has not adopted anything", NPM_ENTRY])
     await w.store.set(PREVIOUS_ENTRY, ROOT)
+    w.files.contents.set(`${ROOT}/index.js`, encode("module.exports = {}"))
     w.files.contents.set(CONFIG, encode("{}"))
     const failed = await w.rollback.rollback()
     expect([failed.outcome, failure(failed)]).toEqual(["stopped", `${CONFIG} does not have exactly one Magic Context entry`])

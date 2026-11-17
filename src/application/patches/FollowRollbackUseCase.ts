@@ -5,6 +5,7 @@ import { stepLog } from "@session-manager/domain/model/patches/StepLog"
 import type { PatchFollowRollbackPort } from "@session-manager/domain/ports/inbound/PatchFollowRollbackPort"
 import type { AuditLogPort } from "@session-manager/domain/ports/outbound/AuditLogPort"
 import type { ClockPort } from "@session-manager/domain/ports/outbound/ClockPort"
+import type { FilesPort } from "@session-manager/domain/ports/outbound/FilesPort"
 import type { FollowLockPort } from "@session-manager/domain/ports/outbound/FollowLockPort"
 import type { KeyValuePort } from "@session-manager/domain/ports/outbound/KeyValuePort"
 import { PREVIOUS_ENTRY } from "@session-manager/domain/services/patches/FollowRules"
@@ -13,6 +14,8 @@ import { PREVIOUS_ENTRY } from "@session-manager/domain/services/patches/FollowR
  * `follow --rollback`: puts back the Magic Context entry opencode.jsonc had before the last
  * adoption and confirms the running server reloaded it. The entry it replaces becomes the new
  * rollback target, so a second rollback undoes the first. No installed folder is removed.
+ * A recorded folder entry that no longer exists is refused: rollback stops and changes nothing,
+ * so a deleted store (step 11.6) can never be written back into opencode.jsonc.
  */
 export class FollowRollbackUseCase implements PatchFollowRollbackPort {
   constructor(
@@ -22,6 +25,7 @@ export class FollowRollbackUseCase implements PatchFollowRollbackPort {
     private readonly recorder: AdoptionRecorder,
     private readonly audit: AuditLogPort,
     private readonly clock: ClockPort,
+    private readonly files: FilesPort,
   ) {}
 
   async rollback(): Promise<FollowReport> {
@@ -44,6 +48,7 @@ export class FollowRollbackUseCase implements PatchFollowRollbackPort {
         auditLog: this.audit.location(),
       })
       if (previous === null) log.fail("rollback", "no previous entry is recorded: follow has not adopted anything")
+      else if (previous.startsWith("/") && !(await this.folderExists(previous))) log.fail("rollback", `previous entry ${previous} no longer exists`)
       else if (await this.switcher.revert(previous, log)) {
         await this.store.set(PREVIOUS_ENTRY, from)
         const reason = `${JSON.stringify(from)} → ${JSON.stringify(previous)}`
@@ -54,6 +59,15 @@ export class FollowRollbackUseCase implements PatchFollowRollbackPort {
       return report("stopped", await this.switcher.current())
     } finally {
       await release()
+    }
+  }
+
+  /** A folder entry exists when it still holds files; a removed install leaves nothing behind. */
+  private async folderExists(folder: string): Promise<boolean> {
+    try {
+      return (await this.files.list(folder, "")).length > 0
+    } catch {
+      return false
     }
   }
 }

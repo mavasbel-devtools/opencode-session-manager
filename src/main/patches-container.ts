@@ -120,6 +120,6 @@ export function createPatchCommands(
       audit,
       clock,
     ),
-    rollback: new FollowRollbackUseCase(lock, switcher, store, recorder, audit, clock),
+    rollback: new FollowRollbackUseCase(lock, switcher, store, recorder, audit, clock, files),
   }
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout, spyOn } from "bun:test"
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { PatchDefinition } from "@session-manager/domain/model/patches/Patch"
 import type { FilesPort } from "@session-manager/domain/ports/outbound/FilesPort"
@@ -402,5 +402,20 @@ describe("follow stops, and OpenCode keeps what it loaded", () => {
   it("when nothing was adopted, rollback has nothing to restore", async () => {
     const { code, report } = await follow("--rollback")
     expect([code, failure(report)]).toEqual([1, "no previous entry is recorded: follow has not adopted anything"])
+  })
+
+  it("refuses a previous entry whose folder no longer exists, changing nothing", async () => {
+    expect((await follow()).report.outcome).toBe("adopted")
+    expect((await follow("--rollback")).report.outcome).toBe("rolled-back")
+    const missing = installed("0.49.35")
+    // Step 11.6 deletes the old store: the whole version folder is gone, not just the plugin root.
+    rmSync(path.dirname(path.dirname(path.dirname(missing))), { recursive: true, force: true })
+    const before = readFileSync(configFile(), "utf8")
+    const back = await follow("--rollback")
+    expect([back.code, back.report.outcome, failure(back.report), entry()]).toEqual([1, "stopped", `previous entry ${missing} no longer exists`, PINNED])
+    expect(readFileSync(configFile(), "utf8")).toBe(before)
+    expect(installs()).toEqual([])
+    // The refusal records nothing to roll back to, so a second attempt reports the same stop.
+    expect(failure((await follow("--rollback")).report)).toBe(`previous entry ${missing} no longer exists`)
   })
 })

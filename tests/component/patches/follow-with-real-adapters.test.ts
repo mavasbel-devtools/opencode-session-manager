@@ -85,7 +85,7 @@ function compose() {
   return {
     config,
     follow: new FollowUseCase(lock, catalog, new NpmPackumentAdapter(registry.url), managed, stager, new ReleaseProver(sandbox, magicContextConfig), switcher, liveAdapter, recorder, audit, clock),
-    rollback: new FollowRollbackUseCase(lock, switcher, store, recorder, audit, clock),
+    rollback: new FollowRollbackUseCase(lock, switcher, store, recorder, audit, clock, files),
   }
 }
 

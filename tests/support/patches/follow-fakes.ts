@@ -235,7 +235,7 @@ export function followWorld(options: FollowWorldOptions = {}) {
   const stager = new ReleaseStager(managed, installer, files, hash, new FakeTranspile(), patches)
   const prover = new ReleaseProver(sandbox, magicContextConfig)
   const follow = new FollowUseCase(lock, catalog, registry, managed, stager, prover, switcher, live, recorder, audit, clock)
-  const rollback = new FollowRollbackUseCase(lock, switcher, store, recorder, audit, clock)
+  const rollback = new FollowRollbackUseCase(lock, switcher, store, recorder, audit, clock, files)
   const entryNow = () => magicContextEntry(files.text(CONFIG) ?? "")
   return {
     files, hash, clock, audit, backups, derived, store, notifier, evidence, lock, registry, managed, installer, sandbox, live, log,
