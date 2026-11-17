@@ -225,8 +225,8 @@ describe("notify", () => {
       return [code, output.text()]
     }
     const missing = "execute-threshold-min on 0.49.50: not-applied; no-session-model-fallback on 0.49.50: not-applied; refusal-recovery on 0.49.50: not-applied; fold-identity-stable on 0.49.50: not-applied; fold-provenance-heal on 0.49.50: not-applied"
-    expect(await notify()).toEqual([1, `notified: ${missing}. Run \`opencode-magic-context-patches status\`.`])
-    expect(await notify()).toEqual([1, `already notified: ${missing}. Run \`opencode-magic-context-patches status\`.`])
+    expect(await notify()).toEqual([1, `notified: ${missing}. Run \`opencode-session-manager patches status\`.`])
+    expect(await notify()).toEqual([1, `already notified: ${missing}. Run \`opencode-session-manager patches status\`.`])
     await run("apply")
     expect(await notify()).toEqual([0, "OK: nothing to notify"])
     expect(readFileSync(notifier.calls, "utf8").trim().split("\n")).toHaveLength(1)

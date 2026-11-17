@@ -9,7 +9,7 @@ export const TITLE = "Magic Context patches"
 
 export function describeProblems(report: CheckReport): string {
   const what = report.reason ?? report.problems.map((p) => `${p.patch} on ${p.version}: ${p.state}`).join("; ")
-  return `${what}. Run \`opencode-magic-context-patches status\`.`
+  return `${what}. Run \`opencode-session-manager patches status\`.`
 }
 
 /**

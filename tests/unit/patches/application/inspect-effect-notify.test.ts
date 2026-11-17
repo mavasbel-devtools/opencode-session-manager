@@ -92,7 +92,7 @@ describe("NotifyUseCase", () => {
     expect(await notify.notify()).toEqual({
       ok: false,
       notified: true,
-      message: "small on 1.0.0: not-applied. Run `opencode-magic-context-patches status`.",
+      message: "small on 1.0.0: not-applied. Run `opencode-session-manager patches status`.",
     })
     expect((await notify.notify()).notified).toBe(false)
     report = failing("unchecked-version")
@@ -103,9 +103,9 @@ describe("NotifyUseCase", () => {
     report = { ok: false, loadedSpec: null, reason: "not configured", problems: [] }
     await notify.notify()
     expect(notifier.sent.map((n) => [n.title, n.body])).toEqual([
-      [TITLE, "small on 1.0.0: not-applied. Run `opencode-magic-context-patches status`."],
-      [TITLE, "small on 1.0.0: unchecked-version. Run `opencode-magic-context-patches status`."],
-      [TITLE, "not configured. Run `opencode-magic-context-patches status`."],
+      [TITLE, "small on 1.0.0: not-applied. Run `opencode-session-manager patches status`."],
+      [TITLE, "small on 1.0.0: unchecked-version. Run `opencode-session-manager patches status`."],
+      [TITLE, "not configured. Run `opencode-session-manager patches status`."],
     ])
   })
 })

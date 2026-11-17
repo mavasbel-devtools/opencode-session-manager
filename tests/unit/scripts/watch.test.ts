@@ -125,6 +125,8 @@ describe("scripts/watch.mjs on darwin", () => {
       expect(rendered).not.toContain("@HOME@")
       expect(rendered).toContain(path.join(home, ".local", "bin"))
       expect(rendered).toContain(`<string>${LABEL}</string>`)
+      expect(rendered).toContain("<key>EnvironmentVariables</key>")
+      expect(rendered).toContain("<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>")
       const calls = argvOf(workspace)
       expect(calls).toContainEqual(["-lint", plist])
       expect(calls).toContainEqual(["bootout", `gui/${uid}/${LABEL}`])
