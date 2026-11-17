@@ -1,11 +1,16 @@
 import { describe, expect, it } from "bun:test"
 import { spawnSync } from "node:child_process"
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { pinnedMagicContext } from "@session-manager/domain/services/Jsonc"
+import type { ServicePort } from "@session-manager/domain/ports/outbound/ServicePort"
+import { clockTicks } from "@session-manager/infrastructure/adapters/outbound/platform/linux/ClockTicks"
+import { ProcServiceAdapter } from "@session-manager/infrastructure/adapters/outbound/platform/linux/ProcServiceAdapter"
+import { PsServiceAdapter } from "@session-manager/infrastructure/adapters/outbound/platform/darwin/PsServiceAdapter"
+import { CimServiceAdapter } from "@session-manager/infrastructure/adapters/outbound/platform/win32/CimServiceAdapter"
 import manifest from "@package-json"
-import { onlyOn } from "@test/support/platform"
+import { currentPlatform, onlyOn } from "@test/support/platform"
 import { removeTemporarySync } from "@test/support/live/process"
 
 /**
@@ -26,6 +31,18 @@ function cli(...argv: string[]) {
 }
 const systemctl = (...args: string[]) => spawnSync("systemctl", ["--user", ...args], { encoding: "utf8" }).stdout.trim()
 
+/** The running OpenCode server's start, read through the platform port (defect 3: `effect` without `--since` reads the whole log). */
+function service(): ServicePort {
+  switch (currentPlatform()) {
+    case "darwin":
+      return new PsServiceAdapter("/bin/ps")
+    case "win32":
+      return new CimServiceAdapter("powershell")
+    default:
+      return new ProcServiceAdapter("/proc", clockTicks())
+  }
+}
+
 describe("the installed program on this machine", () => {
   it("is the version of this checkout", () => {
     expect(cli("--version")).toEqual({ code: 0, out: `opencode-session-manager ${manifest.version}\n`, err: "" })
@@ -45,12 +62,15 @@ describe("the installed program on this machine", () => {
     expect([check.code === 0, JSON.parse(check.out).ok]).toEqual([allApplied, allApplied])
   })
 
-  it("sees the configured threshold in use whenever the loaded copy is the patched one", () => {
+  it("sees the configured threshold in use whenever the loaded copy is the patched one", async () => {
     // OpenCode reloads a changed plugin folder without restarting, so "patched after the process
     // started" no longer means the running process is unpatched: the log is what proves it either way.
     const status = JSON.parse(cli("status", "--json").out)
     const loaded = status.patches.filter((p: { installation: { loaded: boolean } }) => p.installation.loaded)
-    const effect = JSON.parse(cli("effect", "--json").out)
+    // Since the running server started: older log lines predate whatever the server loads now.
+    const started = await service().startedAt()
+    expect(started).not.toBeNull()
+    const effect = JSON.parse(cli("effect", "--since", new Date(started!).toISOString(), "--json").out)
     if (loaded.every((p: { state: string }) => p.state === "applied")) {
       expect(effect.summary.effectiveThreshold).not.toBeNull()
       expect([effect.summary.rejections, effect.verdict]).toEqual([0, "respected"])
@@ -63,38 +83,43 @@ describe("the installed program on this machine", () => {
 
 describe("follow against the real registry, Arborist and OpenCode, in a throwaway home", () => {
   it("adopts the published version already patched, proved by an isolated opencode serve, and rolls back", () => {
-    const home = path.join("/tmp/opencode", `mc-patches-live-follow-${process.pid}`)
-    removeTemporarySync(home)
-    const config = path.join(home, ".config", "opencode", "opencode.jsonc")
-    mkdirSync(path.dirname(config), { recursive: true })
-    mkdirSync(path.join(home, ".config", "cortexkit"), { recursive: true })
-    mkdirSync(path.join(home, "tmp"), { recursive: true })
-    const pinned = pinnedMagicContext(readFileSync(path.join(HOME, ".config", "opencode", "opencode.jsonc"), "utf8"))!
-    const version = pinned.startsWith("/") ? JSON.parse(readFileSync(path.join(pinned, "package.json"), "utf8")).version : pinned
-    writeFileSync(config, `{\n  // live follow test\n  "plugins": ["@cortexkit/opencode-magic-context@0.0.1"],\n}\n`)
-    copyFileSync(path.join(HOME, ".config", "cortexkit", "magic-context.jsonc"), path.join(home, ".config", "cortexkit", "magic-context.jsonc"))
-    const env = {
-      HOME: home,
-      PATH: "/usr/bin:/bin",
-      TMPDIR: path.join(home, "tmp"),
-      XDG_CONFIG_HOME: path.join(home, ".config"),
-      XDG_DATA_HOME: path.join(home, ".local", "share"),
-      XDG_STATE_HOME: path.join(home, ".local", "state"),
-      XDG_CACHE_HOME: path.join(home, ".cache"),
-      // The binary the user actually runs: the installer's default, or the one the caller points at.
-      OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN: process.env.OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN ?? path.join(HOME, ".opencode", "bin", "opencode"),
-      OPENCODE_SESSION_MANAGER_PATCHES_NOTIFY_BIN: "/bin/true",
-    }
-    const follow = (...argv: string[]) => {
-      const run = spawnSync(BIN, ["patches", "follow", ...argv, "--json"], { encoding: "utf8", cwd: home, env, timeout: 600_000 })
-      return { code: run.status, report: JSON.parse(run.stdout) }
-    }
+    // Inside the OS temporary directory (resolved: /tmp is a symlink on macOS), so the
+    // teardown guard accepts the removal; the try/finally below leaves no folder behind.
+    const home = path.join(realpathSync(os.tmpdir()), "opencode", `mc-patches-live-follow-${process.pid}`)
     try {
-      const adopted = follow("--version", version)
+      removeTemporarySync(home)
+      const config = path.join(home, ".config", "opencode", "opencode.jsonc")
+      mkdirSync(path.dirname(config), { recursive: true })
+      mkdirSync(path.join(home, ".config", "cortexkit"), { recursive: true })
+      mkdirSync(path.join(home, "tmp"), { recursive: true })
+      writeFileSync(config, `{\n  // live follow test\n  "plugins": ["@cortexkit/opencode-magic-context@0.0.1"],\n}\n`)
+      copyFileSync(path.join(HOME, ".config", "cortexkit", "magic-context.jsonc"), path.join(home, ".config", "cortexkit", "magic-context.jsonc"))
+      const env = {
+        HOME: home,
+        PATH: "/usr/bin:/bin",
+        TMPDIR: path.join(home, "tmp"),
+        XDG_CONFIG_HOME: path.join(home, ".config"),
+        XDG_DATA_HOME: path.join(home, ".local", "share"),
+        XDG_STATE_HOME: path.join(home, ".local", "state"),
+        XDG_CACHE_HOME: path.join(home, ".cache"),
+        // The binary the user actually runs: the installer's default, or the one the caller points at.
+        OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN: process.env.OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN ?? path.join(HOME, ".opencode", "bin", "opencode"),
+        // macOS has no /bin/true: resolve the stand-in off PATH instead of naming one absolute path.
+        OPENCODE_SESSION_MANAGER_PATCHES_NOTIFY_BIN: Bun.which("true")!,
+      }
+      const follow = (...argv: string[]) => {
+        const run = spawnSync(BIN, ["patches", "follow", ...argv, "--json"], { encoding: "utf8", cwd: home, env, timeout: 600_000 })
+        return { code: run.status, report: JSON.parse(run.stdout) }
+      }
+      // The real opencode.jsonc pins `@cortexkit/opencode-magic-context@latest`: adopt npm
+      // latest, which is what that entry names (`follow --version` takes a bare version, and a
+      // folder pin no longer exists to read one from).
+      const adopted = follow()
       expect([adopted.code, adopted.report.outcome]).toEqual([0, "adopted"])
       expect(adopted.report.steps.map((s: { step: string; ok: boolean }) => `${s.step}:${s.ok}`)).toEqual(
         ["detect", "stage", "locate", "patch", "prove", "publish", "confirm", "record"].map((step) => `${step}:true`),
       )
+      const version: string = adopted.report.version
       const root = path.join(home, ".local", "share", "opencode-session-manager", "patches", "installs", version, "node_modules", "@cortexkit", "opencode-magic-context")
       expect(pinnedMagicContext(readFileSync(config, "utf8"))).toBe(root)
       expect(adopted.report.steps.find((s: { step: string }) => s.step === "prove").detail).toContain('0 "config reload failed"')
