@@ -127,6 +127,8 @@ describe("scripts/watch.mjs on darwin", () => {
       expect(rendered).toContain(`<string>${LABEL}</string>`)
       expect(rendered).toContain("<key>EnvironmentVariables</key>")
       expect(rendered).toContain("<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>")
+      expect(rendered).toContain("<key>OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN</key>")
+      expect(rendered).toContain("<string>/opt/homebrew/bin/opencode</string>")
       const calls = argvOf(workspace)
       expect(calls).toContainEqual(["-lint", plist])
       expect(calls).toContainEqual(["bootout", `gui/${uid}/${LABEL}`])

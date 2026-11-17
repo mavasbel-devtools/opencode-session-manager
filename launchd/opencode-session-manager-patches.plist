@@ -23,6 +23,8 @@
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>OPENCODE_SESSION_MANAGER_PATCHES_OPENCODE_BIN</key>
+        <string>/opt/homebrew/bin/opencode</string>
     </dict>
     <key>StandardOutPath</key>
     <string>@HOME@/Library/Logs/opencode-session-manager-patches.log</string>
