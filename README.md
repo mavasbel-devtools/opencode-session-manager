@@ -726,6 +726,30 @@ release's `after`. A patch whose site upstream introduced (or dropped) leaves `o
 matcher: on a release that holds none of its sites it has nothing to change and does not stop
 `follow` (a file holding only some of its sites still stops it).
 
+### Prerequisites and install
+
+| Need | Version | Notes |
+|---|---|---|
+| Bun | 1.4.4 (`"packageManager": "bun@1.4.4"`) | `bun install --frozen-lockfile` before anything else |
+| OpenCode | 2.x | the program never restarts it; `follow` confirms the running server reloaded the adopted copy |
+| Platform tools | per OS, below | used to list holders, prove releases and notify |
+
+| OS | Watch | Process list | Liveness | Notifier |
+|---|---|---|---|---|
+| Linux | systemd user units (`systemd/opencode-session-manager-patches.path`, `.service`, `.timer`) | `/proc` (`OPENCODE_SESSION_MANAGER_PATCHES_PROC` points elsewhere for tests) | `/proc/<pid>` exists | `notify-send --app-name=opencode-session-manager` |
+| macOS (darwin) | a launchd agent (`launchd/opencode-session-manager-patches.plist`, label `com.github.mavasbel-devtools.opencode-session-manager-patches`) | `ps -axo pid=,lstart=,command=` | `kill -0` | `osascript` (`display notification`) |
+| Windows (win32) | not supported: `install:watch` exits 1 | `tasklist` and the rename probe | `Get-Process` | a PowerShell toast (unverified on hardware) |
+
+```
+bun install --frozen-lockfile
+bun run install:cli      # builds and installs opencode-session-manager (~/.local/bin)
+bun run install:watch    # installs the watch that runs `patches follow` (Linux, macOS)
+```
+
+`bun run validate:watch` checks the watch is installed, valid, enabled and active;
+`bun run uninstall:watch` removes it. Without installing, `bun run cli -- <command>`
+runs the program from the checkout.
+
 ### The patches
 
 | Patch | What it changes | Why | Checked versions |
@@ -746,7 +770,8 @@ login, and every 6 hours: systemd user units
 (`systemd/opencode-session-manager-patches.path`, `.service`, `.timer`) on Linux, a launchd agent on
 macOS; on Windows it exits 1. `bun run validate:watch` checks the units are installed, valid, enabled
 and active; `bun run uninstall:watch` removes them. `OPENCODE_SESSION_MANAGER_PATCHES_SYSTEMD_DIR` puts
-the units elsewhere.
+the units elsewhere, `OPENCODE_SESSION_MANAGER_PATCHES_LAUNCHD_DIR` the agent elsewhere
+(`launchd/opencode-session-manager-patches.plist` is the template, `@HOME@` substituted at install).
 
 ### Commands
 
@@ -761,6 +786,13 @@ the units elsewhere.
 | `notify` | Runs `check`; when it fails, shows a desktop notification, once per distinct problem | no | 1 if `check` fails |
 | `follow` | Adopts npm `latest` (or `--version <v>`, even an older one) already patched; see below. Prints every step with its time and what it found. | a new install folder, and the one Magic Context entry of `opencode.jsonc` | 0 if `adopted` or `up-to-date`, 1 if `stopped` or `busy` |
 | `follow --rollback` | Puts back the entry `opencode.jsonc` had before the last adoption (or rollback) and confirms the running server reloaded it | the one Magic Context entry of `opencode.jsonc` | 0 if `rolled-back` |
+
+Options and defaults: `--json` prints the report as JSON (every command). `apply` and `undo`
+take `--patch <id>` and/or `--version <v>` (default: every patch on the copy `opencode.jsonc`
+pins). `inspect` needs `--version <v>`. `effect` takes `--since <ISO time>` (default: the
+running OpenCode server's start time). `follow` takes `--version <v>` (default: npm `latest`,
+even when older than the loaded copy) or `--rollback` (never both). Bare `patches`, `patches
+--help` and any usage error exit 2; the help text is the contract (`PatchesCliAdapter`).
 
 Where things are kept:
 
@@ -812,6 +844,41 @@ flowchart LR
   F --> P2
 ```
 
+### Examples
+
+Run from the checkout (`bun run cli --` is the program; the installed one is
+`opencode-session-manager`):
+
+```
+bun run cli -- patches status
+```
+
+Exit 0. Every installed copy (`LOADED` marks the one `opencode.jsonc` pins) with each
+patch's state. The next two change state only in a sandbox home, never the real one:
+
+```
+HOME=/tmp/patches-doc-home bun run cli -- patches apply --version 0.49.56
+```
+
+Exit 0 when a copy of that version is installed there, 1 (`Magic Context 0.49.56 is not
+installed`) when none is (nothing is written then).
+
+```
+bun run cli -- patches effect --since "$(date -u -v-1H +%FT%TZ)"
+```
+
+Exit 0 only with `verdict: respected`; 1 otherwise. On Linux the date reads
+`date -u -d '-1 hour' +%FT%TZ`. Read-only: safe while OpenCode runs.
+
+```
+bun run cli -- patches follow --version 0.49.56
+```
+
+Adopts 0.49.56 already patched: exit 0 if `adopted` or `up-to-date`, 1 if `stopped` or
+`busy`. It installs a folder and changes the one Magic Context entry of `opencode.jsonc`,
+so run it on the real home only, never in a throwaway one (whose `opencode.jsonc` names
+nothing and stops it).
+
 ### follow
 
 | Step | What it does | Stops when |
@@ -858,6 +925,32 @@ To remove a patch: `patches undo`, then restart OpenCode.
   nothing names or loads.
 - A file changed by anything else (`changed`) is never touched; `undo` or a reinstall of that version
   by OpenCode brings it back to a known state.
+
+### Migrating from opencode-magic-context-patches
+
+The old tool is merged here and decommissioned: one CLI, one command group
+(`opencode-session-manager patches …`), one history (the old tool's audit log, backups and state
+migrate into the new folders before the new tool's first write, each file verified). What moved
+where:
+
+| Old | New |
+|---|---|
+| `patches/` (patch definitions) | `src/domain/patch-definitions/` |
+| `tests/fixtures/magic-context-<v>/` | `tests/support/patches/fixtures/magic-context-<v>/` |
+| `systemd/opencode-magic-context-patches.{path,service,timer}` | `systemd/opencode-session-manager-patches.{path,service,timer}`, plus `launchd/opencode-session-manager-patches.plist` on macOS |
+| the install scripts (`install-cli.mjs`, `watch.mjs`) | `bun run install:cli`, `bun run install:watch` (`scripts/watch.mjs`) |
+| `opencode-magic-context-patches <command>` | `opencode-session-manager patches <command>` |
+| `docs/` of the old repository | frozen under `docs/reference/` |
+
+Names (D13): environment variables are `OPENCODE_SESSION_MANAGER_PATCHES_*` (not
+`OPENCODE_MC_PATCHES_*`), folders are `opencode-session-manager/patches` under the XDG data and
+state homes (`~/.local/share/opencode-session-manager/patches`,
+`~/.local/state/opencode-session-manager/patches`), units are
+`opencode-session-manager-patches.*`, the launchd label is
+`com.github.mavasbel-devtools.opencode-session-manager-patches`, the staging prefix is
+`.osm-patches-`, notifications go through `--app-name=opencode-session-manager`, help and errors
+read `opencode-session-manager patches`. Titles, flags, JSON shapes and exit codes 0/1/2 are
+unchanged. `MAGIC_CONTEXT_LOG_PATH` keeps its name (Magic Context's own variable).
 
 ## Architecture
 
@@ -1056,6 +1149,7 @@ live tier needs `node` (for the pseudo-terminal).
 | `OPENCODE_SESSION_MANAGER_OFFLINE` | `tui` | non-empty: npm is never asked for the newest Magic Context (as `--offline`) |
 | `OPENCODE_SESSION_MANAGER_NPM_REGISTRY` | `tui` | the registry asked for the newest Magic Context (`https://registry.npmjs.org`) |
 | `MAGIC_CONTEXT_LOG_PATH` | `patches effect` | Magic Context's log (default `<TMPDIR or /tmp>/opencode2/magic-context/magic-context.log`) |
+| `TMPDIR` | `patches effect`, `patches follow` | the fallback folder for Magic Context's log and for `follow`'s sandbox homes (default `/tmp`) |
 | `OPENCODE_SESSION_MANAGER_PATCHES_NOTIFY_BIN` | `patches notify`, `patches follow` | the desktop-notification command (default `notify-send`, `osascript`, PowerShell) |
 | `OPENCODE_SESSION_MANAGER_PATCHES_PROC` | `patches effect` on Linux | the `/proc` root (default `/proc`) |
 | `OPENCODE_SESSION_MANAGER_PATCHES_REGISTRY` | `patches follow` | the npm registry read for new releases (default `https://registry.npmjs.org`) |
@@ -1063,6 +1157,7 @@ live tier needs `node` (for the pseudo-terminal).
 | `OPENCODE_SESSION_MANAGER_PATCHES_TIMEOUT_MS` | `patches follow` | each wait in ms (default 120000) |
 | `OPENCODE_SESSION_MANAGER_PATCHES_SETTLE_MS` | `patches follow` | the wait before a log is read in ms (default 5000) |
 | `OPENCODE_SESSION_MANAGER_PATCHES_SYSTEMD_DIR` | `install:watch` | the folder the systemd units go in (default `<XDG_CONFIG_HOME>/systemd/user`) |
+| `OPENCODE_SESSION_MANAGER_PATCHES_LAUNCHD_DIR` | `install:watch` | the folder the launchd agent goes in (default `~/Library/LaunchAgents`) |
 | `OPENCODE_V2_PLUGIN_DIR` | the plugin installer | the plugins folder |
 | `OPENCODE_V2_EXECUTABLE` | live tier | the OpenCode 2 executable (else `~/.opencode/bin/opencode`, `~/.local/bin/opencode.exe` on Windows, else `PATH`) |
 | `OPENCODE_BIN` | live `sync` test | the `opencode` that lists the synced copy (default `opencode` on `PATH`) |

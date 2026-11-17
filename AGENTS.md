@@ -189,6 +189,37 @@ staging prefix is `.osm-patches-`, notifications go through
 0/1/2 are unchanged. `MAGIC_CONTEXT_LOG_PATH` keeps its name (Magic Context's
 own variable).
 
+### Adding a version to a patch, or a new patch — adapted from opencode-magic-context-patches
+
+1. `npm pack @cortexkit/opencode-magic-context@<v>` in a scratch folder under `$TMPDIR/opencode/`;
+   confirm the installed files are byte-identical to the tarball's (sha256).
+2. `bun run cli -- patches inspect --version <v>`; read every snippet. If the code around the
+   replaced text changed meaning, stop and re-do the analysis in a new `docs/reference/` document.
+3. Add a release `{ version, files: [{ path, before, after, replacements }] }` to the patch in
+   `src/domain/patch-definitions/`; `after` is the sha256 of the tarball's file with the
+   replacements made.
+4. Copy the tarball's files into `tests/support/patches/fixtures/` (one
+   `magic-context-<v>/` folder per version, with `package.json` reduced to `name`, `version`,
+   `license`, and a `NOTICE.md` naming the tarball and its integrity).
+   `tests/unit/patches/definitions/patches.test.ts` then proves the recorded checksums on the real
+   files.
+5. Run the gate (`bun run typecheck`, `bun run lint:diagrams`, the coverage the version needs),
+   commit, `bun run install:cli`, `apply`, restart OpenCode, then `patches effect` must say
+   `verdict: respected`.
+
+A new patch is a new file in `src/domain/patch-definitions/`, listed in that folder's `index.ts`,
+with an evidence document in `docs/reference/` named by its `evidence` field, and a `matcher`
+(directory, extension, and its `sites`: each a name, file count, shapes with counts, anchor and
+window) that `tests/unit/patches/domain/matcher-rules.test.ts` proves derives exactly every
+reviewed release from the fixtures. A new shape of an existing site is added to that site's `shapes`
+after review. A file may belong to several patches: they are applied in `index.ts` order, each
+matcher reading the file as the previous patch left it, and the later release's `before` is
+therefore the earlier release's `after`. A patch that changes several places in the same files lists
+them as several sites. A patch whose site upstream introduced or dropped in some release marks its
+matcher `optional: true`: no file holding any of its sites means nothing to change on that version,
+while a partial match still stops `follow`. Matchers prove on every platform's adapters; the watch
+(`scripts/watch.mjs`) runs `follow` on Linux and macOS and refuses on Windows.
+
 ### Declared fault-injection seams (e2e only)
 
 `DemandingSpacePolicy` (demands more space than any disk has) and
@@ -791,7 +822,9 @@ the module shapes, and fails if a retired form is present.
 Context, when `opencode.jsonc` changes, 2 minutes after login and every 6
 hours: systemd user units (`systemd/opencode-session-manager-patches.path`,
 `.service`, `.timer`) on Linux, a launchd agent on macOS; on Windows it exits 1
-(`scripts/watch.mjs`, `OPENCODE_SESSION_MANAGER_PATCHES_SYSTEMD_DIR`).
+(`scripts/watch.mjs`, `OPENCODE_SESSION_MANAGER_PATCHES_SYSTEMD_DIR`,
+`OPENCODE_SESSION_MANAGER_PATCHES_LAUNCHD_DIR`, template
+`launchd/opencode-session-manager-patches.plist`).
 `bun run validate:watch` checks the units are installed, valid, enabled and
 active; `bun run uninstall:watch` removes them.
 

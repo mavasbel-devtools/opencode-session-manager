@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.github.mavasbel-devtools.opencode-session-manager-patches</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>sleep 30; exec @HOME@/.local/bin/opencode-session-manager patches follow</string>
+    </array>
+    <key>WatchPaths</key>
+    <array>
+        <string>@HOME@/.cache/opencode/npm/@cortexkit</string>
+        <string>@HOME@/.config/opencode/opencode.jsonc</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>21600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>@HOME@/Library/Logs/opencode-session-manager-patches.log</string>
+    <key>StandardErrorPath</key>
+    <string>@HOME@/Library/Logs/opencode-session-manager-patches.log</string>
+</dict>
+</plist>

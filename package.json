@@ -27,16 +27,17 @@
     "cli": "bun src/main/cli/cli.ts",
     "schema": "bun scripts/schema.ts"
   },
+  "packageManager": "bun@1.4.4",
   "devDependencies": {
     "@lydell/node-pty": "1.2.0-beta.12",
     "@npmcli/arborist": "9.4.0",
     "@opencode/plugin": "2.0.14",
     "@opentui/core": "0.5.10",
     "@opentui/solid": "0.5.10",
-    "@types/bun": "1.4.2",
+    "@types/bun": "1.4.4",
     "@types/npmcli__arborist": "6.3.3",
     "@xterm/headless": "6.0.0",
-    "bun-types": "1.4.2",
+    "bun-types": "1.4.4",
     "drizzle-orm": "0.45.4",
     "solid-js": "1.9.15",
     "typescript": "5.9.3"
