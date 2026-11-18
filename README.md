@@ -42,6 +42,10 @@ The plugin:
    failure sends the TUI home although the session still exists, the plugin
    navigates back to it with a toast (see
    [Restore after reconnect](#restore-after-reconnect)).
+7. **Re-sync retry** — when an event-stream reconnect's re-sync fails
+   transiently (a 503 or a transport error), the plugin retries it with
+   backoff so the TUI keeps the session on screen instead of going home (see
+   [Re-sync retry](#re-sync-retry)).
 
 ```
 ┌ sidebar ─────────────────────────────┐
@@ -169,6 +173,45 @@ The second row then reads, for example, `plan · Update magic-context`.
 - Another plugin that sets `display_agent` for OpenCode panes (for example
 `herdr-opencode-bridge`) competes with this one for the same field.
 
+### Re-sync retry
+
+When an event-stream reconnect's re-sync fails transiently, the plugin retries
+it instead of letting the failure send the TUI home. It applies to one call
+only: the routed re-sync of the open session — `data.session.sync(S,
+{ children: true })` while the session screen shows `S`; every other call
+passes through untouched. A 503 and a transport error (`ECONNRESET`,
+`ECONNREFUSED`, `EPIPE`, `ETIMEDOUT`, `socket hang up`, … in the message, the
+`code` or the cause chain) are transient; a missing session and a
+`SessionNotFoundError` are final and rethrow at once, and so is any other error
+(400, 401, 500, unknown). The schedule is six attempts over the waits 500 /
+1000 / 2000 / 4000 / 8000 ms (`RESYNC_BACKOFF` in
+`src/domain/model/ResyncRetry.ts`), about 15.5 s; the retries stop when the
+route leaves the session, and when they run out the call resolves if the
+session is loaded, otherwise it rethrows the last error so the stock behaviour
+stands. The wrapper is never unwrapped: a reconciliation re-runs plugin cleanup
+and setup milliseconds after a reconnect, so unwrapping would open a gap during
+an in-flight retry; it stays installed and the next setup re-points it at the
+newest context.
+
+| UC | When | Outcome |
+|---|---|---|
+| UC-RR1 | the re-sync rejects with a 503 | retried; resolves; route kept |
+| UC-RR2 | a transport error (`ECONNRESET`/`ECONNREFUSED`/… in message, `code` or cause chain) | retried; route kept |
+| UC-RR3N | the re-sync rejects with `SessionNotFoundError` (`name` or `_tag`) | rethrown at once; the host goes home |
+| UC-RR4N | the re-sync rejects with status 404 | never retried |
+| UC-RR5N | the route left the session during the retries | stop, rethrow |
+| UC-RR6N | the retries are exhausted | session loaded → resolve (route kept); not loaded → rethrow the last error |
+| UC-RR7N | not eligible (no `children: true`, or the route is not on that session) | exactly one call, error unchanged |
+| UC-RR8 | the plugin re-runs setup after a reconnect, or cleanup runs | one wrapper kept, pointed at the newest context; cleanup leaves it in place |
+| UC-RR9N | the host has no function `sync`, or a read-only `sync` | nothing installed, no throw |
+| UC-RR10N | other errors (400, 401, 500, unknown) | not retried |
+| UC-RR11 | together with the F12 guard, a one-shot 503 | leaves neither a home flip nor a restore toast |
+
+F11 and F12 are two layers: F11 is the first — the retry keeps the session
+open, so the route never leaves; F12 is the second, in
+[Restore after reconnect](#restore-after-reconnect) — when the route does
+leave, the guard puts it back.
+
 ### Restore after reconnect
 
 When OpenCode's event stream reconnects, the TUI re-syncs the open session;
@@ -195,13 +238,16 @@ It does nothing when the home screen is not a reconnect reset:
 | UC-R6N | `S` already reached 3 restores in the last 60 s | no verify, no navigate, no toast |
 | UC-R7N | the route moves session → session (tabs, multi-tab) without going home | never a trigger, no verify, no navigate, no toast |
 
-This guards [upstream issue anomalyco/opencode#59542](https://github.com/anomalyco/opencode/issues/59542):
-until the upstream reconnect effect retries transient re-sync failures instead
-of navigating home, the plugin puts the session back. Once an upstream release
-fixes the effect, the route never leaves for home on a transient failure, so
-the guard never triggers and becomes inert — nothing to uninstall. Verified
-against the real OpenCode 2.3.0 TUI and service
-(`tests/live/tui-reconnect-restore.test.ts`).
+This guards [upstream issue anomalyco/opencode#59542](https://github.com/anomalyco/opencode/issues/59542)
+in two layers: **F11** is the first — it retries a transient re-sync failure and
+keeps the session open, so the route never leaves; **F12** is the second — when
+the route does leave, the guard puts it back. Once an upstream release fixes the
+effect, the route never leaves for home on a transient failure, so the guard
+never triggers and becomes inert — nothing to uninstall. Verified against the
+real OpenCode 2.3.0 TUI and service
+(`tests/live/tui-reconnect-restore.test.ts`). `[UC-R1]` is proven in the
+component and e2e tiers and no longer live, because F11 consumes the one-shot
+503 that the live scenario armed.
 
 ## What it can and cannot do
 

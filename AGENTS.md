@@ -371,7 +371,28 @@ base therefore comes from `HomeDirectoryPort`
 (`SystemHomeDirectoryAdapter` reads `HOME`/`USERPROFILE` per call), and every
 test that expands `~` points `HOME` at a temporary directory.
 
-### Restore after reconnect (F3)
+### Re-sync retry (F11)
+
+The TUI registers `container.resyncRetry` for every V2 TUI (never
+Herdr-gated): `RetryResyncUseCase` owns the retry loop over `RESYNC_BACKOFF`
+through the reused `TimerPort`, behind `ResyncRetryV2Adapter` (the one wrapper
+installed on `data.session.sync`, kept on the session store under
+`Symbol.for("opencode-session-manager.resync-retry")`: one slot, re-pointed at
+the newest context by the next setup, never unwrapped by `cleanup`) and
+`V2ResyncRouteAdapter` (`routedSessionID` from `ctx.ui.router.current()`,
+`isLoaded` from `ctx.data.session.get(id)`). The pure classifier is
+`classifyResyncError` in `src/domain/model/ResyncRetry.ts` (`RESYNC_BACKOFF`
+500/1000/2000/4000/8000, six attempts; a 503 and a transport code transient; a
+404 and `SessionNotFoundError` missing; anything else other). Tests: the
+classifier in `tests/unit/domain/resync-retry.test.ts`, the loop in
+`tests/unit/application/retry-resync.test.ts`, the adapters in
+`tests/unit/infrastructure/resync-retry-adapter.test.ts` and
+`tests/unit/infrastructure/v2-resync-route-adapter.test.ts`, the wired feature
+in `tests/component/reconnect/resync-retry.test.ts` (`[UC-RR1]`…`[UC-RR11]`,
+the `N` negatives among them), and the real OpenCode 2.3.0 TUI and service in
+`tests/live/tui-resync-retry.test.ts`.
+
+### Restore after reconnect (F12)
 
 The TUI registers `container.reconnectRestore` for every V2 TUI (never
 Herdr-gated): `RestoreAfterReconnectUseCase` owns the async verify loop over
@@ -419,6 +440,7 @@ definitions).
 | `LocationRepair.ts` | plugin | explicit online repair plans, skips, and reports |
 | `GitWorktree.ts` | plugin, sessions | the Git work tree a folder belongs to as its `.git` entries describe it, repair plans, link outcomes |
 | `ReconnectRestore.ts` | sessions | the pure reconnect-restore trigger (`decideRestore`): the open session, the last reconnect, deletions and recent restores → `none` / `verify` / `navigate` / `giveUp`; `WINDOW` 10000, `RESTORE_LIMIT` 3 per 60 s, `VERIFY_BACKOFF` 500/1000/2000/4000/8000 |
+| `ResyncRetry.ts` | sessions | the pure re-sync retry policy: `classifyResyncError` (`missing` / `transient` / `other`), `isSessionNotFound`, `httpStatus`, `RESYNC_BACKOFF` 500/1000/2000/4000/8000, `ResyncRequest` |
 | `Verify.ts` | sessions | `verify`: finding kinds and their severity, a session's Magic Context vitals, the report and its text (`verifyLines`) |
 | `Build.ts` | maintenance | the six checks of a compacted copy |
 | `Database.ts` | maintenance | page statistics, schema, header and per-table fingerprints of a database |
@@ -488,8 +510,8 @@ definitions).
 `PreflightPort.ts`, `RehearsePort.ts`, `RollbackPort.ts` (maintenance);
 `OpenProfilePort.ts`, `CatalogProfilePort.ts`, `CopyMagicContextPort.ts`,
 `SyncMagicContextPort.ts`, `SyncSessionsPort.ts`, `ApplyQueuePort.ts`, `VerifyProfilePort.ts`,
-`MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`, `RestoreAfterReconnectPort.ts`
-(sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`, `RepairSessionLocationsPort.ts`,
+`MagicContextVersionsPort.ts`, `RebuildContextPort.ts`, `ForkSessionPort.ts`, `RelocateSessionsPort.ts`, `RestoreAfterReconnectPort.ts`,
+`RetryResyncPort.ts` (sessions); `ResolveSessionIdToolPort.ts`, `RenderSidebarEntryPort.ts`, `RepairSessionLocationsPort.ts`,
 `RepairWorktreeLinksPort.ts`, `MoveSessionPort.ts`, `BuildDirectoryOptionsPort.ts`, `BrowseFoldersPort.ts`,
 `ReportPaneTitlePort.ts` (plugin); `PatchStatusPort.ts`, `PatchApplyPort.ts`,
 `PatchUndoPort.ts`, `PatchCheckPort.ts`, `PatchInspectPort.ts`, `PatchEffectPort.ts`,
@@ -503,7 +525,7 @@ program); `SessionStorePort.ts`, `MagicContextStorePort.ts`,
 `MagicContextSyncStorePort.ts`, `SessionSyncStorePort.ts`, `MagicContextReleasePort.ts`,
 `MagicContextIdentityPort.ts`, `MagicContextConfigPort.ts`, `PublishedVersionPort.ts`, `OpencodeServerPort.ts`,
 `MagicContextProgressPort.ts`, `TimerPort.ts`, `IdentifiersPort.ts`, `RelocationStorePort.ts`,
-`MagicContextRelocationStorePort.ts`, `SessionNavigatorPort.ts` (sessions); `SessionHostPort.ts`, `FileSystemPort.ts`, `LocationRepairMappingsPort.ts`,
+`MagicContextRelocationStorePort.ts`, `SessionNavigatorPort.ts`, `ResyncRoutePort.ts` (sessions); `SessionHostPort.ts`, `FileSystemPort.ts`, `LocationRepairMappingsPort.ts`,
 `KnownDirectoriesPort.ts`, `HomeDirectoryPort.ts`, `ThemePalettePort.ts`, `DirectoryListingPort.ts`,
 `SidebarViewPort.ts`, `PaneMetadataPort.ts`, `GitWorktreePort.ts` (plugin);
 `FilesPort.ts` (read bytes, mode-keeping one-step replace, list by extension),
@@ -541,6 +563,7 @@ alive), `FollowLockPort.ts` (one `follow` run at a time) (patches).
 | `RelocateSessionsUseCase.ts` | sessions | `relocate`: sessions in mapped folders (with their sub-agent sessions) get their new folder and the project OpenCode derives there, text naming an old folder is rewritten, Magic Context links and merges their projects; on working copies, checked, swapped in together |
 | `ApplyQueueUseCase.ts` | sessions | run the browser's queue as one whole-session sync per direction |
 | `RestoreAfterReconnectUseCase.ts` | sessions | restore after reconnect: the async verify loop over `VERIFY_BACKOFF` while the route is still home; `exists` → open + restored-toast, `missing` → nothing, all `failed` → one info notify |
+| `RetryResyncUseCase.ts` | sessions | re-sync retry: the retry loop over `RESYNC_BACKOFF` for the routed `children: true` call only; stops when the route leaves, resolves when the session is loaded, else rethrows the last error |
 | `ForkSessionUseCase.ts` | sessions | `fork` and the browser's `F`: OpenCode's own fork through the running server (writes nothing itself) |
 | `RebuildContextUseCase.ts` | sessions | `context wrapup|recomp` and the browser's `W`/`R`: one session at a time through the OpenCode server, followed in the store (read-only); refuses a session Magic Context already works on |
 | `MagicContextVersionsUseCase.ts` | sessions | the Magic Context OpenCode loads here and the newest on npm (the browser's header) |
@@ -593,6 +616,7 @@ alive), `FollowLockPort.ts` (one `follow` run at a time) (patches).
 | `manager-tui/format.ts` | state → text |
 | `manager-tui/controls.ts` | `BrowserControls`: what the view asks of the program |
 | `tui/ReconnectRestoreV2Adapter.ts` | polls the open route and forwards route, reconnect and deletion observations to the restore port; the disposer unsubscribes both host events, clears the poll and releases the port |
+| `tui/ResyncRetryV2Adapter.ts` | installs the one wrapper on `data.session.sync` under `Symbol.for("opencode-session-manager.resync-retry")`, per host runtime: one slot re-pointed at the newest port by a re-setup, never unwrapped |
 | `server/SessionIdToolV2Adapter.ts` | registers the `session-id` tool (v2) |
 | `tui/SessionIdSidebarSlotV2Adapter.ts` | the sidebar slot (v2) |
 | `tui/SessionTransferV2TuiAdapter.ts` | `/transfer-session` |
@@ -667,6 +691,7 @@ alive), `FollowLockPort.ts` (one `follow` run at a time) (patches).
 | `platform/win32/PowerShellToastNotifierAdapter.ts` | patches | a PowerShell toast notification (unverified on hardware) |
 | `system/SystemHomeDirectoryAdapter.ts` | the home folder, read per call |
 | `tui/V2SessionNavigatorAdapter.ts` | verifies the session by re-syncing it (`SessionNotFoundError` name/`_tag` → missing, any other rejection → failed), navigates back through the host router and shows the notice through the host toast; skips what an older host stub omits |
+| `tui/V2ResyncRouteAdapter.ts` | reads the routed session from `ui.router.current()` and whether the host holds a session from `data.session.get(id)` |
 | `opencode2/OpenCode2HostAdapter.ts` | the OpenCode 2 host API |
 | `tui/HostThemePaletteV2Adapter.ts`, `tui/OpenTuiSidebarViewAdapter.tsx` | theme colours and the sidebar line view |
 | `herdr/HerdrSocketPaneMetadataAdapter.ts` | Herdr's API socket (a named pipe on Windows): `pane.report_metadata` with `title` (root title) and `display_agent` (the open session's agent), each left out when not known, under the source `opencode-session-manager:title`, guarded by `agent: opencode`, numbered with `seq`; answers `false` (never throws) when Herdr refuses, garbles, hangs up, is silent for a second or is gone |
@@ -765,7 +790,7 @@ it from `realpathSync(tmpdir())` (`/var` vs `/private/var` on macOS).
 | `no-herdr.ts` | preloaded by every test run: removes `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, so a test run inside a Herdr pane never reports to the user's Herdr |
 | `platform.ts` | the only test file that reads `process.platform`: `onlyOn`, `requires`, `currentPlatform` (D29, rule I12) |
 | `fakes/herdr-socket.ts` | a stand-in for Herdr's API socket that records requests and answers `ok`, `error`, `garbage`, `split`, `silent` or `close` |
-| `fault-proxy.ts` | the event-stream fault proxy (`startFaultProxy`: `pass`, `stall`, `stall-then-fail`, `stall-then-404`); a repo deliverable used by the live reconnect-restore tests |
+| `fault-proxy.ts` | the event-stream fault proxy (`startFaultProxy`: `pass`, `stall`, `stall-then-fail`, `stall-then-404`, `stall-then-hold`); a repo deliverable used by the live reconnect-restore and re-sync-retry tests |
 | `fakes/hosts.ts`, `fakes/transfer-ports.ts` | stand-ins for the OpenCode hosts and the transfer ports (`FakeDirectoryListingAdapter`: folders in memory) |
 | `fakes/dialog-host.tsx` | the host's dialog stack and keymap as a plugin dialog sees them: paints with OpenTUI's test renderer, runs the command a modal layer binds to a key, types, clicks, Esc |
 | `fixtures/host-2.0.14/` | verbatim OpenCode 2.0.14 host sources (re-extracted, never edited), so tests run the host's own rules |

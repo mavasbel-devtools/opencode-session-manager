@@ -134,58 +134,10 @@ describe.skipIf(!executable)("restore after reconnect home-reset (live guard)", 
     await removeTemporary(herdrHome)
   }, 120_000)
 
-  it("restores the session after a stall-then-503 reconnect home-reset [UC-R1]", async () => {
-    const title = "Reconnect restore live R1"
-    const expected = `OC | ${title}`
-    const sessionID = await createTitledSession(title)
-    const proxy = startFaultProxy({ upstream: host!.url, targetSessionID: sessionID })
-    proxies.push(proxy)
-    // Start stalled (initial REST syncs pass, only the event stream stalls),
-    // wait for a stable session route, then arm the one-shot 503 — exactly the
-    // spike shape. Arming first would spend the 503 on the initial session
-    // load and the TUI would start home.
-    proxy.setMode("stall")
-    const paneID = await startTuiInNewPane(sessionID, proxy.url, "live-r1")
-
-    await untilTitle(paneID, "it1", (seen) => seen === expected, 90_000, 1_000)
-    proxy.setMode("stall-then-fail")
-    await logTitle("it1", `${Date.now()} armed-stall-then-fail`)
-
-    // The 45 s watchdog fires on the stalled stream; the reconnect's re-sync
-    // GET fails once with 503.
-    const targetPath = `/api/session/${sessionID}`
-    let failedAt = 0
-    {
-      const deadline = Date.now() + 150_000
-      for (;;) {
-        const hit = proxy.requests().find((entry) => entry.method === "GET" && entry.path === targetPath && entry.status === 503)
-        if (hit) {
-          failedAt = hit.ts
-          break
-        }
-        if (Date.now() > deadline) throw new Error(`no 503 for ${targetPath}; requests=${JSON.stringify(proxy.requests())}`)
-        await Bun.sleep(500)
-      }
-      await logTitle("it1", `${Date.now()} fp-503 ts=${failedAt}`)
-    }
-
-    // Home-reset, then the guard's verify (500 ms first backoff) resolves and
-    // navigates back within WINDOW + 16 s of the reset.
-    await untilTitle(paneID, "it1", (seen) => seen === "OpenCode", 60_000)
-    const wentHomeAt = Date.now()
-    await logTitle("it1", `${wentHomeAt} home-observed`)
-    await untilTitle(paneID, "it1", (seen) => seen === expected, WINDOW_MS + 16_000)
-    expect(Date.now() - wentHomeAt).toBeLessThanOrEqual(WINDOW_MS + 16_000)
-
-    const later200 = proxy.requests().find((entry) => entry.method === "GET" && entry.path === targetPath && entry.status === 200 && entry.ts > failedAt)
-    expect(later200).toBeDefined()
-    expect(proxy.requests().filter((entry) => entry.method === "GET" && entry.path === targetPath && entry.status === 503)).toHaveLength(1)
-
-    await writeFile(path.join(EVIDENCE, "live-it1-fp.jsonl"), proxy.requests().map((entry) => JSON.stringify(entry)).join("\n") + "\n")
-    console.log(`reconnect-restore-evidence ${JSON.stringify({ it: 1, sessionID, failedAt, wentHomeAt, expected })}`)
-    await stopPane(paneID)
-    proxy.stop()
-  }, 400_000)
+  // UC-R1 is not reachable live while F11 retries the one-shot 503
+  // (`tests/live/tui-resync-retry.test.ts` LR1); it stays proven in
+  // `tests/component/reconnect/restore.test.ts` and
+  // `tests/e2e/reconnect/restore.test.ts`.
 
   it("leaves a user-style home alone when no reconnect happened [UC-R2N]", async () => {
     const title = "Reconnect restore live R2"

@@ -4,10 +4,10 @@
  * subpath `tui` in the same plugin directory as the server entry.
  *
  * Registers the session ID line at the top of the sidebar and the
- * `/transfer-session` command, restores the open session when a reconnect
- * re-sync sends the TUI home, and inside a Herdr pane keeps the pane showing
- * the open session's agent and its root's title; the returned cleanup removes
- * them all.
+ * `/transfer-session` command, installs the re-sync retry first so no re-sync
+ * can slip past it, restores the open session when a reconnect re-sync sends
+ * the TUI home, and inside a Herdr pane keeps the pane showing the open
+ * session's agent and its root's title; the returned cleanup removes them all.
  */
 import type { V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
 import { createTuiContainer } from "@session-manager/main/tui-container"
@@ -25,6 +25,7 @@ export function setupWith(
 ): () => void {
   const container = createTuiContainer(context.client, environment, platform)
   const disposers = [
+    container.resyncRetry.register(context),
     container.sidebar.register(context),
     container.transfer.register(context),
     container.repair.register(context),

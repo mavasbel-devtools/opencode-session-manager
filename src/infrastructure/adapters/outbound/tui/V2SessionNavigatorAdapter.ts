@@ -1,17 +1,6 @@
+import { isSessionNotFound } from "@session-manager/domain/model/ResyncRetry";
 import type { RestoreNotice, SessionNavigatorPort, VerifyResult } from "@session-manager/domain/ports/outbound/SessionNavigatorPort";
 import type { V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext";
-
-/**
- * Whether a `data.session.sync` rejection means the session is gone: the
- * spike on the real 2.3.0 TUI recorded `name` and `_tag` both reading
- * "SessionNotFoundError" for a deleted session, while anything else rejects
- * differently.
- */
-function isSessionNotFound(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const tagged = error as { readonly name?: unknown; readonly _tag?: unknown };
-  return tagged.name === "SessionNotFoundError" || tagged._tag === "SessionNotFoundError";
-}
 
 /**
  * OpenCode 2 outbound adapter: verifies the session by re-syncing it (a

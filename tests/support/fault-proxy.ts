@@ -18,8 +18,14 @@
 //
 // Bun.serve runs with idleTimeout 120: Bun's default 10s kills idle SSE
 // connections, which would break the stall before the 45s watchdog fires.
+//
+// `stall-then-hold` holds the first target GET open forever instead of
+// answering it, so a client that gives up — or a proxy that is stopped — sees a
+// real transport failure (a reset, an aborted fetch), never an HTTP status.
+// The request it records carries status 0, because no response was ever
+// written.
 
-export type FaultMode = "pass" | "stall" | "stall-then-fail" | "stall-then-404";
+export type FaultMode = "pass" | "stall" | "stall-then-fail" | "stall-then-404" | "stall-then-hold";
 
 export interface FaultRequest {
   readonly ts: number;
@@ -42,7 +48,13 @@ export interface FaultProxy {
   stop(): void;
 }
 
-const VALID_MODES: ReadonlyArray<FaultMode> = ["pass", "stall", "stall-then-fail", "stall-then-404"];
+const VALID_MODES: ReadonlyArray<FaultMode> = [
+  "pass",
+  "stall",
+  "stall-then-fail",
+  "stall-then-404",
+  "stall-then-hold",
+];
 
 export function isFaultMode(value: string): value is FaultMode {
   return (VALID_MODES as ReadonlyArray<string>).includes(value);
@@ -153,10 +165,15 @@ export function startFaultProxy(options: FaultProxyOptions): FaultProxy {
         method === "GET" && url.pathname === `/api/session/${target}` && url.search === "";
       if (
         isTargetGet &&
-        (current === "stall-then-fail" || current === "stall-then-404") &&
+        (current === "stall-then-fail" || current === "stall-then-404" || current === "stall-then-hold") &&
         failedOnce === false
       ) {
         failedOnce = true;
+        if (current === "stall-then-hold") {
+          record(method, path, 0);
+          // Never settle: the client waits until it gives up or the proxy stops.
+          return new Promise<Response>(() => {});
+        }
         if (current === "stall-then-fail") {
           record(method, path, 503);
           return new Response("", { status: 503 });

@@ -299,3 +299,27 @@ The domain model folder, the domain errors folder, the domain inbound-ports fold
 | `./tests/unit/sessions/magic-context-release.test.ts` | Moves its version assertions to the single versions suite with the flipped case. | F9 |
 | `./tests/unit/sessions/magic-context-versions.test.ts` | Only if the pinned reader changes behaviour. | F9 |
 | `./tests/unit/maintenance/infrastructure/adapters.test.ts` | Covers the merged clock adapter sleep. | F9 |
+| `./src/main/tui-container.ts` | Constructs the F11 use case and both adapters and registers the inbound adapter beside `container.reconnectRestore`. | F11 |
+| `./src/main/v2/tui.ts` | Registers the F11 adapter beside the F12 one, for every V2 TUI. | F11 |
+| `./src/infrastructure/adapters/outbound/tui/V2SessionNavigatorAdapter.ts` | Imports the shared `isSessionNotFound` from `domain/model/ResyncRetry.ts` instead of keeping its own copy. | F11, F12 |
+
+## 16. F11: re-sync retry (product node F11)
+
+| Target | Responsibility | Public interface | Depends on (ports) | Tests |
+|---|---|---|---|---|
+| `./src/domain/model/ResyncRetry.ts` | Pure policy: classifies a re-sync failure and names the schedule a retry follows. | `RESYNC_BACKOFF` (500/1000/2000/4000/8000 ms, six attempts), `RESYNC_TRANSIENT_MESSAGES`, `isSessionNotFound(error)`, `httpStatus(error)`, `classifyResyncError(error)` → `"missing" \| "transient" \| "other"`, `type ResyncRequest = { sessionID, children }` | none (domain) | `./tests/unit/domain/resync-retry.test.ts` |
+| `./src/domain/ports/inbound/RetryResyncPort.ts` | The inbound port the host adapter calls in place of the host's own `data.session.sync`. | `RetryResyncPort.sync(request, attempt)` | `ResyncRoutePort` | `./tests/unit/application/retry-resync.test.ts` |
+| `./src/domain/ports/outbound/ResyncRoutePort.ts` | The outbound port for what the retry loop must read from the host: where the route is, and whether a session is loaded. | `routedSessionID(): string \| undefined`, `isLoaded(sessionID): boolean` | none | `./tests/unit/application/retry-resync.test.ts` |
+| `./src/application/RetryResyncUseCase.ts` | The retry loop over the two ports and the domain policy. | `RetryResyncUseCase implements RetryResyncPort` | `ResyncRoutePort`, `TimerPort` | `./tests/unit/application/retry-resync.test.ts`, `./tests/component/reconnect/resync-retry.test.ts` |
+| `./src/infrastructure/adapters/inbound/tui/ResyncRetryV2Adapter.ts` | Installs the single wrapper on `ctx.data.session.sync` under `Symbol.for("opencode-session-manager.resync-retry")`, per plugin runtime: idempotent across re-setup, re-pointed at the newest context, left in place by `cleanup`. | `constructor(port: RetryResyncPort)`, `register(context): () => void` | `RetryResyncPort` | `./tests/unit/infrastructure/resync-retry-adapter.test.ts` |
+| `./src/infrastructure/adapters/outbound/tui/V2ResyncRouteAdapter.ts` | Reads the route from `ctx.ui.router.current()` and the loaded session from `ctx.data.session.get(id)`. | `V2ResyncRouteAdapter implements ResyncRoutePort` | none | `./tests/unit/infrastructure/v2-resync-route-adapter.test.ts` |
+
+The two ports are the host boundary and the inbound adapter boundary: `data.session` and the router live outside the hexagon, and the inbound adapter needs one method to call. The rejected alternative is calling the host directly from the use case, which would bind `application/` to the host's shape and leave the retry loop untestable without a TUI.
+
+The use case is F11's one use case: the retry loop and its schedule are the feature. The rejected alternative is the loop inside the inbound adapter, which cannot be unit-tested without a host and would duplicate the stop and rethrow rules.
+
+The domain model is pure classification and schedule. The rejected alternative is the constants and the classifier inside the use case, which would leave a second copy of `isSessionNotFound` beside the one `V2SessionNavigatorAdapter` already keeps.
+
+The two adapters are one host call each — the wrapper installation and the `data.session.sync` plus route read — and add no abstraction of their own.
+
+No other abstraction, configuration option, base class or dependency is added by F11: no new port beyond the two above, no new error class, no new timer, and no change to a port's existing shape.

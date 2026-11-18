@@ -24,8 +24,11 @@ import { SystemClockAdapter } from "@session-manager/infrastructure/adapters/out
 import { SystemHomeDirectoryAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemHomeDirectoryAdapter"
 import { OpenTuiSidebarViewAdapter } from "@session-manager/infrastructure/adapters/outbound/tui/OpenTuiSidebarViewAdapter"
 import { RestoreAfterReconnectUseCase } from "@session-manager/application/RestoreAfterReconnectUseCase"
+import { RetryResyncUseCase } from "@session-manager/application/RetryResyncUseCase"
 import { ReconnectRestoreV2Adapter } from "@session-manager/infrastructure/adapters/inbound/tui/ReconnectRestoreV2Adapter"
+import { ResyncRetryV2Adapter } from "@session-manager/infrastructure/adapters/inbound/tui/ResyncRetryV2Adapter"
 import { V2SessionNavigatorAdapter } from "@session-manager/infrastructure/adapters/outbound/tui/V2SessionNavigatorAdapter"
+import { V2ResyncRouteAdapter } from "@session-manager/infrastructure/adapters/outbound/tui/V2ResyncRouteAdapter"
 import { SystemTimerAdapter } from "@session-manager/infrastructure/adapters/outbound/system/SystemTimerAdapter"
 import type { V2TuiContext } from "@session-manager/infrastructure/host/V2TuiContext"
 import type { V2Client } from "@session-manager/infrastructure/host/V2Client"
@@ -40,6 +43,8 @@ export interface TuiContainer {
   readonly repair: SessionLocationRepairV2TuiAdapter
   /** Restores the open session after a reconnect home-reset, for every V2 TUI (never Herdr-gated). */
   readonly reconnectRestore: ReconnectRestoreHandle
+  /** Retries the re-sync the session screen makes after a reconnect, for every V2 TUI. */
+  readonly resyncRetry: { register(context: V2TuiContext): () => void }
   /** Only inside a Herdr pane (`HERDR_ENV=1` with a socket and a pane). */
   readonly paneTitle?: HerdrPaneTitleV2Adapter
 }
@@ -91,6 +96,10 @@ export function createTuiContainer(
           new RestoreAfterReconnectUseCase(new V2SessionNavigatorAdapter(context), timer),
           RECONNECT_RESTORE_SCHEDULE,
         ).register(context),
+    },
+    resyncRetry: {
+      register: (context) =>
+        new ResyncRetryV2Adapter(new RetryResyncUseCase(new V2ResyncRouteAdapter(context), timer)).register(context),
     },
     sidebar: new SessionIdSidebarSlotV2Adapter(
       (context) => new RenderSidebarEntryUseCase(new HostThemePaletteV2Adapter(context), new OpenTuiSidebarViewAdapter()),

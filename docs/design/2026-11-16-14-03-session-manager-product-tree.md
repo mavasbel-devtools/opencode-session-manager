@@ -244,6 +244,84 @@ and guard scenarios against a real database (negative: held file refuses);
 e2e scenarios writing while the database is held open (negative as
 component); live run per the platform plan step.
 
+### F11 — Re-sync retry
+
+Keep the open session on screen through a transient failure of the reconnect
+re-sync, instead of letting the TUI show an error toast and send the route home.
+The feature applies to one call only: `data.session.sync(id, { children: true })`
+while the route shows session `id` — the call the session screen makes on every
+event-stream reconnect. Every other call passes through unchanged, and the only
+outputs are the call resolving or the original error rethrown; the failure modes
+are the use-case table below. At most 6 attempts are made, 500 ms apart and
+doubling, retried only for a transient transport error or an HTTP 503, never
+for a missing session; the retries stop when the route leaves the session, and
+when they run out the call resolves if the session is loaded, otherwise it
+rethrows the last error so the stock behaviour stands. A call without
+`children: true`, or one whose route is not on that session, is not eligible
+and passes through untouched. The plugin re-runs `setup` after a reconnect, so
+the wrapper is installed once and re-pointed at the newest context, and
+`cleanup` leaves it in place.
+
+| Use case id | Behaviour | Component scenario | Live |
+|---|---|---|---|
+| UC-RR1 | 503 retried; resolves; route kept | `[UC-RR1]` | LR1: one 503 then 200 from the server |
+| UC-RR2 | transport error (ECONNRESET/ECONNREFUSED/… in message, `code` or cause chain) retried; route kept | `[UC-RR2]` | LR3: proxy killed 3 s mid-GET |
+| UC-RR3N | `SessionNotFoundError` (`name` or `_tag`) rethrown at once; the host goes home | `[UC-RR3N]` | LR2: 404 after delete |
+| UC-RR4N | status 404 never retried | `[UC-RR4N]` | LR2: exactly one 404 |
+| UC-RR5N | route left the session during the retries → stop, rethrow | `[UC-RR5N]` | live gap: needs a route change inside a ≤15.5 s window |
+| UC-RR6N | retries exhausted: session loaded → resolve (route kept); not loaded → rethrow the last error | `[UC-RR6N]` (both branches) | LR4: 25 s outage, session loaded |
+| UC-RR7N | not eligible (no `children: true`, or the route is not on that session) → exactly one call, error unchanged | `[UC-RR7N]` | LR1: the guard's own plain verify stays a single call |
+| UC-RR8 | plugin re-setup keeps one wrapper pointed at the newest context; cleanup leaves it in place | `[UC-RR8]` | not reachable as a separate signal |
+| UC-RR9N | host without a function `sync`, or with a read-only `sync` → nothing installed, no throw | `[UC-RR9N]` | n/a: the stock host has both |
+| UC-RR10N | other errors (400, 401, 500, unknown) → not retried | `[UC-RR10N]` | n/a |
+| UC-RR11 | together with the F12 guard: a one-shot 503 leaves neither a home flip nor a restore toast | `[UC-RR11]` | LR1: 0 home samples |
+
+Acceptance: unit scenarios in `./tests/unit/domain/resync-retry.test.ts`,
+`./tests/unit/application/retry-resync.test.ts`,
+`./tests/unit/infrastructure/resync-retry-adapter.test.ts` and
+`./tests/unit/infrastructure/v2-resync-route-adapter.test.ts`; component
+scenarios in `./tests/component/reconnect/resync-retry.test.ts`; e2e scenarios
+in `./tests/e2e/reconnect/resync-retry.test.ts`, one scenario per use case;
+live scenarios in `./tests/live/tui-resync-retry.test.ts`.
+
+### F12 — Restore after reconnect
+
+When OpenCode's event stream reconnects, the TUI re-syncs the open session;
+when that re-sync fails the TUI shows an error toast and sends the route home
+("splash"), even though the session still exists (UC-R1). The plugin watches
+for that and navigates back: when the route leaves session `S` for home within
+10 s of a `server.connected` event — in either order — and `S` still exists,
+the plugin verifies `S` (`data.session.sync`) with delays of 500, 1000, 2000,
+4000 and 8000 ms and navigates back to `S` with a success toast. It does nothing
+when the home screen is not a reconnect reset. See
+[Restore after reconnect](../../README.md#restore-after-reconnect).
+
+| Use case | When | Outcome |
+|---|---|---|
+| UC-R1 | the route leaves session `S` for home within 10 s of `server.connected`, in either order, and `S` still exists | verified with 500/1000/2000/4000/8000 ms delays, then navigated back to `S` with a success toast |
+| UC-R2N | home with no `server.connected` within 10 s either side (a deliberate trip home) | no verify, no navigate, no toast |
+| UC-R3N | `S` was deleted (`session.deleted`), or the verify rejects as `SessionNotFoundError` | no navigate, no toast |
+| UC-R4N | the verify keeps failing | after the fifth attempt one info toast (`Session restore skipped` / `Could not verify <session ID> after reconnect`), no navigate |
+| UC-R5N | the route leaves home while verifying | the loop aborts, no navigate, no toast |
+| UC-R6N | `S` already reached 3 restores in the last 60 s | no verify, no navigate, no toast |
+| UC-R7N | the route moves session → session (tabs, multi-tab) without going home | never a trigger, no verify, no navigate, no toast |
+| UC-R8 | dispose | events and polls go nowhere |
+
+Constants: `WINDOW` 10000 ms, `RESTORE_LIMIT` 3 per `RESTORE_WINDOW_MS`
+60000 ms, `VERIFY_BACKOFF` 500/1000/2000/4000/8000 (about 15.5 s), and a 250 ms
+route poll. Acceptance: unit scenarios in
+`./tests/unit/domain/reconnect-restore.test.ts`,
+`./tests/unit/application/restore-after-reconnect.test.ts`,
+`./tests/unit/infrastructure/reconnect-restore-adapter.test.ts` and
+`./tests/unit/infrastructure/v2-session-navigator-adapter.test.ts`; component
+scenarios in `./tests/component/reconnect/restore.test.ts` (`[UC-R1]`,
+`[UC-R2N]`…`[UC-R7N]`, `[UC-R8]`); live scenarios in
+`./tests/live/tui-reconnect-restore.test.ts`. Live gap this plan introduces:
+with F11 installed a one-shot 503 no longer sends the TUI home, so the UC-R1
+live scenario cannot reach home any more; UC-R1 stays proven at component and
+e2e level, and the live file's first scenario is re-targeted to assert the new
+outcome.
+
 ## Components and interfaces
 
 The patches command group is one inbound CLI adapter behind the router: it
