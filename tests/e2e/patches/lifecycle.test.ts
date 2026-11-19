@@ -39,7 +39,7 @@ const shaOf = (root: string, file: string) => sha(readFileSync(path.join(root, f
 
 const count = (text: string, part: string) => text.split(part).length - 1
 
-for (const version of ["0.48.0", "0.49.0", "0.49.2", "0.49.7", "0.49.12", "0.49.13", "0.49.15", "0.49.19", "0.49.35", "0.49.41", "0.49.42", "0.49.43", "0.49.50", "0.49.55", "0.49.56"]) {
+for (const version of ["0.48.0", "0.49.0", "0.49.2", "0.49.7", "0.49.12", "0.49.13", "0.49.15", "0.49.19", "0.49.35", "0.49.41", "0.49.42", "0.49.43", "0.49.50", "0.49.55", "0.49.56", "0.49.63"]) {
   describe(`the program on a copy of the real Magic Context ${version}`, () => {
     it(`applies and undoes every patch checked against ${version} on its own files, checked against their published checksums`, async () => {
       // A patch is checked only against some versions; on the others check reports it as an unchecked version.
@@ -185,7 +185,7 @@ describe("the program on a copy of the real Magic Context 0.47.0", () => {
     const inspected = await run("inspect", "--version", "0.50.0")
     expect(inspected.out.split("\n").slice(0, 3)).toEqual([
       `Magic Context 0.50.0: ${newer}`,
-      'execute-threshold-min (checked against 0.49.56): "min(20).max(90"',
+      'execute-threshold-min (checked against 0.49.63): "min(20).max(90"',
       "    dist/index-c5dzns43.js: 3 to replace (a path the checked version does not change), 0 already replaced, sha256 e08252cb38e1786f (differs from the checked version)",
     ])
   })
