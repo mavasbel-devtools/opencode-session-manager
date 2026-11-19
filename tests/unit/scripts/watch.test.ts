@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { onlyOn } from "@test/support/platform"
 import { LABEL, NAME, runWatch } from "../../../scripts/watch.mjs"
 import { removeTemporary, temporaryWorkspace } from "@test/support/maintenance/temporary"
 
@@ -153,7 +154,7 @@ describe("scripts/watch.mjs on darwin", () => {
     }
   })
 
-  it("runs to completion through the real entry point with the directory override", () => {
+  it.skipIf(onlyOn("darwin"))("runs to completion through the real entry point with the directory override", () => {
     const { workspace, env } = setup()
     try {
       const child = Bun.spawnSync([process.execPath, "scripts/watch.mjs", "validate"], {

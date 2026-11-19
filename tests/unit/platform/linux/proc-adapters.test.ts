@@ -31,7 +31,7 @@ test("ProcProcessListAdapter matches comm exactly and skips what it cannot read"
   try {
     fakeProc(directory, "/data/opencode.db")
     const adapter = new ProcProcessListAdapter(directory)
-    assert.deepEqual(adapter.list("opencode"), [
+    assert.deepEqual([...adapter.list("opencode")].sort((a, b) => a.pid - b.pid), [
       { image: "opencode", pid: 100 },
       { image: "opencode", pid: 200 },
     ])
