@@ -4,3 +4,7 @@ build/
 coverage/
 *.log
 worktrees/
+
+# The patch fixtures are reviewed bytes, not build output: keep their dist/ tracked.
+!tests/support/patches/fixtures/*/dist/
+!tests/support/patches/fixtures/*/dist/**
