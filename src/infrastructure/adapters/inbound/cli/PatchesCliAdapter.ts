@@ -19,12 +19,12 @@ usage:
   opencode-session-manager patches effect  [--since <ISO time>] [--json]     is the configured threshold in use? (Magic Context's log)
   opencode-session-manager patches notify  [--json]                          desktop notification when check fails (used by systemd)
   opencode-session-manager patches follow  [--version <v>] [--json]          adopt the newest release (or <v>) already patched
-  opencode-session-manager patches follow  --rollback [--json]               put back the entry opencode.jsonc had before
+  opencode-session-manager patches follow  --rollback [--json]               put back the entries opencode.jsonc and tui.jsonc had before
   opencode-session-manager patches --help | --version
 
 apply and undo work on the copy opencode.jsonc pins unless --version names another installed version.
 follow stages, patches and proves a new release in an isolated OpenCode server before it changes the
-one Magic Context entry of opencode.jsonc; it stops, and changes nothing OpenCode loads, on any doubt.
+one Magic Context entry of opencode.jsonc and, when that file exists, of tui.jsonc; it stops, and changes nothing OpenCode loads, on any doubt.
 exit codes: 0 ok, 1 not ok / refused / failed / stopped, 2 usage error.`
 
 const COMMANDS = ["status", "apply", "undo", "check", "inspect", "effect", "notify", "follow"] as const
