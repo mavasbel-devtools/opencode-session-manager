@@ -4,8 +4,9 @@ Description=Watch OpenCode's Magic Context installations and plugin configuratio
 [Path]
 # A new version appears as a new opencode-magic-context@<spec> folder here.
 PathModified=%h/.cache/opencode/npm/@cortexkit
-# Pinning another version.
+# Pinning another version, in either configuration file.
 PathModified=%h/.config/opencode/opencode.jsonc
+PathModified=%h/.config/opencode/tui.jsonc
 Unit=opencode-session-manager-patches.service
 
 [Install]
