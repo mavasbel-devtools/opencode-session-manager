@@ -39,6 +39,10 @@ import type { PatchDefinition } from "@session-manager/domain/model/patches/Patc
  *
  * 0.49.56 (sha512-hUfmVxV3…46bEyw==): `dist/index-3jeq08jv.js`, `dist/v2/server-z6sxv6n3.js`; texts, counts
  * and anchors as in 0.49.55. Evidence: docs/reference/2026-11-15-21-01-magic-context-0.49.56-patches.md.
+ *
+ * 0.49.63 (sha512-A4ezV8dr…Lu9A==): rebuilt under `dist/index-4yjn3er4.js` and
+ * `dist/v2/server-8hcxmt1w.js`; the 0.49.19 text occurs once in each, with the anchor and distance
+ * unchanged. Evidence: docs/reference/2026-11-19-19-04-magic-context-0.49.63-patches.md.
  */
 const FIND = "...args.fallbackModelId ? [{ model: args.fallbackModelId }] : []"
 const FIND_0_49_19 = "...!primary && args.fallbackModelId ? [{ model: args.fallbackModelId }] : []"
@@ -217,6 +221,23 @@ export const noSessionModelFallback: PatchDefinition = {
           path: "dist/v2/server-z6sxv6n3.js",
           before: "155820316096da9931c9a8c3903fffbeae0c5c2df1cc57a91aba279d636956db",
           after: "9b7741416c9900f998fb86d1ceb8f3510541b6c2480962eea04bc20a7ca4a544",
+          replacements: [{ find: FIND_0_49_19, replace: REPLACE, count: 1 }],
+        },
+      ],
+    },
+    {
+      version: "0.49.63",
+      files: [
+        {
+          path: "dist/index-4yjn3er4.js",
+          before: "c23f3dac065a7fc2be8ecb5e7a52032de36ed24866d7b4dd5bd57783b5929898",
+          after: "1c63fba45a31fb06b955dc6b18542e0b51d3fa61fbbfbdfb58e6394aabcb7cfd",
+          replacements: [{ find: FIND_0_49_19, replace: REPLACE, count: 1 }],
+        },
+        {
+          path: "dist/v2/server-8hcxmt1w.js",
+          before: "b2023098cfc377a2345c1f69c84123e26a4394157bac1d481db0107502ccfd5f",
+          after: "0afc4d3b878170877ac40dffbac37fe15ccb5689cfaeb76658e8432d8d939d4a",
           replacements: [{ find: FIND_0_49_19, replace: REPLACE, count: 1 }],
         },
       ],

@@ -800,10 +800,10 @@ original, writes every action to an audit log, and can put everything back.
 
 `follow` goes one step further: when npm publishes a new Magic Context, it installs that release into
 a folder of its own, finds each patch's sites by content (a matcher per patch), patches the copy,
-proves it in an isolated `opencode serve`, and only then points the one Magic Context entry of
-`opencode.jsonc` at that folder. OpenCode reloads it without a restart, so it never loads an unpatched
-copy. Any doubt — an unknown shape of a site, a rejected setting, a server that does not reload — stops
-it, and OpenCode keeps what it loaded.
+proves it in an isolated `opencode serve`, and only then points the Magic Context entry of
+`opencode.jsonc` — and of `tui.jsonc` when that file exists — at that folder. OpenCode reloads it
+without a restart, so it never loads an unpatched copy. Any doubt — an unknown shape of a site, a
+rejected setting, a server that does not reload — stops it, and OpenCode keeps what it loaded.
 A file may belong to more than one patch: patches are applied in `index.ts` order, each
 matcher reading the file the previous patch left, so the later release's `before` is the earlier
 release's `after`. A patch whose site upstream introduced (or dropped) leaves `optional: true` on its
@@ -838,11 +838,11 @@ runs the program from the checkout.
 
 | Patch | What it changes | Why | Checked versions |
 |---|---|---|---|
-| `execute-threshold-min` | The configuration minimum of `execute_threshold_percentage`: `min(20).max(90` → `min(1).max(90` (3 places in each of 2 files) | Magic Context rejects a configured `13` ("invalid value (number 13), using default 65") although the code that uses the threshold has no lower limit | 0.47.0, 0.48.0, 0.49.0, 0.49.2, 0.49.7, 0.49.12, 0.49.13, 0.49.15, 0.49.19, 0.49.35, 0.49.41, 0.49.42, 0.49.43, 0.49.50, 0.49.55, 0.49.56 |
-| `no-session-model-fallback` | The historian's retry chain: `...args.fallbackModelId ? [{ model: args.fallbackModelId }] : []` → `...[]` (1 place in each of 2 files; from 0.49.19 the text is `...!primary && args.fallbackModelId ? [{ model: args.fallbackModelId }] : []`) | After every configured model failed, the historian retried once on the summarised session's own model, which no setting turns off; it ran a paid model while only free models were configured | 0.49.15, 0.49.19, 0.49.35, 0.49.41, 0.49.42, 0.49.43, 0.49.50, 0.49.55, 0.49.56 |
-| `refusal-recovery` | Five sites, each once in each of 2 files (3 files in all): the historian wait is no longer clamped to 60 s, so `historian_timeout_ms` applies; the "may take up to … seconds" notice states that wait; `EmergencyFailClosedError` gets the error toast the other blocking errors get; after such a refusal the session runs the first-pass reset again | With a historian slower than 60 s, a turn was interrupted before the provider request whatever `historian_timeout_ms` said, and the user saw no reason | 0.49.35, 0.49.41, 0.49.42, 0.49.43, 0.49.50, 0.49.55, 0.49.56 |
-| `fold-identity-stable` | The store identity, once in each of 2 files: `${stat.dev}:${stat.ino}:${stat.birthtimeMs}` → `${stat.ino}:${stat.birthtimeMs}` | btrfs gives `st_dev` a new anonymous number at every boot, so every fold admission stopped matching and the native fold was rebuilt instead of reused | 0.49.15, 0.49.50, 0.49.55, 0.49.56 |
-| `fold-provenance-heal` | The admission guard, once in each of 2 files: a `proof.sourceDigest` that no longer matches while the checkpoint id and the summary digest do rewrites the admission with the current digest and reports `replay provenance refreshed after the store identity changed` | An admission written under another mount can never repair itself — with `fold-identity-stable` this heals the admissions stored before it, once per session, instead of a rebuild on every transform | 0.49.50, 0.49.55, 0.49.56 |
+| `execute-threshold-min` | The configuration minimum of `execute_threshold_percentage`: `min(20).max(90` → `min(1).max(90` (3 places in each of 2 files) | Magic Context rejects a configured `13` ("invalid value (number 13), using default 65") although the code that uses the threshold has no lower limit | 0.47.0, 0.48.0, 0.49.0, 0.49.2, 0.49.7, 0.49.12, 0.49.13, 0.49.15, 0.49.19, 0.49.35, 0.49.41, 0.49.42, 0.49.43, 0.49.50, 0.49.55, 0.49.56, 0.49.63 |
+| `no-session-model-fallback` | The historian's retry chain: `...args.fallbackModelId ? [{ model: args.fallbackModelId }] : []` → `...[]` (1 place in each of 2 files; from 0.49.19 the text is `...!primary && args.fallbackModelId ? [{ model: args.fallbackModelId }] : []`) | After every configured model failed, the historian retried once on the summarised session's own model, which no setting turns off; it ran a paid model while only free models were configured | 0.49.15, 0.49.19, 0.49.35, 0.49.41, 0.49.42, 0.49.43, 0.49.50, 0.49.55, 0.49.56, 0.49.63 |
+| `refusal-recovery` | Five sites, each once in each of 2 files (3 files in all): the historian wait is no longer clamped to 60 s, so `historian_timeout_ms` applies; the "may take up to … seconds" notice states that wait; `EmergencyFailClosedError` gets the error toast the other blocking errors get; after such a refusal the session runs the first-pass reset again | With a historian slower than 60 s, a turn was interrupted before the provider request whatever `historian_timeout_ms` said, and the user saw no reason | 0.49.35, 0.49.41, 0.49.42, 0.49.43, 0.49.50, 0.49.55, 0.49.56, 0.49.63 |
+| `fold-identity-stable` | The store identity, once in each of 2 files: `${stat.dev}:${stat.ino}:${stat.birthtimeMs}` → `${stat.ino}:${stat.birthtimeMs}` | btrfs gives `st_dev` a new anonymous number at every boot, so every fold admission stopped matching and the native fold was rebuilt instead of reused | 0.49.15, 0.49.50, 0.49.55, 0.49.56, 0.49.63 |
+| `fold-provenance-heal` | The admission guard, once in each of 2 files: a `proof.sourceDigest` that no longer matches while the checkpoint id and the summary digest do rewrites the admission with the current digest and reports `replay provenance refreshed after the store identity changed` | An admission written under another mount can never repair itself — with `fold-identity-stable` this heals the admissions stored before it, once per session, instead of a rebuild on every transform | 0.49.50, 0.49.55, 0.49.56, 0.49.63 |
 
 The evidence behind each patch is frozen under `docs/reference/`.
 
@@ -868,8 +868,8 @@ the units elsewhere, `OPENCODE_SESSION_MANAGER_PATCHES_LAUNCHD_DIR` the agent el
 | `inspect` | For a version a patch has not been checked against: where the replaced text occurs in that version's `dist/**/*.js`, how often, whether each file is the same as in the checked version, with context, for a person to review before adding the version to the patch | no | 0 |
 | `effect` | Reads Magic Context's own log since the OpenCode server started (or `--since`): how often `execute_threshold_percentage` was rejected, which proactive floor was logged, and so which threshold is really in use, against the configured one | no | 0 only if `respected` |
 | `notify` | Runs `check`; when it fails, shows a desktop notification, once per distinct problem | no | 1 if `check` fails |
-| `follow` | Adopts npm `latest` (or `--version <v>`, even an older one) already patched; see below. Prints every step with its time and what it found. | a new install folder, and the one Magic Context entry of `opencode.jsonc` | 0 if `adopted` or `up-to-date`, 1 if `stopped` or `busy` |
-| `follow --rollback` | Puts back the entry `opencode.jsonc` had before the last adoption (or rollback) and confirms the running server reloaded it | the one Magic Context entry of `opencode.jsonc` | 0 if `rolled-back` |
+| `follow` | Adopts npm `latest` (or `--version <v>`, even an older one) already patched; see below. Prints every step with its time and what it found. | a new install folder, and the Magic Context entries of `opencode.jsonc` and of `tui.jsonc` when that file exists | 0 if `adopted` or `up-to-date`, 1 if `stopped` or `busy` |
+| `follow --rollback` | Puts back the Magic Context entries `opencode.jsonc` and `tui.jsonc` had before the last adoption (or rollback) and confirms the running server reloaded them | the Magic Context entries of `opencode.jsonc` and `tui.jsonc` | 0 if `rolled-back` |
 
 Options and defaults: `--json` prints the report as JSON (every command). `apply` and `undo`
 take `--patch <id>` and/or `--version <v>` (default: every patch on the copy `opencode.jsonc`
@@ -888,7 +888,7 @@ Where things are kept:
 | Patched copies `follow` installed (the adopted one, and the one the previous entry names) | `<XDG_DATA_HOME>/opencode-session-manager/patches/installs/<version>/node_modules/@cortexkit/opencode-magic-context` |
 | Releases `follow` derived (checksums `status`, `apply` and `undo` use for unreviewed versions) | `<XDG_DATA_HOME>/opencode-session-manager/patches/derived-releases.json` |
 | Evidence of each adoption (every step, every patched file with both checksums) | `<XDG_STATE_HOME>/opencode-session-manager/patches/evidence/YYYY-MM-DD-HH-MM-magic-context-<v>-follow.md` |
-| Backups of `opencode.jsonc` before each entry change | `<XDG_DATA_HOME>/opencode-session-manager/patches/backups/config/follow/opencode.jsonc@<sha256>` |
+| Backups of `opencode.jsonc` and `tui.jsonc` before each entry change | `<XDG_DATA_HOME>/opencode-session-manager/patches/backups/config/follow/opencode.jsonc@<sha256>` and `…/tui.jsonc@<sha256>` |
 | The entry `follow --rollback` restores | `<XDG_STATE_HOME>/opencode-session-manager/patches/follow-previous-entry` |
 | The lock one `follow` run holds | `<XDG_STATE_HOME>/opencode-session-manager/patches/follow.lock` (holds its pid; taken over when that process is gone) |
 
@@ -959,9 +959,9 @@ bun run cli -- patches follow --version 0.49.56
 ```
 
 Adopts 0.49.56 already patched: exit 0 if `adopted` or `up-to-date`, 1 if `stopped` or
-`busy`. It installs a folder and changes the one Magic Context entry of `opencode.jsonc`,
-so run it on the real home only, never in a throwaway one (whose `opencode.jsonc` names
-nothing and stops it).
+`busy`. It installs a folder and changes the Magic Context entries of `opencode.jsonc` and `tui.jsonc`
+(when the latter exists), so run it on the real home only, never in a throwaway one (whose
+`opencode.jsonc` names nothing and stops it).
 
 ### follow
 

@@ -50,6 +50,10 @@ import type { PatchDefinition } from "@session-manager/domain/model/patches/Patc
  * 0.49.56 (sha512-hUfmVxV3…46bEyw==): `dist/context-bejy30t5.js`, `dist/index-ffab4edg.js`,
  * `dist/v2/context-5hhm89jw.js`; the five texts, counts and anchors as in 0.49.55, the thrown refusal
  * 527 characters after its anchor. Evidence: docs/reference/2026-11-15-21-01-magic-context-0.49.56-patches.md.
+ *
+ * 0.49.63 (sha512-A4ezV8dr…Lu9A==): `dist/context-aaht09yh.js`, `dist/index-bqd5dmm4.js` and
+ * `dist/v2/context-hk9x7ngz.js`; the five texts, counts and anchors as in 0.49.56, the thrown refusal
+ * 527 characters after its anchor. Evidence: docs/reference/2026-11-19-19-04-magic-context-0.49.63-patches.md.
  */
 const MARK = "/* mc-patches: refusal-recovery */"
 
@@ -280,6 +284,29 @@ export const refusalRecovery: PatchDefinition = {
           path: "dist/v2/context-5hhm89jw.js",
           before: "a2a4de5308c8651a0cbb63512ae9793cd469886c54a5f1dc35ea21930af78ac5",
           after: "a31e6efde4dc09a8338c734ea1b499cb452f9c921db886801f3f35f3efa3b1dd",
+          replacements: [WAIT, STATUS, TOAST, THROWN_0_49_37, ABORTED],
+        },
+      ],
+    },
+    {
+      version: "0.49.63",
+      files: [
+        {
+          path: "dist/context-aaht09yh.js",
+          before: "d4da7c68297c590d4fa9b4f7f5432d043ef53dd5cb903dba841d154d9955fa2d",
+          after: "53ad471b5aecdad7e2cf07b42c6c52604123d9c9a0f9d6b9ed6b9017cc4f1a66",
+          replacements: [TOAST],
+        },
+        {
+          path: "dist/index-bqd5dmm4.js",
+          before: "8adbf832d97c6666ad301f5a451d93bb9454baee7f397f243d9335746ee5cd7a",
+          after: "fe32df07ccb68565e7449999b17bf0f9b00985dc8fbb1922e78d443b2e9be601",
+          replacements: TRANSFORM_0_49_37,
+        },
+        {
+          path: "dist/v2/context-hk9x7ngz.js",
+          before: "2855791409dfb52216abcb66c3d52f337a45037e4708a02588122decdbffc1f4",
+          after: "3e22172353e017f71c9324f6378f66168fd935a092d28a05d4621288cf21e000",
           replacements: [WAIT, STATUS, TOAST, THROWN_0_49_37, ABORTED],
         },
       ],

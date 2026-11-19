@@ -26,6 +26,10 @@ import type { PatchDefinition } from "@session-manager/domain/model/patches/Patc
  *
  * 0.49.56 (sha512-hUfmVxV3…46bEyw==): the same two files, byte-identical to 0.49.55's; texts, counts and
  * anchors unchanged. Evidence: docs/reference/2026-11-15-21-01-magic-context-0.49.56-patches.md.
+ *
+ * 0.49.63 (sha512-A4ezV8dr…Lu9A==): `dist/index-6athgjba.js` and `dist/v2/server-rthnpmbp.js`,
+ * byte-identical to 0.49.56's; texts, counts and anchors unchanged. Evidence:
+ * docs/reference/2026-11-19-19-04-magic-context-0.49.63-patches.md.
  */
 
 const ACQUIRED = "const acquiredIdentity = identity || `${stat.dev}:${stat.ino}:${stat.birthtimeMs}`;"
@@ -127,6 +131,23 @@ export const foldIdentityStable: PatchDefinition = {
     },
     {
       version: "0.49.56",
+      files: [
+        {
+          path: "dist/index-6athgjba.js",
+          before: "79892e328d90c35497ea336349e8d9dcc2b3b3497dc781ad98c429b04723c862",
+          after: "75b468fa07b52a0f62f3cb5ee7bbb00f825671528dfae1e19f907761329a45fd",
+          replacements: [{ find: ACQUIRED, replace: ACQUIRED_FIXED, count: 1 }, { find: POOL, replace: POOL_FIXED, count: 1 }],
+        },
+        {
+          path: "dist/v2/server-rthnpmbp.js",
+          before: "a4b67c81aa8c1a67dfd1c9899464c3aabc3ae8b838d2c630e7cde5037a3f0191",
+          after: "0682ee82b87c84b6116fcdc074f51325b2ca27fc2d17904fa7ebc3fa417ad8c2",
+          replacements: [{ find: ACQUIRED, replace: ACQUIRED_FIXED, count: 1 }, { find: POOL, replace: POOL_FIXED, count: 1 }],
+        },
+      ],
+    },
+    {
+      version: "0.49.63",
       files: [
         {
           path: "dist/index-6athgjba.js",

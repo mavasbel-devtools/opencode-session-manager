@@ -54,6 +54,10 @@ import type { PatchDefinition } from "@session-manager/domain/model/patches/Patc
  *
  * 0.49.56 (sha512-hUfmVxV3…46bEyw==): the same two files, byte-identical to 0.49.55's; text, counts and
  * anchors unchanged. Evidence: docs/reference/2026-11-15-21-01-magic-context-0.49.56-patches.md.
+ *
+ * 0.49.63 (sha512-A4ezV8dr…Lu9A==): `dist/index-6nqz8hsz.js` and `dist/v2/server-rz6g5xne.js`, byte-identical to
+ * 0.49.56's; text, counts and anchors unchanged. Evidence:
+ * docs/reference/2026-11-19-19-04-magic-context-0.49.63-patches.md.
  */
 export const executeThresholdMin: PatchDefinition = {
   id: "execute-threshold-min",
@@ -333,6 +337,23 @@ export const executeThresholdMin: PatchDefinition = {
     },
     {
       version: "0.49.56",
+      files: [
+        {
+          path: "dist/index-6nqz8hsz.js",
+          before: "91114903a8d9ca16451912dd2acbf320f1964330ceb3023ee70e033a8087c662",
+          after: "ef088a4a9f5be12e1ef4926607605f4550b7336ab4399ab9c7ca09267389c104",
+          replacements: [{ find: "min(20).max(90", replace: "min(1).max(90", count: 3 }],
+        },
+        {
+          path: "dist/v2/server-rz6g5xne.js",
+          before: "87b0c1c43f6aa7213d5305c44e0d8f62715cf9bda805c1304f7cf2f3b3b23b39",
+          after: "b36ea6de8ff6ec6fda9211eec126ac0495ee6425d8c728529af34e817d0c3e20",
+          replacements: [{ find: "min(20).max(90", replace: "min(1).max(90", count: 3 }],
+        },
+      ],
+    },
+    {
+      version: "0.49.63",
       files: [
         {
           path: "dist/index-6nqz8hsz.js",

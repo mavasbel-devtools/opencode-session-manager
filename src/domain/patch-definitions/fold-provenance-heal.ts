@@ -23,6 +23,10 @@ import type { PatchDefinition } from "@session-manager/domain/model/patches/Patc
  * 0.49.56 (sha512-hUfmVxV3…46bEyw==): `dist/context-bejy30t5.js` and `dist/v2/context-5hhm89jw.js`;
  * `refusal-recovery` changes both first, so `before` is that patch's `after`. Evidence:
  * docs/reference/2026-11-15-21-01-magic-context-0.49.56-patches.md.
+ *
+ * 0.49.63 (sha512-A4ezV8dr…Lu9A==): `dist/context-aaht09yh.js` and `dist/v2/context-hk9x7ngz.js`;
+ * `refusal-recovery` changes both first, so `before` is that patch's `after`. Evidence:
+ * docs/reference/2026-11-19-19-04-magic-context-0.49.63-patches.md.
  */
 
 const FIND = `      if (proof.sourceDigest !== foldDigest(reader.hostIdentity()) || proof.admissionID !== cut.id || proof.summaryDigest !== foldDigest(cut.data.summary ?? "")) {
@@ -111,6 +115,23 @@ export const foldProvenanceHeal: PatchDefinition = {
           path: "dist/v2/context-5hhm89jw.js",
           before: "a31e6efde4dc09a8338c734ea1b499cb452f9c921db886801f3f35f3efa3b1dd",
           after: "d27c56b1bdcfe2100aa9f95bf7e9513e1a8a93189908983519440a71741dec8f",
+          replacements: [{ find: FIND, replace: REPLACE, count: 1 }],
+        },
+      ],
+    },
+    {
+      version: "0.49.63",
+      files: [
+        {
+          path: "dist/context-aaht09yh.js",
+          before: "53ad471b5aecdad7e2cf07b42c6c52604123d9c9a0f9d6b9ed6b9017cc4f1a66",
+          after: "076b55c4429fee14cd07e309add59da2546c443b2164d84bfd6a09e8f7ab6751",
+          replacements: [{ find: FIND, replace: REPLACE, count: 1 }],
+        },
+        {
+          path: "dist/v2/context-hk9x7ngz.js",
+          before: "3e22172353e017f71c9324f6378f66168fd935a092d28a05d4621288cf21e000",
+          after: "9633f0d13a4aa72e70e32904f3452cde533914933653eaad12b71c5969682839",
           replacements: [{ find: FIND, replace: REPLACE, count: 1 }],
         },
       ],
