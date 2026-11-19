@@ -6,6 +6,8 @@ export interface Paths {
   /** Where OpenCode installs Magic Context: `<XDG_CACHE_HOME>/opencode/npm/@cortexkit`. */
   readonly installations: string
   readonly opencodeConfig: string
+  /** The TUI's configuration: `tui.jsonc`, else `tui.json`, in the same folder as `opencodeConfig`. */
+  readonly tuiConfig: string
   readonly magicContextConfig: string
   readonly magicContextLog: string
   readonly backups: string
@@ -66,6 +68,9 @@ export function resolvePatchPaths(env: CliEnvironment, home: string): Paths {
     opencodeConfig: ["opencode.jsonc", "opencode.json"]
       .map((name) => path.join(config, "opencode", name))
       .find((file) => existsSync(file)) ?? path.join(config, "opencode", "opencode.jsonc"),
+    tuiConfig: ["tui.jsonc", "tui.json"]
+      .map((name) => path.join(config, "opencode", name))
+      .find((file) => existsSync(file)) ?? path.join(config, "opencode", "tui.jsonc"),
     magicContextConfig: path.join(config, "cortexkit", "magic-context.jsonc"),
     magicContextLog:
       env.MAGIC_CONTEXT_LOG_PATH?.trim() || path.join(env.TMPDIR || "/tmp", "opencode2", "magic-context", "magic-context.log"),

@@ -1,4 +1,5 @@
 import type { AdoptionRecorder } from "@session-manager/application/patches/follow/AdoptionRecorder"
+import type { ConfigEntries } from "@session-manager/application/patches/follow/ConfigEntrySet"
 import type { EntrySwitcher } from "@session-manager/application/patches/follow/EntrySwitcher"
 import type { ReleaseProver } from "@session-manager/application/patches/follow/ReleaseProver"
 import type { ReleaseStager } from "@session-manager/application/patches/follow/ReleaseStager"
@@ -19,6 +20,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 interface Run {
   readonly log: StepLog
+  readonly fromSet?: ConfigEntries
   readonly from: string | null
   version: string | null
   to: string | null
@@ -77,7 +79,8 @@ export class FollowUseCase implements PatchFollowPort {
   }
 
   private async run(asked: string | null): Promise<FollowReport> {
-    const run: Run = { log: stepLog(this.clock), from: await this.switcher.current(), version: asked, to: null, evidence: null }
+    const fromSet = await this.switcher.current()
+    const run: Run = { log: stepLog(this.clock), fromSet, from: fromSet.opencode, version: asked, to: null, evidence: null }
     const published = await this.detect(asked, run)
     if (published === null) return run.log.failure() === null ? this.report(run, "up-to-date") : this.stop(run)
     const { folder, copy } = await this.stager.stage(published, run.log)
@@ -101,9 +104,10 @@ export class FollowUseCase implements PatchFollowPort {
     }
     const change = await this.switcher.switchTo(root, run.log)
     if (change === null) {
-      if ((await this.switcher.current()) !== run.from) await this.switcher.revert(run.from!, run.log)
+      const now = await this.switcher.current()
+      if (JSON.stringify(now) !== JSON.stringify(run.fromSet!)) await this.switcher.revert(run.fromSet!, run.log)
       if (!(await this.loadedFrom(target))) await this.store.remove(target)
-      run.to = await this.switcher.current()
+      run.to = (await this.switcher.current()).opencode
       return this.stop(run)
     }
     run.to = root

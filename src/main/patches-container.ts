@@ -4,6 +4,7 @@ import { CheckUseCase } from "@session-manager/application/patches/CheckUseCase"
 import { EffectUseCase } from "@session-manager/application/patches/EffectUseCase"
 import { AdoptionRecorder } from "@session-manager/application/patches/follow/AdoptionRecorder"
 import { EntrySwitcher } from "@session-manager/application/patches/follow/EntrySwitcher"
+import { ConfigEntrySet } from "@session-manager/application/patches/follow/ConfigEntrySet"
 import { PluginEntryEditor } from "@session-manager/application/patches/follow/PluginEntryEditor"
 import { ReleaseProver } from "@session-manager/application/patches/follow/ReleaseProver"
 import { ReleaseStager } from "@session-manager/application/patches/follow/ReleaseStager"
@@ -83,15 +84,20 @@ export function createPatchCommands(
   const lock = new FsFollowLockAdapter(paths.lock, adapters.liveness)
   const realInstaller = new ArboristInstallerAdapter(paths.registry, paths.npmCache)
   const installer = seams.installer?.(realInstaller) ?? realInstaller
+  const entries = new ConfigEntrySet(
+    files,
+    new PluginEntryEditor(files, hash, backups, paths.opencodeConfig, "opencode.jsonc"),
+    new PluginEntryEditor(files, hash, backups, paths.tuiConfig, "tui.jsonc"),
+  )
   const switcher = new EntrySwitcher(
-    new PluginEntryEditor(files, hash, backups, paths.opencodeConfig),
+    entries,
     live,
     new TextFileAdapter(paths.magicContextLog),
     magicContextConfig,
     clock,
     paths.timing,
   )
-  const recorder = new AdoptionRecorder(derived, new FsEvidenceAdapter(paths.evidence), audit, notifier, store, clock, paths.opencodeConfig)
+  const recorder = new AdoptionRecorder(derived, new FsEvidenceAdapter(paths.evidence), audit, notifier, store, clock, paths.opencodeConfig, paths.tuiConfig)
   return {
     status,
     apply: new ApplyUseCase(catalog, inspector, writer, hash, audit),

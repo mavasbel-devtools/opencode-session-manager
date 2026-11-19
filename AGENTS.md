@@ -173,10 +173,10 @@ in `src/domain/model/SessionSync.ts` and `src/domain/model/MagicContextSync.ts`.
 6. The watch units run `follow`, which may install a new patched copy; it never
    applies a patch to, or removes, a copy OpenCode has already loaded. `notify`
    only reports.
-7. The tool never restarts OpenCode. The only configuration it edits is the one
-   Magic Context entry of `opencode.jsonc` (`follow` and `follow --rollback`):
-   the whole file is backed up first, only that string literal changes, and the
-   file is read back; a mismatch puts the original back.
+7. The tool never restarts OpenCode. The only configuration it edits is the Magic
+   Context entry of `opencode.jsonc` and of `tui.jsonc` when that file exists
+   (`follow` and `follow --rollback`): each whole file is backed up first, only that
+   string literal changes, both are read back, and a failure stops it and restores both.
 
 The patches group's folders are `opencode-session-manager/patches` under the
 XDG data and state homes (not `opencode-magic-context-patches`), its variables
@@ -590,7 +590,8 @@ alive), `FollowLockPort.ts` (one `follow` run at a time) (patches).
 | `patches/FollowRollbackUseCase.ts` | patches | `follow --rollback`: the previous entry back, confirmed against the running server |
 | `patches/follow/ReleaseStager.ts` | patches | stage, locate, patch |
 | `patches/follow/ReleaseProver.ts` | patches | prove: the isolated server loads the patched copy without rejection |
-| `patches/follow/PluginEntryEditor.ts` | patches | the one `opencode.jsonc` entry, backed up, replaced, read back |
+| `patches/follow/PluginEntryEditor.ts` | patches | one file's Magic Context entry: backed up, replaced, read back |
+| `patches/follow/ConfigEntrySet.ts` | patches | both files' entries: `opencode.jsonc`, then `tui.jsonc` when it exists; restore both on failure |
 | `patches/follow/EntrySwitcher.ts` | patches | publish, confirm, revert |
 | `patches/follow/AdoptionRecorder.ts` | patches | record: derived releases, evidence, audit, the previous entry, notification |
 

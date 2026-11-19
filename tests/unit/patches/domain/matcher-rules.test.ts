@@ -30,8 +30,8 @@ function held(version: string, directory: string, extension: string): Held {
 const sources = (texts: Held): SourceFile[] => [...texts].map(([path, text]) => ({ path, text }))
 
 describe("the matchers on every reviewed release", () => {
-  it("covers all sixteen fixtures", () => {
-    expect(VERSIONS.length).toBe(16)
+  it("covers all seventeen fixtures", () => {
+    expect(VERSIONS.length).toBe(17)
   })
 
   for (const patch of PATCHES) {

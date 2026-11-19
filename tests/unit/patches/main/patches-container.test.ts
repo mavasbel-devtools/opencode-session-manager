@@ -22,6 +22,7 @@ describe("resolvePatchPaths", () => {
     expect(resolvePatchPaths({}, "/home/u")).toEqual({
       installations: "/home/u/.cache/opencode/npm/@cortexkit",
       opencodeConfig: "/home/u/.config/opencode/opencode.jsonc",
+      tuiConfig: "/home/u/.config/opencode/tui.jsonc",
       magicContextConfig: "/home/u/.config/cortexkit/magic-context.jsonc",
       magicContextLog: "/tmp/opencode2/magic-context/magic-context.log",
       backups: "/home/u/.local/share/opencode-session-manager/patches/backups",

@@ -1,4 +1,4 @@
-import type { EntryChange, PluginEntryEditor } from "@session-manager/application/patches/follow/PluginEntryEditor"
+import type { ConfigEntryChange } from "@session-manager/application/patches/follow/ConfigEntrySet"
 import type { DerivedRelease } from "@session-manager/domain/model/patches/Patch"
 import type { StepLog } from "@session-manager/domain/model/patches/StepLog"
 import type { AuditLogPort } from "@session-manager/domain/ports/outbound/AuditLogPort"
@@ -13,7 +13,7 @@ import { FOLLOW_TITLE, LAST_FOLLOW_NOTIFICATION, PREVIOUS_ENTRY } from "@session
 export interface Adoption {
   readonly published: PublishedVersion
   readonly root: string
-  readonly change: EntryChange & { ok: true }
+  readonly change: ConfigEntryChange & { ok: true }
   readonly releases: readonly DerivedRelease[]
   /** Older installs removed because nothing names or loads them. */
   readonly pruned: readonly string[]
@@ -33,6 +33,7 @@ export class AdoptionRecorder {
     private readonly store: KeyValuePort,
     private readonly clock: ClockPort,
     private readonly config: string,
+    private readonly tuiConfig: string,
   ) {}
 
   async adopted(adoption: Adoption, log: StepLog): Promise<string> {
@@ -44,12 +45,16 @@ export class AdoptionRecorder {
         await this.audit.append({ time, action: "follow", patch, version: published.version, root, path: file.path, from: file.before, to: file.after, outcome: "applied", backup: null, reason: null })
       }
     }
-    const reason = `${JSON.stringify(change.previous)} → ${JSON.stringify(root)}`
-    await this.audit.append({ time, action: "follow", patch: "plugin-entry", version: published.version, root: this.config, path: "opencode.jsonc", from: change.from, to: change.to, outcome: "adopted", backup: change.backup, reason })
-    await this.store.set(PREVIOUS_ENTRY, change.previous)
+    const next = { opencode: root, tui: change.secondary === null ? null : root }
+    const reason = `${JSON.stringify(change.previous)} → ${JSON.stringify(next)}`
+    await this.audit.append({ time, action: "follow", patch: "plugin-entry", version: published.version, root: this.config, path: "opencode.jsonc", from: change.primary.from, to: change.primary.to, outcome: "adopted", backup: change.primary.backup, reason })
+    if (change.secondary !== null) {
+      await this.audit.append({ time, action: "follow", patch: "plugin-entry", version: published.version, root: this.tuiConfig, path: "tui.jsonc", from: change.secondary.from, to: change.secondary.to, outcome: "adopted", backup: change.secondary.backup, reason })
+    }
+    await this.store.set(PREVIOUS_ENTRY, JSON.stringify(change.previous))
     const name = `${time.slice(0, 16).replace(/[T:]/g, "-")}-magic-context-${published.version}-follow.md`
     const removed = adoption.pruned.length === 0 ? "none" : adoption.pruned.join(", ")
-    log.pass("record", `derived releases saved; audit log ${this.audit.location()}; rollback restores ${JSON.stringify(change.previous)}; older installs removed: ${removed}`)
+    log.pass("record", `derived releases saved; audit log ${this.audit.location()}; rollback restores ${JSON.stringify(change.previous)}; tui.jsonc ${change.secondary === null ? "is absent and was left absent" : "changed too"}; older installs removed: ${removed}`)
     const document = await this.evidence.write(name, this.document(adoption, log, time))
     await this.store.set(LAST_FOLLOW_NOTIFICATION, null)
     await this.notifier.notify(FOLLOW_TITLE, `Adopted Magic Context ${published.version}, already patched. Evidence: ${document}`)
@@ -74,7 +79,10 @@ export class AdoptionRecorder {
       `# Magic Context ${published.version}, adopted by follow`,
       "",
       `Time: ${time}. Tarball integrity: \`${published.integrity}\`. Installed copy: \`${root}\`.`,
-      `opencode.jsonc entry: \`${change.previous}\` → \`${root}\` (backup \`${change.backup}\`; sha256 \`${change.from}\` → \`${change.to}\`).`,
+      `opencode.jsonc entry: \`${change.primary.previous}\` → \`${root}\` (backup \`${change.primary.backup}\`; sha256 \`${change.primary.from}\` → \`${change.primary.to}\`).`,
+      change.secondary === null
+        ? "tui.jsonc: absent; only opencode.jsonc changed."
+        : `tui.jsonc entry: \`${change.secondary.previous}\` → \`${root}\` (backup \`${change.secondary.backup}\`; sha256 \`${change.secondary.from}\` → \`${change.secondary.to}\`).`,
       "",
       "## Steps",
       "",

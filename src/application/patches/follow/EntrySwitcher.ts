@@ -1,4 +1,4 @@
-import type { EntryChange, PluginEntryEditor } from "@session-manager/application/patches/follow/PluginEntryEditor"
+import type { ConfigEntries, ConfigEntryChange, ConfigEntrySet } from "@session-manager/application/patches/follow/ConfigEntrySet"
 import type { FollowStepName } from "@session-manager/domain/model/patches/Reports"
 import type { StepLog } from "@session-manager/domain/model/patches/StepLog"
 import type { ClockPort } from "@session-manager/domain/ports/outbound/ClockPort"
@@ -28,7 +28,7 @@ const describe = (plugins: readonly LivePlugin[]) =>
  */
 export class EntrySwitcher {
   constructor(
-    private readonly editor: PluginEntryEditor,
+    private readonly entries: ConfigEntrySet,
     private readonly live: LivePluginsPort,
     private readonly log: LogPort,
     private readonly magicContextConfig: TextSourcePort,
@@ -36,16 +36,20 @@ export class EntrySwitcher {
     private readonly timing: SwitchTiming,
   ) {}
 
-  async current(): Promise<string | null> {
-    return this.editor.current()
+  async current(): Promise<ConfigEntries> {
+    return this.entries.current()
   }
 
   /** Sets the entry and confirms it; returns the change, or null when either failed (the caller reverts). */
-  async switchTo(entry: string, steps: StepLog, step: FollowStepName = "publish"): Promise<(EntryChange & { ok: true }) | null> {
+  async switchTo(entry: string, steps: StepLog, step: FollowStepName = "publish"): Promise<(ConfigEntryChange & { ok: true }) | null> {
     const since = this.clock.now()
-    const change = await this.editor.set(entry)
+    const change = await this.entries.set(entry)
     if (!change.ok) return steps.fail(step, change.reason) || null
-    steps.pass(step, `${this.editor.location()}: ${JSON.stringify(change.previous)} → ${JSON.stringify(entry)} (backup ${change.backup})`)
+    const parts = [`${this.entries.location()}: ${JSON.stringify(change.primary.previous)} → ${JSON.stringify(entry)} (backup ${change.primary.backup})`]
+    if (change.secondary !== null) {
+      parts.push(`${this.entries.secondaryLocation()}: ${JSON.stringify(change.secondary.previous)} → ${JSON.stringify(entry)} (backup ${change.secondary.backup})`)
+    }
+    steps.pass(step, parts.join("; "))
     return (await this.confirm(entry, since, steps)) ? change : null
   }
 
@@ -75,11 +79,15 @@ export class EntrySwitcher {
   }
 
   /** Puts `previous` back (after a failed confirm, or for `follow --rollback`) and confirms it. */
-  async revert(previous: string, steps: StepLog): Promise<boolean> {
+  async revert(previous: ConfigEntries, steps: StepLog): Promise<boolean> {
     const since = this.clock.now()
-    const change = await this.editor.set(previous)
+    const change = await this.entries.revert(previous)
     if (!change.ok) return steps.fail("rollback", change.reason)
-    steps.pass("rollback", `${this.editor.location()}: ${JSON.stringify(change.previous)} → ${JSON.stringify(previous)} (backup ${change.backup})`)
-    return this.confirm(previous, since, steps)
+    const parts = [`${this.entries.location()}: ${JSON.stringify(change.primary.previous)} → ${JSON.stringify(previous.opencode)} (backup ${change.primary.backup})`]
+    if (change.secondary !== null) {
+      parts.push(`${this.entries.secondaryLocation()}: ${JSON.stringify(change.secondary.previous)} → ${JSON.stringify(previous.tui)} (backup ${change.secondary.backup})`)
+    }
+    steps.pass("rollback", parts.join("; "))
+    return this.confirm(previous.opencode!, since, steps)
   }
 }

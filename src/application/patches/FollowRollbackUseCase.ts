@@ -1,4 +1,5 @@
 import type { AdoptionRecorder } from "@session-manager/application/patches/follow/AdoptionRecorder"
+import type { ConfigEntries } from "@session-manager/application/patches/follow/ConfigEntrySet"
 import type { EntrySwitcher } from "@session-manager/application/patches/follow/EntrySwitcher"
 import type { FollowReport } from "@session-manager/domain/model/patches/Reports"
 import { stepLog } from "@session-manager/domain/model/patches/StepLog"
@@ -36,8 +37,9 @@ export class FollowRollbackUseCase implements PatchFollowRollbackPort {
       return { outcome: "busy", version: null, from: null, to: null, steps: log.steps(), evidence: null, auditLog: this.audit.location() }
     }
     try {
-      const from = await this.switcher.current()
-      const previous = await this.store.get(PREVIOUS_ENTRY)
+      const fromEntries = await this.switcher.current()
+      const from = fromEntries.opencode
+      const previous = this.previous(await this.store.get(PREVIOUS_ENTRY))
       const report = (outcome: "rolled-back" | "stopped", to: string | null): FollowReport => ({
         outcome,
         version: null,
@@ -47,19 +49,42 @@ export class FollowRollbackUseCase implements PatchFollowRollbackPort {
         evidence: null,
         auditLog: this.audit.location(),
       })
+      const missing = previous === null ? null : await this.missing(previous)
       if (previous === null) log.fail("rollback", "no previous entry is recorded: follow has not adopted anything")
-      else if (previous.startsWith("/") && !(await this.folderExists(previous))) log.fail("rollback", `previous entry ${previous} no longer exists`)
+      else if (missing !== null) log.fail("rollback", `previous entry ${missing} no longer exists`)
       else if (await this.switcher.revert(previous, log)) {
-        await this.store.set(PREVIOUS_ENTRY, from)
-        const reason = `${JSON.stringify(from)} → ${JSON.stringify(previous)}`
+        await this.store.set(PREVIOUS_ENTRY, JSON.stringify(fromEntries))
+        const reason = `${JSON.stringify(fromEntries)} → ${JSON.stringify(previous)}`
         await this.audit.append({ time: new Date(this.clock.now()).toISOString(), action: "rollback", patch: "plugin-entry", version: "", root: "", path: "opencode.jsonc", from: null, to: null, outcome: "rolled-back", backup: null, reason })
-        return report("rolled-back", previous)
+        return report("rolled-back", previous.opencode)
       }
       await this.recorder.stopped(null, log)
-      return report("stopped", await this.switcher.current())
+      return report("stopped", (await this.switcher.current()).opencode)
     } finally {
       await release()
     }
+  }
+
+  /** A JSON pair written by `follow`, or a plain string written before tui.jsonc was published to. */
+  private previous(raw: string | null): ConfigEntries | null {
+    if (raw === null) return null
+    if (raw.trimStart().startsWith("{")) {
+      try {
+        const value = JSON.parse(raw) as { opencode?: unknown; tui?: unknown }
+        return { opencode: typeof value.opencode === "string" ? value.opencode : null, tui: typeof value.tui === "string" ? value.tui : null }
+      } catch {
+        return { opencode: raw, tui: null }
+      }
+    }
+    return { opencode: raw, tui: null }
+  }
+
+  /** The first recorded folder entry that no longer holds files, if any. */
+  private async missing(entries: ConfigEntries): Promise<string | null> {
+    for (const entry of [entries.opencode, entries.tui]) {
+      if (entry !== null && entry.startsWith("/") && !(await this.folderExists(entry))) return entry
+    }
+    return null
   }
 
   /** A folder entry exists when it still holds files; a removed install leaves nothing behind. */

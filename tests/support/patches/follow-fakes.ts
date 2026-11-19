@@ -1,4 +1,5 @@
 import { AdoptionRecorder } from "@session-manager/application/patches/follow/AdoptionRecorder"
+import { ConfigEntrySet } from "@session-manager/application/patches/follow/ConfigEntrySet"
 import { EntrySwitcher } from "@session-manager/application/patches/follow/EntrySwitcher"
 import { PluginEntryEditor } from "@session-manager/application/patches/follow/PluginEntryEditor"
 import { ReleaseProver } from "@session-manager/application/patches/follow/ReleaseProver"
@@ -35,6 +36,7 @@ import {
 
 export const INSTALLS = "/data/installs"
 export const CONFIG = "/config/opencode/opencode.jsonc"
+export const TUI = CONFIG.replace(/[^/]+$/, "tui.jsonc")
 export const NPM_ENTRY = `${MAGIC_CONTEXT_PACKAGE}@1.0.0`
 export const configText = (entry: string) => `{\n  // the plugins\n  "plugins": [\n    "${entry}", // Magic Context\n  ],\n}\n`
 export const rootOf = (version: string) => `${INSTALLS}/${version}/node_modules/${MAGIC_CONTEXT_PACKAGE}`
@@ -229,16 +231,18 @@ export function followWorld(options: FollowWorldOptions = {}) {
   const patches = options.patches ?? [followPatch]
   const installations = new FakeInstallations(options.copies ?? [{ spec: "1.0.0", root: "/cache/mc@1.0.0", version: "1.0.0" }])
   const catalog = new InstallationCatalog(installations, { location: () => CONFIG, read: async () => files.text(CONFIG) ?? null }, patches)
-  const editor = new PluginEntryEditor(files, hash, backups, CONFIG)
-  const switcher = new EntrySwitcher(editor, live, log, magicContextConfig, clock, { timeoutMs: 10_000, pollMs: 1_000, settleMs: 500 })
-  const recorder = new AdoptionRecorder(derived, evidence, audit, notifier, store, clock, CONFIG)
+  const editor = new PluginEntryEditor(files, hash, backups, CONFIG, "opencode.jsonc")
+  const tuiEditor = new PluginEntryEditor(files, hash, backups, TUI, "tui.jsonc")
+  const entries = new ConfigEntrySet(files, editor, tuiEditor)
+  const switcher = new EntrySwitcher(entries, live, log, magicContextConfig, clock, { timeoutMs: 10_000, pollMs: 1_000, settleMs: 500 })
+  const recorder = new AdoptionRecorder(derived, evidence, audit, notifier, store, clock, CONFIG, TUI)
   const stager = new ReleaseStager(managed, installer, files, hash, new FakeTranspile(), patches)
   const prover = new ReleaseProver(sandbox, magicContextConfig)
   const follow = new FollowUseCase(lock, catalog, registry, managed, stager, prover, switcher, live, recorder, audit, clock)
   const rollback = new FollowRollbackUseCase(lock, switcher, store, recorder, audit, clock, files)
   const entryNow = () => magicContextEntry(files.text(CONFIG) ?? "")
   return {
-    files, hash, clock, audit, backups, derived, store, notifier, evidence, lock, registry, managed, installer, sandbox, live, log,
+    files, hash, clock, audit, backups, derived, store, notifier, evidence, lock, registry, managed, installer, sandbox, live, log, entries, tuiEditor,
     magicContextConfig, installations, catalog, editor, switcher, recorder, stager, prover, follow, rollback, entryNow,
     text: (file: string) => decode(files.contents.get(file)!),
   }

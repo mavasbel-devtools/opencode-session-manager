@@ -85,7 +85,7 @@ describe("follow: adopting a release", () => {
         },
       },
     ])
-    expect(await w.store.get(PREVIOUS_ENTRY)).toBe(NPM_ENTRY)
+    expect(await w.store.get(PREVIOUS_ENTRY)).toBe(JSON.stringify({ opencode: NPM_ENTRY, tui: null }))
     expect(w.managed.removed).toEqual([`${INSTALLS}/0.9.0`, `${INSTALLS}/1.5.0`])
     expect(w.audit.records.map((r) => [r.action, r.patch, r.path, r.outcome])).toEqual([
       ["follow", "follow-patch", "dist/a.js", "applied"],
@@ -389,8 +389,8 @@ describe("follow --rollback", () => {
     const report = await w.rollback.rollback()
     expect([report.outcome, report.from, report.to, w.entryNow()]).toEqual(["rolled-back", ROOT, NPM_ENTRY, NPM_ENTRY])
     expect(steps(report)).toEqual(["rollback:ok", "confirm:ok"])
-    expect(await w.store.get(PREVIOUS_ENTRY)).toBe(ROOT)
-    expect(w.audit.records.at(-1)).toMatchObject({ action: "rollback", outcome: "rolled-back", reason: `"${ROOT}" → "${NPM_ENTRY}"` })
+    expect(await w.store.get(PREVIOUS_ENTRY)).toBe(JSON.stringify({ opencode: ROOT, tui: null }))
+    expect(w.audit.records.at(-1)).toMatchObject({ action: "rollback", outcome: "rolled-back", reason: `${JSON.stringify({ opencode: ROOT, tui: null })} → ${JSON.stringify({ opencode: NPM_ENTRY, tui: null })}` })
     expect((await w.rollback.rollback()).to).toBe(ROOT)
   })
 
@@ -401,7 +401,7 @@ describe("follow --rollback", () => {
     await w.store.set(PREVIOUS_ENTRY, folder)
     const report = await w.rollback.rollback()
     expect([report.outcome, steps(report), report.to, w.entryNow()]).toEqual(["rolled-back", ["rollback:ok", "confirm:ok"], folder, folder])
-    expect(await w.store.get(PREVIOUS_ENTRY)).toBe(rootOf("2.0.0"))
+    expect(await w.store.get(PREVIOUS_ENTRY)).toBe(JSON.stringify({ opencode: rootOf("2.0.0"), tui: null }))
   })
 
   it("refuses a previous folder entry that no longer exists, changing nothing", async () => {

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { readFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { AdoptionRecorder } from "@session-manager/application/patches/follow/AdoptionRecorder"
+import { ConfigEntrySet } from "@session-manager/application/patches/follow/ConfigEntrySet"
 import { EntrySwitcher } from "@session-manager/application/patches/follow/EntrySwitcher"
 import { PluginEntryEditor } from "@session-manager/application/patches/follow/PluginEntryEditor"
 import { ReleaseProver } from "@session-manager/application/patches/follow/ReleaseProver"
@@ -59,6 +60,7 @@ function compose() {
   const own = path.join(box.data, "opencode-session-manager", "patches")
   const state = path.join(box.state, "opencode-session-manager", "patches")
   const config = path.join(box.config, "opencode", "opencode.jsonc")
+  const tui = path.join(box.config, "opencode", "tui.jsonc")
   const audit = new JsonlAuditLogAdapter(path.join(state, "audit.log"))
   const store = new FileKeyValueAdapter(state)
   const managed = new FsManagedStoreAdapter(path.join(own, "installs"))
@@ -71,7 +73,11 @@ function compose() {
     PATCHES,
   )
   const switcher = new EntrySwitcher(
-    new PluginEntryEditor(files, hash, new FsBackupAdapter(path.join(own, "backups")), config),
+    new ConfigEntrySet(
+      files,
+      new PluginEntryEditor(files, hash, new FsBackupAdapter(path.join(own, "backups")), config, "opencode.jsonc"),
+      new PluginEntryEditor(files, hash, new FsBackupAdapter(path.join(own, "backups")), tui, "tui.jsonc"),
+    ),
     liveAdapter,
     new TextFileAdapter(path.join(box.tmp, "opencode2", "magic-context", "magic-context.log")),
     magicContextConfig,
@@ -79,11 +85,12 @@ function compose() {
     { timeoutMs: 3_000, pollMs: 100, settleMs: 10 },
   )
   const notifier = box.notifier()
-  const recorder = new AdoptionRecorder(new JsonDerivedReleasesAdapter(path.join(own, "derived.json")), new FsEvidenceAdapter(path.join(state, "evidence")), audit, new NotifySendAdapter(notifier.command), store, clock, config)
+  const recorder = new AdoptionRecorder(new JsonDerivedReleasesAdapter(path.join(own, "derived.json")), new FsEvidenceAdapter(path.join(state, "evidence")), audit, new NotifySendAdapter(notifier.command), store, clock, config, tui)
   const sandbox = new OpencodeSandboxAdapter({ opencode: box.opencodeStandIn("ok"), parent: box.tmp, timeoutMs: 5_000, settleMs: 10, pollMs: 50 })
   const stager = new ReleaseStager(managed, new ArboristInstallerAdapter(registry.url, path.join(box.home, ".npm")), files, hash, new BunTranspileAdapter(), PATCHES)
   return {
     config,
+    tui,
     follow: new FollowUseCase(lock, catalog, new NpmPackumentAdapter(registry.url), managed, stager, new ReleaseProver(sandbox, magicContextConfig), switcher, liveAdapter, recorder, audit, clock),
     rollback: new FollowRollbackUseCase(lock, switcher, store, recorder, audit, clock, files),
   }
@@ -100,5 +107,29 @@ describe("follow over the real adapters", () => {
     expect(readFileSync(path.join(root, "dist/index-b6xz3qbe.js"), "utf8")).toContain("return Math.max(0, requested); /* mc-patches: refusal-recovery */")
     const back = await app.rollback.rollback()
     expect([back.outcome, magicContextEntry(readFileSync(app.config, "utf8"))]).toEqual(["rolled-back", `${MAGIC_CONTEXT_PACKAGE}@0.49.15`])
+  }, 60_000)
+
+  it("publishes the entry to opencode.jsonc and tui.jsonc together, and rolls both back", async () => {
+    const app = compose()
+    const before = readFileSync(app.config, "utf8")
+    writeFileSync(app.tui, before)
+    const root = path.join(box.data, "opencode-session-manager", "patches", "installs", "0.49.35", "node_modules", MAGIC_CONTEXT_PACKAGE)
+    const report = await app.follow.follow(null)
+    expect([report.outcome, magicContextEntry(readFileSync(app.config, "utf8")), magicContextEntry(readFileSync(app.tui, "utf8"))]).toEqual(["adopted", root, root])
+    expect(report.steps.find((step) => step.step === "publish")!.detail).toContain("tui.jsonc")
+    expect(readFileSync(report.evidence!, "utf8")).toContain("tui.jsonc entry:")
+    const back = await app.rollback.rollback()
+    expect([back.outcome, readFileSync(app.config, "utf8"), readFileSync(app.tui, "utf8")]).toEqual(["rolled-back", before, before])
+  }, 60_000)
+
+  it("publishes only opencode.jsonc when tui.jsonc is absent, and records that", async () => {
+    const app = compose()
+    const before = readFileSync(app.config, "utf8")
+    const report = await app.follow.follow(null)
+    expect(report.outcome).toBe("adopted")
+    expect(report.steps.find((step) => step.step === "publish")!.detail).not.toContain("tui.jsonc")
+    expect(report.steps.find((step) => step.step === "record")!.detail).toContain("tui.jsonc is absent")
+    expect(readFileSync(report.evidence!, "utf8")).toContain("tui.jsonc: absent; only opencode.jsonc changed.")
+    expect(readFileSync(app.config, "utf8")).not.toBe(before)
   }, 60_000)
 })

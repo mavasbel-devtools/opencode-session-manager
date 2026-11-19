@@ -20,6 +20,7 @@ export class PluginEntryEditor {
     private readonly hash: HashPort,
     private readonly backups: BackupPort,
     private readonly config: string,
+    private readonly label: string,
   ) {}
 
   location(): string {
@@ -39,12 +40,20 @@ export class PluginEntryEditor {
     const next = replaceMagicContextEntry(original, value)
     if (previous === null || next === null) return { ok: false, reason: `${this.config} does not have exactly one Magic Context entry` }
     const from = this.hash.sha256(bytes)
-    const backup = await this.backups.save({ version: "config", patch: "follow", path: "opencode.jsonc", sha: from }, bytes)
+    const backup = await this.backups.save({ version: "config", patch: "follow", path: this.label, sha: from }, bytes)
     const encoded = new TextEncoder().encode(next)
-    await this.files.replace(this.config, encoded)
+    try {
+      await this.files.replace(this.config, encoded)
+    } catch (error) {
+      return { ok: false, reason: `${this.config} could not be written: ${error instanceof Error ? error.message : String(error)}` }
+    }
     const reread = await this.files.read(this.config)
     if (reread === null || text(reread) !== next) {
-      await this.files.replace(this.config, bytes)
+      try {
+        await this.files.replace(this.config, bytes)
+      } catch (error) {
+        return { ok: false, reason: `${this.config} did not read back as written; it could not be restored (backup ${backup}): ${error instanceof Error ? error.message : String(error)}` }
+      }
       return { ok: false, reason: `${this.config} did not read back as written; the original is back (backup ${backup})` }
     }
     return { ok: true, previous, backup, from, to: this.hash.sha256(encoded) }
